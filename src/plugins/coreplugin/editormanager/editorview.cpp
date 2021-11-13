@@ -502,6 +502,7 @@ void EditorView::addCurrentPositionToNavigationHistory(const QByteArray &saveSta
     m_navigationHistory.insert(m_currentNavigationHistoryPosition, location);
     ++m_currentNavigationHistoryPosition;
 
+#if 0
     while (m_navigationHistory.size() >= 30) {
         if (m_currentNavigationHistoryPosition > 15) {
             m_navigationHistory.removeFirst();
@@ -510,6 +511,7 @@ void EditorView::addCurrentPositionToNavigationHistory(const QByteArray &saveSta
             m_navigationHistory.removeLast();
         }
     }
+#endif
     updateNavigatorActions();
 }
 
