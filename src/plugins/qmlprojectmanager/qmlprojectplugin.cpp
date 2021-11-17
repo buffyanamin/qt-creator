@@ -199,7 +199,7 @@ bool QmlProjectPlugin::initialize(const QStringList &, QString *errorMessage)
                                                     info(openInQDSAppSetting,
                                                          description + tr(" Learn more about Qt Design Studio here: ")
                                                          + "<a href='https://www.qt.io/product/ui-design-tools'>Qt Design Studio</a>",
-                                                         Utils::InfoBarEntry::GlobalSuppression::Enabled);
+                                                         Utils::InfoBarEntry::GlobalSuppression::Disabled);
                                                 Core::ICore::infoBar()->addInfo(info);
                             }
                             return;
@@ -209,7 +209,7 @@ bool QmlProjectPlugin::initialize(const QStringList &, QString *errorMessage)
                             Utils::InfoBarEntry
                                     info(openInQDSAppSetting,
                                          description + "\n" + tr("Do you want to open this file in Qt Design Studio?"),
-                                         Utils::InfoBarEntry::GlobalSuppression::Enabled);
+                                         Utils::InfoBarEntry::GlobalSuppression::Disabled);
                             info.setCustomButtonInfo(tr("Open in Qt Design Studio"), [filePath] {
                                 Core::ICore::infoBar()->removeInfo(openInQDSAppSetting);
 
@@ -218,8 +218,11 @@ bool QmlProjectPlugin::initialize(const QStringList &, QString *errorMessage)
                                     //The first one might be ignored when QDS is starting up
                                     QTimer::singleShot(4000, [filePath] { openQDS(filePath); });
                                 } else {
-                                    Core::AsynchronousMessageBox::warning(tr("Qt Design Studio"),
-                                                                          tr("No project file (*.qmlproject) found for Qt Design Studio."));
+                                    Core::AsynchronousMessageBox::warning(
+                                        tr("Qt Design Studio"),
+                                        tr("No project file (*.qmlproject) found for Qt Design"
+                                           "Studio.\n Qt Design Studio requires a .qmlproject "
+                                           "based project to open the ui.qml file."));
                                 }
                             });
                             Core::ICore::infoBar()->addInfo(info);
