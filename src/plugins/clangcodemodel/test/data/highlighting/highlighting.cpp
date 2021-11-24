@@ -846,3 +846,16 @@ void testConstRefAutoLambdaArgs()
 {
     useContainer(FooPtrVector(), [](const auto &arg) {});
 }
+
+#define USE_STRING(s) (s)
+void useString()
+{
+    const char *s = USE_STRING("TEXT");
+    s = USE_STRING_FROM_HEADER("TEXT");
+}
+
+void useOperator()
+{
+    struct S { S& operator++(); } s;
+    ++s;
+}

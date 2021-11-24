@@ -35,6 +35,7 @@
 
 #include <projectexplorer/buildsystem.h>
 #include <projectexplorer/devicesupport/devicemanager.h>
+#include <projectexplorer/environmentaspect.h>
 #include <projectexplorer/kit.h>
 #include <projectexplorer/project.h>
 #include <projectexplorer/target.h>
@@ -56,7 +57,7 @@ namespace Internal {
 
 using namespace Utils;
 
-#define APP_ID "io.qt.designviewer"
+#define APP_ID "io.qt.qtdesignviewer"
 
 class ApkInfo {
 public:
@@ -75,7 +76,8 @@ ApkInfo::ApkInfo() :
             ProjectExplorer::Constants::ANDROID_ABI_ARMEABI_V7A}),
     appId(APP_ID),
     uploadDir("/data/local/tmp/" APP_ID "/"),
-    activityId(APP_ID "/org.qtproject.qt5.android.bindings.QtActivity"),
+    // TODO Add possibility to run Qt5 built version of Qt Design Viewer
+    activityId(APP_ID "/org.qtproject.qt.android.bindings.QtActivity"),
     name("Qt Design Viewer")
 {
 }
@@ -90,7 +92,7 @@ FilePath AndroidQmlPreviewWorker::designViewerApkPath(const QString &abi) const
         return {};
 
     if (apkInfo()->abis.contains(abi)) {
-        return Core::ICore::resourcePath(QString("android/qtdesignviewer/designviewer_%1.apk")
+        return Core::ICore::resourcePath(QString("android/qtdesignviewer/qtdesignviewer_%1.apk")
                                          .arg(abi));
     }
     return {};
@@ -423,9 +425,14 @@ bool AndroidQmlPreviewWorker::startPreviewApp()
     const QDir destDir(apkInfo()->uploadDir);
     const QString qmlrcPath = destDir.filePath(m_uploadInfo.uploadPackage.baseName()
                                                + packageSuffix);
-    const QStringList command{"am", "start",
-                              "-n", apkInfo()->activityId,
-                              "-e", "extraappparams", QLatin1String(qmlrcPath.toUtf8().toBase64())};
+    const QStringList envVars = m_rc->aspect<EnvironmentAspect>()->environment().toStringList();
+
+    const QStringList command {
+        "am", "start",
+        "-n", apkInfo()->activityId,
+        "-e", "extraappparams", QLatin1String(qmlrcPath.toUtf8().toBase64()),
+        "-e", "extraenvvars", QLatin1String(envVars.join('\t').toUtf8().toBase64())
+    };
     const SdkToolResult result = runAdbShellCommand(command);
     if (result.success())
         appendMessage(tr("%1 is running.").arg(apkInfo()->name), NormalMessageFormat);

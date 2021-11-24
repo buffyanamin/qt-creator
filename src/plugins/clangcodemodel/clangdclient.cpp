@@ -66,19 +66,27 @@
 #include <texteditor/texteditorsettings.h>
 #include <texteditor/texteditor.h>
 #include <utils/algorithm.h>
+#include <utils/itemviews.h>
 #include <utils/runextensions.h>
+#include <utils/treemodel.h>
 #include <utils/utilsicons.h>
 
+#include <QAction>
 #include <QCheckBox>
 #include <QDateTime>
 #include <QElapsedTimer>
 #include <QFile>
 #include <QHash>
+#include <QHeaderView>
+#include <QMenu>
 #include <QPair>
 #include <QPointer>
 #include <QRegularExpression>
+#include <QVBoxLayout>
+#include <QWidget>
 #include <QtConcurrent>
 
+#include <cmath>
 #include <set>
 #include <unordered_map>
 #include <utility>
@@ -1038,6 +1046,22 @@ private:
     QElapsedTimer m_timer;
 };
 
+class MemoryTreeModel;
+class MemoryUsageWidget : public QWidget
+{
+    Q_DECLARE_TR_FUNCTIONS(MemoryUsageWidget)
+public:
+    MemoryUsageWidget(ClangdClient *client);
+
+private:
+    void setupUi();
+    void getMemoryTree();
+
+    ClangdClient * const m_client;
+    MemoryTreeModel * const m_model;
+    Utils::TreeView m_view;
+};
+
 class ClangdClient::Private
 {
 public:
@@ -1072,7 +1096,7 @@ public:
                                const QString &type = {});
 
     void handleSemanticTokens(TextDocument *doc, const QList<ExpandedSemanticToken> &tokens,
-                              int version);
+                              int version, bool force);
 
     enum class AstCallbackMode { SyncIfPossible, AlwaysAsync };
     using TextDocOrFile = const Utils::variant<const TextDocument *, Utils::FilePath>;
@@ -1270,8 +1294,8 @@ ClangdClient::ClangdClient(Project *project, const Utils::FilePath &jsonDbDir)
     setDiagnosticsHandlers(textMarkCreator, hideDiagsHandler);
     setSymbolStringifier(displayNameFromDocumentSymbol);
     setSemanticTokensHandler([this](TextDocument *doc, const QList<ExpandedSemanticToken> &tokens,
-                                    int version) {
-        d->handleSemanticTokens(doc, tokens, version);
+                                    int version, bool force) {
+        d->handleSemanticTokens(doc, tokens, version, force);
     });
     hoverHandler()->setHelpItemProvider([this](const HoverRequest::Response &response,
                                                const DocumentUri &uri) {
@@ -1417,6 +1441,11 @@ void ClangdClient::handleDocumentClosed(TextDocument *doc)
     d->astCache.remove(doc);
     d->previousTokens.remove(doc);
     d->virtualRanges.remove(doc);
+}
+
+const LanguageClient::Client::CustomInspectorTabs ClangdClient::createCustomInspectorTabs()
+{
+    return {std::make_pair(new MemoryUsageWidget(this), tr("Memory Usage"))};
 }
 
 QVersionNumber ClangdClient::versionNumber() const
@@ -1594,14 +1623,20 @@ void ClangdClient::Private::handleFindUsagesResult(quint64 key, const QList<Loca
 
     for (const Location &loc : locations)
         refData->fileData[loc.uri()].rangesAndLineText << qMakePair(loc.range(), QString());
-    for (auto it = refData->fileData.begin(); it != refData->fileData.end(); ++it) {
-        const QStringList lines = SymbolSupport::getFileContents(it.key().toFilePath());
+    for (auto it = refData->fileData.begin(); it != refData->fileData.end();) {
+        const Utils::FilePath filePath = it.key().toFilePath();
+        if (!filePath.exists()) { // https://github.com/clangd/clangd/issues/935
+            it = refData->fileData.erase(it);
+            continue;
+        }
+        const QStringList lines = SymbolSupport::getFileContents(filePath);
         it->fileContent = lines.join('\n');
         for (auto &rangeWithText : it.value().rangesAndLineText) {
             const int lineNo = rangeWithText.first.start().line();
             if (lineNo >= 0 && lineNo < lines.size())
                 rangeWithText.second = lines.at(lineNo);
         }
+        ++it;
     }
 
     qCDebug(clangdLog) << "document count is" << refData->fileData.size();
@@ -2483,8 +2518,10 @@ static void semanticHighlighter(QFutureInterface<HighlightingResult> &future,
                 while (!firstChildTree.isEmpty()) {
                     const AstNode n = firstChildTree.takeFirst();
                     const QString detail = n.detail().value_or(QString());
-                    if (detail.startsWith("operator"))
-                        return !detail.contains('=');
+                    if (detail.startsWith("operator")) {
+                        return !detail.contains('=') && !detail.contains("++")
+                                && !detail.contains("--");
+                    }
                     firstChildTree << n.children().value_or(QList<AstNode>());
                 }
                 return true;
@@ -2630,7 +2667,7 @@ static void semanticHighlighter(QFutureInterface<HighlightingResult> &future,
 //      in the semantic tokens nor in the AST.
 void ClangdClient::Private::handleSemanticTokens(TextDocument *doc,
                                                  const QList<ExpandedSemanticToken> &tokens,
-                                                 int version)
+                                                 int version, bool force)
 {
     SubtaskTimer t(highlightingTimer);
     qCDebug(clangdLog) << "handling LSP tokens" << doc->filePath() << tokens.size();
@@ -2641,7 +2678,7 @@ void ClangdClient::Private::handleSemanticTokens(TextDocument *doc,
     }
     const auto previous = previousTokens.find(doc);
     if (previous != previousTokens.end()) {
-        if (previous->first == tokens && previous->second == version) {
+        if (!force && previous->first == tokens && previous->second == version) {
             qCDebug(clangdLogHighlight) << "tokens and version same as last time; nothing to do";
             return;
         }
@@ -2930,19 +2967,27 @@ void ClangdCompletionItem::apply(TextDocumentManipulatorInterface &manipulator,
     if (!edit)
         return;
 
+    const int labelOpenParenOffset = item.label().indexOf('(');
+    const int labelClosingParenOffset = item.label().indexOf(')');
     const auto kind = static_cast<CompletionItemKind::Kind>(
                 item.kind().value_or(CompletionItemKind::Text));
+    const bool isMacroCall = kind == CompletionItemKind::Text && labelOpenParenOffset != -1
+            && labelClosingParenOffset > labelOpenParenOffset; // Heuristic
     const bool isFunctionLike = kind == CompletionItemKind::Function
-            || kind == CompletionItemKind::Method || kind == CompletionItemKind::Constructor;
+            || kind == CompletionItemKind::Method || kind == CompletionItemKind::Constructor
+            || isMacroCall;
+
     QString rawInsertText = edit->newText();
 
     // Some preparation for our magic involving (non-)insertion of parentheses and
     // cursor placement.
     if (isFunctionLike && !rawInsertText.contains('(')) {
-        if (item.label().contains("()"))     // function takes no arguments
-            rawInsertText += "()";
-        else if (item.label().contains('(')) // function takes arguments
-            rawInsertText += "( )";
+        if (labelOpenParenOffset != -1) {
+            if (labelClosingParenOffset == labelOpenParenOffset + 1) // function takes no arguments
+                rawInsertText += "()";
+            else                                                     // function takes arguments
+                rawInsertText += "( )";
+        }
     }
 
     const int firstParenOffset = rawInsertText.indexOf('(');
@@ -2975,8 +3020,8 @@ void ClangdCompletionItem::apply(TextDocumentManipulatorInterface &manipulator,
         }
         if (!abandonParen)
             abandonParen = isAtUsingDeclaration(manipulator, rangeStart);
-        if (!abandonParen && matchPreviousWord(manipulator, cursor, detail)) // function definition?
-            abandonParen = true;
+        if (!abandonParen && !isMacroCall && matchPreviousWord(manipulator, cursor, detail))
+            abandonParen = true; // function definition
         if (!abandonParen) {
             if (completionSettings.m_spaceAfterFunctionName)
                 extraCharacters += ' ';
@@ -3640,12 +3685,11 @@ void ExtraHighlightingResultsCollector::visitNode(const AstNode &node)
     if (m_future.isCanceled())
         return;
     switch (node.fileStatus(m_filePath)) {
-    case AstNode::FileStatus::Foreign:
-        return;
     case AstNode::FileStatus::Ours:
     case AstNode::FileStatus::Unknown:
         collectFromNode(node);
         [[fallthrough]];
+    case AstNode::FileStatus::Foreign:
     case ClangCodeModel::Internal::AstNode::FileStatus::Mixed: {
         const auto children = node.children();
         if (!children)
@@ -3673,6 +3717,132 @@ bool ClangdClient::FollowSymbolData::defLinkIsAmbiguous() const
 
     // Otherwise, we have to rely on AST-based heuristics.
     return cursorNode->mightBeAmbiguousVirtualCall() || cursorNode->isPureVirtualDeclaration();
+}
+
+class MemoryTree : public JsonObject
+{
+public:
+    using JsonObject::JsonObject;
+
+    // number of bytes used, including child components
+    qint64 total() const { return qint64(typedValue<double>(totalKey())); }
+
+    // number of bytes used, excluding child components
+    qint64 self() const { return qint64(typedValue<double>(selfKey())); }
+
+    // named child components
+    using NamedComponent = std::pair<MemoryTree, QString>;
+    QList<NamedComponent> children() const
+    {
+        QList<NamedComponent> components;
+        const auto obj = operator const QJsonObject &();
+        for (auto it = obj.begin(); it != obj.end(); ++it) {
+            if (it.key() == totalKey() || it.key() == selfKey())
+                continue;
+            components << std::make_pair(MemoryTree(it.value()), it.key());
+        }
+        return components;
+    }
+
+private:
+    static QString totalKey() { return QLatin1String("_total"); }
+    static QString selfKey() { return QLatin1String("_self"); }
+};
+
+class MemoryTreeItem : public Utils::TreeItem
+{
+    Q_DECLARE_TR_FUNCTIONS(MemoryTreeItem)
+public:
+    MemoryTreeItem(const QString &displayName, const MemoryTree &tree)
+        : m_displayName(displayName), m_bytesUsed(tree.total())
+    {
+        for (const MemoryTree::NamedComponent &component : tree.children())
+            appendChild(new MemoryTreeItem(component.second, component.first));
+    }
+
+private:
+    QVariant data(int column, int role) const override
+    {
+        switch (role) {
+        case Qt::DisplayRole:
+            if (column == 0)
+                return m_displayName;
+            return memString();
+        case Qt::TextAlignmentRole:
+            if (column == 1)
+                return Qt::AlignRight;
+            break;
+        default:
+            break;
+        }
+        return {};
+    }
+
+    QString memString() const
+    {
+        static const QList<std::pair<int, QString>> factors{
+            std::make_pair(1000000000, QString("GB")),
+            std::make_pair(1000000, QString("MB")),
+            std::make_pair(1000, QString("KB")),
+        };
+        for (const auto &factor : factors) {
+            if (m_bytesUsed > factor.first)
+                return QString::number(qint64(std::round(double(m_bytesUsed) / factor.first)))
+                        + ' ' + factor.second;
+        }
+        return QString::number(m_bytesUsed) + "  B";
+    }
+
+    const QString m_displayName;
+    const qint64 m_bytesUsed;
+};
+
+class MemoryTreeModel : public Utils::BaseTreeModel
+{
+public:
+    MemoryTreeModel(QObject *parent) : BaseTreeModel(parent)
+    {
+        setHeader({tr("Component"), tr("Total Memory")});
+    }
+
+    void update(const MemoryTree &tree)
+    {
+        setRootItem(new MemoryTreeItem({}, tree));
+    }
+};
+
+MemoryUsageWidget::MemoryUsageWidget(ClangdClient *client)
+    : m_client(client), m_model(new MemoryTreeModel(this))
+{
+    setupUi();
+    getMemoryTree();
+}
+
+void MemoryUsageWidget::setupUi()
+{
+    const auto layout = new QVBoxLayout(this);
+    m_view.setContextMenuPolicy(Qt::CustomContextMenu);
+    m_view.header()->setSectionResizeMode(QHeaderView::ResizeToContents);
+    m_view.header()->setStretchLastSection(false);
+    m_view.setModel(m_model);
+    layout->addWidget(&m_view);
+    connect(&m_view, &QWidget::customContextMenuRequested, this, [this](const QPoint &pos) {
+        QMenu menu;
+        menu.addAction(tr("Update"), [this] { getMemoryTree(); });
+        menu.exec(m_view.mapToGlobal(pos));
+    });
+}
+
+void MemoryUsageWidget::getMemoryTree()
+{
+    Request<MemoryTree, std::nullptr_t, JsonObject> request("$/memoryUsage", {});
+    request.setResponseCallback([this](decltype(request)::Response response) {
+        qCDebug(clangdLog) << "received memory usage response";
+        if (const auto result = response.result())
+            m_model->update(*result);
+    });
+    qCDebug(clangdLog) << "sending memory usage request";
+    m_client->sendContent(request, ClangdClient::SendDocUpdates::Ignore);
 }
 
 } // namespace Internal

@@ -136,10 +136,15 @@ void LanguageClientManager::clientStarted(Client *client)
     qCDebug(Log) << "client started: " << client->name() << client;
     QTC_ASSERT(managerInstance, return);
     QTC_ASSERT(client, return);
-    if (managerInstance->m_shuttingDown)
+    if (managerInstance->m_shuttingDown) {
         clientFinished(client);
-    else
-        client->initialize();
+        return;
+    }
+    client->initialize();
+    const QList<TextEditor::TextDocument *> &clientDocs
+        = managerInstance->m_clientForDocument.keys(client);
+    for (TextEditor::TextDocument *document : clientDocs)
+        client->openDocument(document);
 }
 
 void LanguageClientManager::clientFinished(Client *client)
@@ -415,6 +420,8 @@ const QList<Client *> LanguageClientManager::clientsForProject(
 
 void LanguageClientManager::openDocumentWithClient(TextEditor::TextDocument *document, Client *client)
 {
+    if (!document)
+        return;
     Client *currentClient = clientForDocument(document);
     if (client == currentClient)
         return;

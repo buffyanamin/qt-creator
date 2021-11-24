@@ -37,7 +37,6 @@
 
 #include "settings.h"
 
-#include <QDir>
 #include <QRegularExpression>
 
 #include <iostream>
@@ -185,7 +184,7 @@ bool AddKitOperation::setArguments(const QStringList &args)
             if (next.isNull())
                 return false;
             ++i; // skip next;
-            m_sysRoot = QDir::fromNativeSeparators(next);
+            m_sysRoot = next;
             continue;
         }
 
@@ -447,7 +446,7 @@ bool AddKitOperation::test() const
     // Profile 1: Make sure name is unique:
     map = addKit(map, tcMap, qtMap, devMap, QVariantMap(),
                  "testId2", "Test Kit2", "/tmp/icon2.png", QString(), 1,
-                 "/usr/bin/gdb-test2", "Desktop", "{dev-id}", "/sys/root\\\\", tcs,
+                 "/usr/bin/gdb-test2", "Desktop", "{dev-id}", "/sys/root//", tcs,
                  "{qt-id}", "unsupported/mkspec",
                  QString(), QString(), QString(), QString(), QString(), QStringList(), env,
                  KeyValuePairList({KeyValuePair("PE.Profile.Data/extraData", QVariant("extraValue"))}));
@@ -457,6 +456,7 @@ bool AddKitOperation::test() const
             || !map.contains(DEFAULT) || map.value(DEFAULT).toInt() != 0
             || !map.contains("Profile.0")
             || !map.contains("Profile.1"))
+        return false;
 
     if (map.value("Profile.0") != profile0)
         return false;
@@ -476,7 +476,7 @@ bool AddKitOperation::test() const
             || !data.contains(DEBUGGER) || data.value(DEBUGGER).type() != QVariant::Map
             || !data.contains(DEVICE_TYPE) || data.value(DEVICE_TYPE).toString() != "Desktop"
             || !data.contains(DEVICE_ID) || data.value(DEVICE_ID).toString() != "{dev-id}"
-            || !data.contains(SYSROOT) || data.value(SYSROOT).toString() != "/sys/root\\\\"
+            || !data.contains(SYSROOT) || data.value(SYSROOT).toString() != "/sys/root//"
             || !data.contains(TOOLCHAIN)
             || !data.contains(QT) || data.value(QT).toString() != "SDK.{qt-id}"
             || !data.contains(MKSPEC) || data.value(MKSPEC).toString() != "unsupported/mkspec"
@@ -502,6 +502,7 @@ bool AddKitOperation::test() const
             || !map.contains("Profile.0")
             || !map.contains("Profile.1")
             || !map.contains("Profile.2"))
+        return false;
 
     if (map.value("Profile.0") != profile0)
         return false;
@@ -649,7 +650,7 @@ QVariantMap AddKitOperation::addKit(const QVariantMap &map, const QVariantMap &t
     if (!device.isNull())
         data << KeyValuePair({kit, DATA, DEVICE_ID}, QVariant(device));
     if (!sysRoot.isNull())
-        data << KeyValuePair({kit, DATA, SYSROOT}, QVariant(sysRoot));
+        data << KeyValuePair({kit, DATA, SYSROOT}, Utils::FilePath::fromUserInput(sysRoot).toVariant());
     for (auto i = tcs.constBegin(); i != tcs.constEnd(); ++i)
         data << KeyValuePair({kit, DATA, TOOLCHAIN, i.key()}, QVariant(i.value()));
     if (!qtId.isNull())

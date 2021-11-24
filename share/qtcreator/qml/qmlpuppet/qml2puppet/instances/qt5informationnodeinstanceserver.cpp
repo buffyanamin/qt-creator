@@ -104,6 +104,12 @@
 #endif
 #endif
 
+#ifdef QUICK3D_PARTICLES_MODULE
+#include <QtQuick3DParticles/private/qquick3dparticle_p.h>
+#include <QtQuick3DParticles/private/qquick3dparticleaffector_p.h>
+#include <QtQuick3DParticles/private/qquick3dparticleemitter_p.h>
+#endif
+
 #ifdef IMPORT_QUICK3D_ASSETS
 #include <QtQuick3DAssetImport/private/qssgassetimportmanager_p.h>
 #endif
@@ -145,12 +151,6 @@ static bool imageHasContent(const QImage &image)
             return true;
     }
     return false;
-}
-
-static bool isQuick3DMode()
-{
-    static bool mode3D = qEnvironmentVariableIsSet("QMLDESIGNER_QUICK3D_MODE");
-    return mode3D;
 }
 
 static QObjectList toObjectList(const QVariant &variantList)
@@ -325,7 +325,7 @@ void Qt5InformationNodeInstanceServer::updateRotationBlocks(const QVector<Proper
     if (helper) {
         QSet<QQuick3DNode *> blockedNodes;
         QSet<QQuick3DNode *> unblockedNodes;
-        const PropertyName propName = "rotBlocked@internal";
+        const PropertyName propName = "rotBlocked@Internal";
         for (const auto &container : valueChanges) {
             if (container.name() == propName) {
                 ServerNodeInstance instance = instanceForId(container.instanceId());
@@ -418,7 +418,7 @@ void Qt5InformationNodeInstanceServer::resetParticleSystem()
 
 void Qt5InformationNodeInstanceServer::handleParticleSystemSelected(QQuick3DParticleSystem* targetParticleSystem)
 {
-    if (!m_particleAnimationDriver)
+    if (!m_particleAnimationDriver || targetParticleSystem == m_targetParticleSystem)
         return;
 
     m_particleAnimationDriver->reset();
@@ -459,7 +459,46 @@ static QString baseProperty(const QString &property)
     return property;
 }
 
-void Qt5InformationNodeInstanceServer::handleParticleSystemDeselected()
+template <typename T>
+static QQuick3DParticleSystem *systemProperty(QObject *object)
+{
+    return qobject_cast<T>(object) ? qobject_cast<T>(object)->system() : nullptr;
+}
+
+static QQuick3DParticleSystem *getSystemOrSystemProperty(QObject *selectedObject)
+{
+    QQuick3DParticleSystem *system = nullptr;
+    system = qobject_cast<QQuick3DParticleSystem *>(selectedObject);
+    if (system)
+        return system;
+    system = systemProperty<QQuick3DParticle *>(selectedObject);
+    if (system)
+        return system;
+    system = systemProperty<QQuick3DParticleAffector *>(selectedObject);
+    if (system)
+        return system;
+    system = systemProperty<QQuick3DParticleEmitter *>(selectedObject);
+    if (system)
+        return system;
+    return nullptr;
+}
+
+static QQuick3DParticleSystem *parentParticleSystem(QObject *selectedObject)
+{
+    auto *ps = getSystemOrSystemProperty(selectedObject);
+    if (ps)
+        return ps;
+    QObject *parent = selectedObject->parent();
+    while (parent) {
+        ps = getSystemOrSystemProperty(parent);
+        if (ps)
+            return ps;
+        parent = parent->parent();
+    }
+    return nullptr;
+}
+
+void Qt5InformationNodeInstanceServer::handleParticleSystemDeselected(QObject *selectedObject)
 {
     m_targetParticleSystem = nullptr;
     const auto anim = animations();
@@ -893,19 +932,31 @@ void Qt5InformationNodeInstanceServer::doRender3DEditView()
         // Key number is selected so that it is unlikely to conflict other ImageContainer use.
         auto imgContainer = ImageContainer(-1, renderImage, 2100000000);
 
-        // send the rendered image to creator process
-        nodeInstanceClient()->handlePuppetToCreatorCommand({PuppetToCreatorCommand::Render3DView,
-                                                            QVariant::fromValue(imgContainer)});
+        // If we have only one or no render queued, send the result to the creator side.
+        // Otherwise, we'll hold on that until we have rendered all pending frames to ensure sent
+        // results are correct.
+        if (m_need3DEditViewRender <= 1) {
+            nodeInstanceClient()->handlePuppetToCreatorCommand({PuppetToCreatorCommand::Render3DView,
+                                                                QVariant::fromValue(imgContainer)});
+#ifdef QUICK3D_PARTICLES_MODULE
+            if (m_need3DEditViewRender == 0 && ViewConfig::isParticleViewMode()
+                    && m_particleAnimationDriver && m_particleAnimationDriver->isAnimating()) {
+                m_need3DEditViewRender = 1;
+            }
+#endif
+        }
+
         if (m_need3DEditViewRender > 0) {
-            m_render3DEditViewTimer.start(0);
+            // We queue another render even if the requested render count was one, because another
+            // render is needed to ensure gizmo geometries are properly updated.
+            // Note that while in theory this seems that we shouldn't need to send the image to
+            // creator side when m_need3DEditViewRender is one, we need to do it to ensure
+            // smooth operation when objects are moved via drag, which triggers new renders
+            // continueously.
+            m_render3DEditViewTimer.start(17); // 16.67ms = ~60fps, rounds up to 17
             --m_need3DEditViewRender;
         }
-#ifdef QUICK3D_PARTICLES_MODULE
-        if (ViewConfig::isParticleViewMode()
-                && m_particleAnimationDriver && m_particleAnimationDriver->isAnimating()) {
-            m_need3DEditViewRender++;
-        }
-#endif
+
 #ifdef FPS_COUNTER
         // Force constant rendering for accurate fps count
         if (!m_render3DEditViewTimer.isActive())
@@ -1818,9 +1869,7 @@ void Qt5InformationNodeInstanceServer::changeSelection(const ChangeSelectionComm
 {
     if (!m_editView3DSetupDone)
         return;
-#ifdef QUICK3D_PARTICLES_MODULE
-    resetParticleSystem();
-#endif
+
     m_lastSelectionChangeCommand = command;
     if (m_selectionChangeTimer.isActive()) {
         // If selection was recently changed by puppet, hold updating the selection for a bit to
@@ -1849,10 +1898,17 @@ void Qt5InformationNodeInstanceServer::changeSelection(const ChangeSelectionComm
 
 #ifdef QUICK3D_PARTICLES_MODULE
             auto particlesystem = qobject_cast<QQuick3DParticleSystem *>(instance.internalObject());
-            if (particlesystem)
+            if (particlesystem) {
                 handleParticleSystemSelected(particlesystem);
-            else
-                handleParticleSystemDeselected();
+            } else {
+                particlesystem = parentParticleSystem(instance.internalObject());
+                if (particlesystem) {
+                    if (particlesystem != m_targetParticleSystem)
+                        handleParticleSystemSelected(particlesystem);
+                } else {
+                    handleParticleSystemDeselected(instance.internalObject());
+                }
+            }
 #endif
             auto isSelectableAsRoot = [&]() -> bool {
 #ifdef QUICK3D_MODULE
@@ -1981,8 +2037,8 @@ void Qt5InformationNodeInstanceServer::view3DAction(const View3DActionCommand &c
         break;
     case View3DActionCommand::CameraToggle:
         updatedState.insert("usePerspective", command.isEnabled());
-        // It can take a couple frames to properly update icon gizmo positions, so render 3 frames
-        renderCount = 3;
+        // It can take a couple frames to properly update icon gizmo positions
+        renderCount = 2;
         break;
     case View3DActionCommand::OrientationToggle:
         updatedState.insert("globalOrientation", command.isEnabled());
@@ -1994,11 +2050,9 @@ void Qt5InformationNodeInstanceServer::view3DAction(const View3DActionCommand &c
         updatedState.insert("showGrid", command.isEnabled());
         break;
 #ifdef QUICK3D_PARTICLES_MODULE
-    case View3DActionCommand::Edit3DParticleModeToggle:
-        updatedState.insert("enableParticleViewMode", command.isEnabled());
-        break;
     case View3DActionCommand::ParticlesPlay:
         m_particleAnimationPlaying = command.isEnabled();
+        updatedState.insert("particlePlay", command.isEnabled());
         if (m_particleAnimationPlaying) {
             m_particleAnimationDriver->reset();
             m_particleAnimationDriver->restart();
@@ -2230,8 +2284,8 @@ void Qt5InformationNodeInstanceServer::update3DViewState(const Update3dViewState
             auto helper = qobject_cast<QmlDesigner::Internal::GeneralHelper *>(m_3dHelper);
             if (helper)
                 helper->storeToolState(helper->globalStateId(), helper->rootSizeKey(), QVariant(command.size()), 0);
-            // Queue three renders to make sure icon gizmos update properly
-            render3DEditView(3);
+            // Queue two renders to make sure all gizmos update properly
+            render3DEditView(2);
         }
     }
 #else

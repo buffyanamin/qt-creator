@@ -30,10 +30,17 @@
 #include "qtcassert.h"
 #include "stringutils.h"
 
+#include <QDebug>
 #include <QDir>
 #include <QRegularExpression>
 #include <QStack>
 
+QT_BEGIN_NAMESPACE
+QDebug operator<<(QDebug dbg, const Utils::CommandLine &cmd)
+{
+    return dbg << cmd.toUserOutput();
+}
+QT_END_NAMESPACE
 
 // The main state of the Unix shell parser
 enum MxQuoting { MxBasic, MxSingleQuote, MxDoubleQuote, MxParen, MxSubst, MxGroup, MxMath };
