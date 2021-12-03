@@ -35,70 +35,9 @@ GridView {
 
     required property Item loader
 
-    header: TabBar {
-        id: tabBar
-        width: parent.width
-        height: DialogValues.projectViewHeaderHeight
-
-        background: Rectangle {
-            color: DialogValues.lightPaneColor
-        }
-
-        Repeater {
-            model: categoryModel
-
-            TabButton {
-                padding: 0
-
-                width: headerText.contentWidth + 36
-
-                background: Item { // TabButton background
-                    Rectangle { // bottom strip
-                        anchors.bottom: parent.bottom
-                        anchors.horizontalCenter: parent.horizontalCenter
-                        width: headerText.contentWidth
-                        height: 6
-                        radius: 10
-                        color: tabBar.currentIndex === index ? DialogValues.textColorInteraction
-                                                             : "transparent"
-                    }
-                } // TabButton background
-
-                implicitHeight: headerText.height + DialogValues.defaultPadding - 7
-
-                contentItem:  Item {
-                    Column {
-                        anchors.fill: parent
-
-                        Text {
-                            id: headerText
-                            color: tabBar.currentIndex == index ? DialogValues.textColorInteraction
-                                                                : DialogValues.textColor
-                            text: name
-                            width: parent.width
-                            font.weight: Font.DemiBold
-                            font.pixelSize: DialogValues.viewHeaderPixelSize
-                            lineHeight: DialogValues.viewHeaderLineHeight
-                            lineHeightMode: Text.FixedHeight
-                            horizontalAlignment: Text.AlignHCenter
-                            verticalAlignment: Text.AlignVCenter
-                        }
-
-                        Item  { width: parent.width; height: 11; }
-                    } // Column
-                } // Item
-
-                onClicked: {
-                    projectModel.setPage(index)
-                    projectView.currentIndex = 0
-                    projectView.currentIndexChanged()
-                }
-            } // TabButton
-        } // Repeater
-    } // Header - TabBar
-
     cellWidth: DialogValues.projectItemWidth
     cellHeight: DialogValues.projectItemHeight
+    clip: true
 
     boundsBehavior: Flickable.StopAtBounds
 

@@ -51,6 +51,7 @@
 #include <QMessageBox>
 #include <QPainter>
 #include <QPushButton>
+#include <QScrollBar>
 #include <QStyledItemDelegate>
 #include <QTimer>
 
@@ -292,8 +293,8 @@ public:
             // for macOS dark mode
             pal.setColor(QPalette::Text, Utils::creatorTheme()->color(Theme::Welcome_TextColor));
             exampleSetSelector->setPalette(pal);
-            exampleSetSelector->setMinimumWidth(GridProxyModel::GridItemWidth);
-            exampleSetSelector->setMaximumWidth(GridProxyModel::GridItemWidth);
+            exampleSetSelector->setMinimumWidth(Core::ListItemDelegate::GridItemWidth);
+            exampleSetSelector->setMaximumWidth(Core::ListItemDelegate::GridItemWidth);
             ExampleSetModel *exampleSetModel = m_examplesModel->exampleSetModel();
             exampleSetSelector->setModel(exampleSetModel);
             exampleSetSelector->setCurrentIndex(exampleSetModel->selectedExampleSet());
@@ -311,28 +312,17 @@ public:
         hbox->addSpacing(sideMargin);
         vbox->addItem(hbox);
 
-        m_gridModel.setSourceModel(filteredModel);
-
         auto gridView = new GridView(this);
-        gridView->setModel(&m_gridModel);
+        gridView->setModel(filteredModel);
         gridView->setItemDelegate(&m_exampleDelegate);
+        if (auto sb = gridView->verticalScrollBar())
+            sb->setSingleStep(25);
         vbox->addWidget(gridView);
 
         connect(&m_exampleDelegate, &ExampleDelegate::tagClicked,
                 this, &ExamplesPageWidget::onTagClicked);
         connect(m_searcher, &QLineEdit::textChanged,
                 filteredModel, &ExamplesListModelFilter::setSearchString);
-    }
-
-    int bestColumnCount() const
-    {
-        return qMax(1, width() / (GridProxyModel::GridItemWidth + GridProxyModel::GridItemGap));
-    }
-
-    void resizeEvent(QResizeEvent *ev) final
-    {
-        QWidget::resizeEvent(ev);
-        m_gridModel.setColumnCount(bestColumnCount());
     }
 
     void onTagClicked(const QString &tag)
@@ -345,7 +335,6 @@ public:
     ExampleDelegate m_exampleDelegate;
     QPointer<ExamplesListModel> m_examplesModel;
     QLineEdit *m_searcher;
-    GridProxyModel m_gridModel;
 };
 
 QWidget *ExamplesWelcomePage::createWidget() const

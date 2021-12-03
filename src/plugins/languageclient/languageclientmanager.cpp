@@ -63,7 +63,6 @@ LanguageClientManager::LanguageClientManager(QObject *parent)
     using namespace Core;
     using namespace ProjectExplorer;
     JsonRpcMessageHandler::registerMessageProvider<PublishDiagnosticsNotification>();
-    JsonRpcMessageHandler::registerMessageProvider<SemanticHighlightNotification>();
     JsonRpcMessageHandler::registerMessageProvider<ApplyWorkspaceEditRequest>();
     JsonRpcMessageHandler::registerMessageProvider<LogMessageNotification>();
     JsonRpcMessageHandler::registerMessageProvider<ShowMessageRequest>();
@@ -87,7 +86,7 @@ LanguageClientManager::LanguageClientManager(QObject *parent)
     connect(SessionManager::instance(), &SessionManager::projectAdded,
             this, &LanguageClientManager::projectAdded);
     connect(SessionManager::instance(), &SessionManager::projectRemoved,
-            this, &LanguageClientManager::projectRemoved);
+            this, [&](Project *project) { project->disconnect(this); });
 }
 
 LanguageClientManager::~LanguageClientManager()
@@ -594,9 +593,6 @@ void LanguageClientManager::updateProject(ProjectExplorer::Project *project)
             }
         }
     }
-    const QVector<Client *> &clients = reachableClients();
-    for (Client *client : clients)
-        client->projectOpened(project);
 }
 
 void LanguageClientManager::projectAdded(ProjectExplorer::Project *project)
@@ -604,13 +600,9 @@ void LanguageClientManager::projectAdded(ProjectExplorer::Project *project)
     connect(project, &ProjectExplorer::Project::fileListChanged, this, [this, project]() {
         updateProject(project);
     });
-}
-
-void LanguageClientManager::projectRemoved(ProjectExplorer::Project *project)
-{
-    project->disconnect(this);
-    for (Client *client : qAsConst(m_clients))
-        client->projectClosed(project);
+    const QVector<Client *> &clients = reachableClients();
+    for (Client *client : clients)
+        client->projectOpened(project);
 }
 
 } // namespace LanguageClient

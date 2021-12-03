@@ -65,11 +65,13 @@ public:
     using LinkSpecs = QList<LinkSpec>;
     class Result {
     public:
-        Result(Status s, const LinkSpecs &l = {}, const optional<QString> &c = {})
-            : status(s), linkSpecs(l), newContent(c) {}
+        Result(Status s, const LinkSpecs &l = {}, const optional<QString> &c = {},
+               const optional<OutputFormat> &f = {})
+            : status(s), linkSpecs(l), newContent(c), formatOverride(f) {}
         Status status;
         LinkSpecs linkSpecs;
         optional<QString> newContent; // Hard content override. Only to be used in extreme cases.
+        optional<OutputFormat> formatOverride;
     };
 
     static bool isLinkTarget(const QString &target);
@@ -91,7 +93,7 @@ public:
     virtual bool handleLink(const QString &href) { Q_UNUSED(href); return false; }
     virtual bool hasFatalErrors() const { return false; }
     virtual void flush() {}
-    virtual void runPostPrintActions() {}
+    virtual void runPostPrintActions(QPlainTextEdit *) {}
 
     void setRedirectionDetector(const OutputLineParser *detector);
     bool needsRedirection() const;

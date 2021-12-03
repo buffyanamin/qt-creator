@@ -42,6 +42,7 @@ QT_END_NAMESPACE
 namespace Core {
 class CommandButton;
 class IContext;
+class OutputWindow;
 
 class CORE_EXPORT IOutputPane : public QObject
 {
@@ -54,6 +55,8 @@ public:
     virtual QWidget *outputWidget(QWidget *parent) = 0;
     virtual QList<QWidget *> toolBarWidgets() const;
     virtual QString displayName() const = 0;
+    virtual const QList<OutputWindow *> outputWindows() const { return {}; }
+    virtual void ensureWindowVisible(OutputWindow *) { }
 
     virtual int priorityInStatusBar() const = 0;
 

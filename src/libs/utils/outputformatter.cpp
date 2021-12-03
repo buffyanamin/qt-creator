@@ -302,7 +302,8 @@ void OutputFormatter::doAppendMessage(const QString &text, OutputFormat format)
     // then our formatting should reflect that redirection as well, i.e. print in red
     // even if the nominal format is stdout.
     if (!involvedParsers.isEmpty()) {
-        const OutputFormat formatForParser = outputTypeForParser(involvedParsers.last(), format);
+        const OutputFormat formatForParser = res.formatOverride
+                ? *res.formatOverride : outputTypeForParser(involvedParsers.last(), format);
         if (formatForParser != format && cleanLine == text && formattedText.length() == 1) {
             charFmt = charFormat(formatForParser);
             formattedText.first().format = charFmt;
@@ -324,7 +325,7 @@ void OutputFormatter::doAppendMessage(const QString &text, OutputFormat format)
         if (d->postPrintAction)
             d->postPrintAction(p);
         else
-            p->runPostPrintActions();
+            p->runPostPrintActions(plainTextEdit());
     }
 }
 
@@ -591,7 +592,7 @@ void OutputFormatter::flush()
     for (OutputLineParser * const p : qAsConst(d->lineParsers))
         p->flush();
     if (d->nextParser)
-        d->nextParser->runPostPrintActions();
+        d->nextParser->runPostPrintActions(plainTextEdit());
 }
 
 bool OutputFormatter::hasFatalErrors() const

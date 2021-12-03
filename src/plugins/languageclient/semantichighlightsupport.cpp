@@ -29,6 +29,7 @@
 #include "languageclientmanager.h"
 
 #include <texteditor/fontsettings.h>
+#include <texteditor/syntaxhighlighter.h>
 #include <texteditor/texteditor.h>
 #include <texteditor/texteditorsettings.h>
 #include <utils/mimetypes/mimedatabase.h>
@@ -41,138 +42,6 @@ using namespace TextEditor;
 namespace LanguageClient {
 
 static Q_LOGGING_CATEGORY(LOGLSPHIGHLIGHT, "qtc.languageclient.highlight", QtWarningMsg);
-
-namespace SemanticHighligtingSupport {
-
-static const QList<QList<QString>> highlightScopes(const ServerCapabilities &capabilities)
-{
-    return capabilities.semanticHighlighting()
-        .value_or(ServerCapabilities::SemanticHighlightingServerCapabilities())
-        .scopes().value_or(QList<QList<QString>>());
-}
-
-static Utils::optional<TextStyle> styleForScopes(const QList<QString> &scopes)
-{
-    // missing "Minimal Scope Coverage" scopes
-
-    // entity.other.inherited-class
-    // entity.name.section
-    // entity.name.tag
-    // entity.other.attribute-name
-    // variable.language
-    // variable.parameter
-    // variable.function
-    // constant.numeric
-    // constant.language
-    // constant.character.escape
-    // support
-    // storage.modifier
-    // keyword.control
-    // keyword.operator
-    // keyword.declaration
-    // invalid
-    // invalid.deprecated
-
-    static const QMap<QString, TextStyle> styleForScopes = {
-        {"entity.name", C_TYPE},
-        {"entity.name.function", C_FUNCTION},
-        {"entity.name.function.method.static", C_GLOBAL},
-        {"entity.name.function.preprocessor", C_PREPROCESSOR},
-        {"entity.name.label", C_LABEL},
-        {"keyword", C_KEYWORD},
-        {"storage.type", C_KEYWORD},
-        {"constant.numeric", C_NUMBER},
-        {"string", C_STRING},
-        {"comment", C_COMMENT},
-        {"comment.block.documentation", C_DOXYGEN_COMMENT},
-        {"variable.function", C_FUNCTION},
-        {"variable.other", C_LOCAL},
-        {"variable.other.member", C_FIELD},
-        {"variable.other.field", C_FIELD},
-        {"variable.other.field.static", C_GLOBAL},
-        {"variable.parameter", C_PARAMETER},
-    };
-
-    for (QString scope : scopes) {
-        while (!scope.isEmpty()) {
-            auto style = styleForScopes.find(scope);
-            if (style != styleForScopes.end())
-                return style.value();
-            const int index = scope.lastIndexOf('.');
-            if (index <= 0)
-                break;
-            scope = scope.left(index);
-        }
-    }
-    return Utils::nullopt;
-}
-
-static QHash<int, QTextCharFormat> scopesToFormatHash(QList<QList<QString>> scopes,
-                                                      const FontSettings &fontSettings)
-{
-    QHash<int, QTextCharFormat> scopesToFormat;
-    for (int i = 0; i < scopes.size(); ++i) {
-        if (Utils::optional<TextStyle> style = styleForScopes(scopes[i]))
-            scopesToFormat[i] = fontSettings.toTextCharFormat(style.value());
-    }
-    return scopesToFormat;
-}
-
-HighlightingResult tokenToHighlightingResult(int line, const SemanticHighlightToken &token)
-{
-    return HighlightingResult(unsigned(line) + 1,
-                              unsigned(token.character) + 1,
-                              token.length,
-                              int(token.scope));
-}
-
-HighlightingResults generateResults(const QList<SemanticHighlightingInformation> &lines)
-{
-    HighlightingResults results;
-
-    for (const SemanticHighlightingInformation &info : lines) {
-        const int line = info.line();
-        for (const SemanticHighlightToken &token :
-             info.tokens().value_or(QList<SemanticHighlightToken>())) {
-            results << tokenToHighlightingResult(line, token);
-        }
-    }
-
-    return results;
-}
-
-void applyHighlight(TextDocument *doc,
-                    const HighlightingResults &results,
-                    const ServerCapabilities &capabilities)
-{
-    if (!doc->syntaxHighlighter())
-        return;
-    if (LOGLSPHIGHLIGHT().isDebugEnabled()) {
-        auto scopes = highlightScopes(capabilities);
-        qCDebug(LOGLSPHIGHLIGHT) << "semantic highlight for" << doc->filePath();
-        for (auto result : results) {
-            auto b = doc->document()->findBlockByNumber(int(result.line - 1));
-            const QString &text = b.text().mid(int(result.column - 1), int(result.length));
-            auto resultScupes = scopes[result.kind];
-            auto style = styleForScopes(resultScupes).value_or(C_TEXT);
-            qCDebug(LOGLSPHIGHLIGHT) << result.line - 1 << '\t'
-                                     << result.column - 1 << '\t'
-                                     << result.length << '\t'
-                                     << TextEditor::Constants::nameForStyle(style) << '\t'
-                                     << text
-                                     << resultScupes;
-        }
-    }
-
-    if (capabilities.semanticHighlighting().has_value()) {
-        SemanticHighlighter::setExtraAdditionalFormats(
-            doc->syntaxHighlighter(),
-            results,
-            scopesToFormatHash(highlightScopes(capabilities), doc->fontSettings()));
-    }
-}
-
-} // namespace SemanticHighligtingSupport
 
 constexpr int tokenTypeBitOffset = 16;
 
@@ -191,6 +60,7 @@ SemanticTokenSupport::SemanticTokenSupport(Client *client)
 
 void SemanticTokenSupport::refresh()
 {
+    qCDebug(LOGLSPHIGHLIGHT) << "refresh all semantic highlights for" << m_client->name();
     m_tokens.clear();
     for (Core::IEditor *editor : Core::EditorManager::visibleEditors())
         onCurrentEditorChanged(editor);
@@ -226,6 +96,8 @@ void SemanticTokenSupport::reloadSemanticTokens(TextDocument *textDocument)
         params.setTextDocument(docId);
         SemanticTokensFullRequest request(params);
         request.setResponseCallback(responseCallback);
+        qCDebug(LOGLSPHIGHLIGHT) << "Requesting all tokens for" << filePath << "with version"
+                                 << m_client->documentVersion(filePath);
         m_client->sendContent(request);
     }
 }
@@ -238,24 +110,35 @@ void SemanticTokenSupport::updateSemanticTokens(TextDocument *textDocument)
         const VersionedTokens versionedToken = m_tokens.value(filePath);
         const QString &previousResultId = versionedToken.tokens.resultId().value_or(QString());
         if (!previousResultId.isEmpty()) {
-            if (m_client->documentVersion(filePath) == versionedToken.version)
+            const int documentVersion = m_client->documentVersion(filePath);
+            if (documentVersion == versionedToken.version)
                 return;
             SemanticTokensDeltaParams params;
             params.setTextDocument(TextDocumentIdentifier(DocumentUri::fromFilePath(filePath)));
             params.setPreviousResultId(previousResultId);
             SemanticTokensFullDeltaRequest request(params);
             request.setResponseCallback(
-                [this, filePath, documentVersion = m_client->documentVersion(filePath)](
+                [this, filePath, documentVersion](
                     const SemanticTokensFullDeltaRequest::Response &response) {
                     handleSemanticTokensDelta(filePath,
                                               response.result().value_or(nullptr),
                                               documentVersion);
                 });
+            qCDebug(LOGLSPHIGHLIGHT)
+                << "Requesting delta for" << filePath << "with version" << documentVersion;
             m_client->sendContent(request);
             return;
         }
     }
     reloadSemanticTokens(textDocument);
+}
+
+void SemanticTokenSupport::clearHighlight(TextEditor::TextDocument *doc)
+{
+    if (m_tokens.contains(doc->filePath())){
+        if (TextEditor::SyntaxHighlighter *highlighter = doc->syntaxHighlighter())
+            highlighter->clearAllExtraFormats();
+    }
 }
 
 void SemanticTokenSupport::rehighlight()
@@ -411,8 +294,10 @@ void SemanticTokenSupport::handleSemanticTokensDelta(
     const LanguageServerProtocol::SemanticTokensDeltaResult &result,
     int documentVersion)
 {
+    qCDebug(LOGLSPHIGHLIGHT) << "Handle Tokens for " << filePath;
     if (auto tokens = Utils::get_if<SemanticTokens>(&result)) {
         m_tokens[filePath] = {*tokens, documentVersion};
+        qCDebug(LOGLSPHIGHLIGHT) << "New Data " << tokens->data();
     } else if (auto tokensDelta = Utils::get_if<SemanticTokensDelta>(&result)) {
         m_tokens[filePath].version = documentVersion;
         QList<SemanticTokensEdit> edits = tokensDelta->edits();
@@ -434,7 +319,7 @@ void SemanticTokenSupport::handleSemanticTokensDelta(
 
         auto it = data.begin();
         const auto end = data.end();
-        qCDebug(LOGLSPHIGHLIGHT) << "Edit Tokens for " << filePath;
+        qCDebug(LOGLSPHIGHLIGHT) << "Edit Tokens";
         qCDebug(LOGLSPHIGHLIGHT) << "Data before edit " << data;
         for (const SemanticTokensEdit &edit : qAsConst(edits)) {
             if (edit.start() > data.size()) // prevent edits after the previously reported data
@@ -469,6 +354,7 @@ void SemanticTokenSupport::handleSemanticTokensDelta(
         tokens.setResultId(tokensDelta->resultId());
     } else {
         m_tokens.remove(filePath);
+        qCDebug(LOGLSPHIGHLIGHT) << "Data cleared";
         return;
     }
     highlight(filePath);
@@ -476,6 +362,7 @@ void SemanticTokenSupport::handleSemanticTokensDelta(
 
 void SemanticTokenSupport::highlight(const Utils::FilePath &filePath, bool force)
 {
+    qCDebug(LOGLSPHIGHLIGHT) << "highlight" << filePath;
     TextDocument *doc = TextDocument::textDocumentForFilePath(filePath);
     if (!doc || LanguageClientManager::clientForDocument(doc) != m_client)
         return;
@@ -486,6 +373,7 @@ void SemanticTokenSupport::highlight(const Utils::FilePath &filePath, bool force
     const QList<SemanticToken> tokens = versionedTokens.tokens
             .toTokens(m_tokenTypes, m_tokenModifiers);
     if (m_tokensHandler) {
+        qCDebug(LOGLSPHIGHLIGHT) << "use tokens handler" << filePath;
         int line = 1;
         int column = 1;
         QList<ExpandedSemanticToken> expandedTokens;
