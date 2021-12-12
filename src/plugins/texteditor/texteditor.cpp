@@ -2400,7 +2400,7 @@ void TextEditorWidget::keyPressEvent(QKeyEvent *e)
             if (camelCaseNavigationEnabled())
                 CamelCaseCursor::left(&cursor, this, QTextCursor::KeepAnchor);
             else
-                d->moveCursor(QTextCursor::PreviousWord, QTextCursor::KeepAnchor);
+                cursor.movePosition(QTextCursor::PreviousWord, QTextCursor::KeepAnchor);
         }
         cursor.removeSelectedText();
         setMultiTextCursor(cursor);
@@ -2411,7 +2411,7 @@ void TextEditorWidget::keyPressEvent(QKeyEvent *e)
             if (camelCaseNavigationEnabled())
                 CamelCaseCursor::right(&cursor, this, QTextCursor::KeepAnchor);
             else
-                d->moveCursor(QTextCursor::NextWord, QTextCursor::KeepAnchor);
+                cursor.movePosition(QTextCursor::NextWord, QTextCursor::KeepAnchor);
         }
         cursor.removeSelectedText();
         setMultiTextCursor(cursor);
@@ -6257,10 +6257,10 @@ MultiTextCursor TextEditorWidget::multiTextCursor() const
 
 void TextEditorWidget::setMultiTextCursor(const Utils::MultiTextCursor &cursor)
 {
-    if (d->m_cursors == cursor)
-        return;
-    MultiTextCursor oldCursor = d->m_cursors;
+    const MultiTextCursor oldCursor = d->m_cursors;
     const_cast<MultiTextCursor &>(d->m_cursors) = cursor;
+    if (oldCursor == d->m_cursors)
+        return;
     doSetTextCursor(d->m_cursors.mainCursor(), /*keepMultiSelection*/ true);
     QRect updateRect = d->cursorUpdateRect(oldCursor);
     if (d->m_highlightCurrentLine)
@@ -6793,56 +6793,6 @@ QString TextEditorWidget::extraSelectionTooltip(int pos) const
         }
     }
     return QString();
-}
-
-// the blocks list must be sorted
-void TextEditorWidget::setIfdefedOutBlocks(const QList<BlockRange> &blocks)
-{
-    QTextDocument *doc = document();
-    auto documentLayout = qobject_cast<TextDocumentLayout*>(doc->documentLayout());
-    QTC_ASSERT(documentLayout, return);
-
-    bool needUpdate = false;
-
-    QTextBlock block = doc->firstBlock();
-
-    int rangeNumber = 0;
-    int braceDepthDelta = 0;
-    while (block.isValid()) {
-        bool cleared = false;
-        bool set = false;
-        if (rangeNumber < blocks.size()) {
-            const BlockRange &range = blocks.at(rangeNumber);
-            if (block.position() >= range.first()
-                    && ((block.position() + block.length() - 1) <= range.last() || !range.last()))
-                set = TextDocumentLayout::setIfdefedOut(block);
-            else
-                cleared = TextDocumentLayout::clearIfdefedOut(block);
-            if (block.contains(range.last()))
-                ++rangeNumber;
-        } else {
-            cleared = TextDocumentLayout::clearIfdefedOut(block);
-        }
-
-        if (cleared || set) {
-            needUpdate = true;
-            int delta = TextDocumentLayout::braceDepthDelta(block);
-            if (cleared)
-                braceDepthDelta += delta;
-            else if (set)
-                braceDepthDelta -= delta;
-        }
-
-        if (braceDepthDelta) {
-            TextDocumentLayout::changeBraceDepth(block,braceDepthDelta);
-            TextDocumentLayout::changeFoldingIndent(block, braceDepthDelta); // ### C++ only, refactor!
-        }
-
-        block = block.next();
-    }
-
-    if (needUpdate)
-        documentLayout->requestUpdate();
 }
 
 void TextEditorWidget::autoIndent()

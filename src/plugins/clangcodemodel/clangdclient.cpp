@@ -28,6 +28,7 @@
 #include "clangcompletionassistprocessor.h"
 #include "clangcompletioncontextanalyzer.h"
 #include "clangdiagnosticmanager.h"
+#include "clangdqpropertyhighlighter.h"
 #include "clangmodelmanagersupport.h"
 #include "clangpreprocessorassistproposalitem.h"
 #include "clangtextmark.h"
@@ -37,6 +38,8 @@
 #include <coreplugin/editormanager/editormanager.h>
 #include <coreplugin/find/searchresultitem.h>
 #include <coreplugin/find/searchresultwindow.h>
+#include <cplusplus/AST.h>
+#include <cplusplus/ASTPath.h>
 #include <cplusplus/FindUsages.h>
 #include <cplusplus/Icons.h>
 #include <cplusplus/MatchingText.h>
@@ -474,7 +477,9 @@ static QList<AstNode> getAstPath(const AstNode &root, const Position &pos)
 static Usage::Type getUsageType(const QList<AstNode> &path)
 {
     bool potentialWrite = false;
+    bool isFunction = false;
     const bool symbolIsDataType = path.last().role() == "type" && path.last().kind() == "Record";
+    const auto isPotentialWrite = [&] { return potentialWrite && !isFunction; };
     for (auto pathIt = path.rbegin(); pathIt != path.rend(); ++pathIt) {
         if (pathIt->arcanaContains("non_odr_use_unevaluated"))
             return Usage::Type::Other;
@@ -484,11 +489,24 @@ static Usage::Type getUsageType(const QList<AstNode> &path)
             return Usage::Type::Other;
         if (pathIt->kind() == "Switch" || pathIt->kind() == "If")
             return Usage::Type::Read;
-        if (pathIt->kind() == "Call" || pathIt->kind() == "CXXMemberCall")
-            return potentialWrite ? Usage::Type::WritableRef : Usage::Type::Read;
+        if (pathIt->kind() == "Call")
+            return isFunction ? Usage::Type::Other
+                              : potentialWrite ? Usage::Type::WritableRef : Usage::Type::Read;
+        if (pathIt->kind() == "CXXMemberCall") {
+            const auto children = pathIt->children();
+            if (children && children->size() == 1
+                    && children->first() == path.last()
+                    && children->first().arcanaContains("bound member function")) {
+                return Usage::Type::Other;
+            }
+            return isPotentialWrite() ? Usage::Type::WritableRef : Usage::Type::Read;
+        }
         if ((pathIt->kind() == "DeclRef" || pathIt->kind() == "Member")
                 && pathIt->arcanaContains("lvalue")) {
-            potentialWrite = true;
+            if (pathIt->arcanaContains(" Function "))
+                isFunction = true;
+            else
+                potentialWrite = true;
         }
         if (pathIt->role() == "declaration") {
             if (symbolIsDataType)
@@ -498,6 +516,8 @@ static Usage::Type getUsageType(const QList<AstNode> &path)
                     return Usage::Type::Initialization;
                 if (pathIt->childContainsRange(0, path.last().range()))
                     return Usage::Type::Initialization;
+                if (isFunction)
+                    return Usage::Type::Read;
                 if (!pathIt->hasConstType())
                     return Usage::Type::WritableRef;
                 return Usage::Type::Read;
@@ -525,7 +545,7 @@ static Usage::Type getUsageType(const QList<AstNode> &path)
                 const int lhsIndex = isBinaryOp ? 0 : 1;
                 if (pathIt->childContainsRange(lhsIndex, path.last().range()))
                     return Usage::Type::Write;
-                return potentialWrite ? Usage::Type::WritableRef : Usage::Type::Read;
+                return isPotentialWrite() ? Usage::Type::WritableRef : Usage::Type::Read;
             }
             return Usage::Type::Read;
         }
@@ -1089,7 +1109,9 @@ public:
 
     void handleDeclDefSwitchReplies();
 
+    static CppEditor::CppEditorWidget *widgetFromDocument(const TextDocument *doc);
     QString searchTermFromCursor(const QTextCursor &cursor) const;
+    QTextCursor adjustedCursor(const QTextCursor &cursor, const TextDocument *doc);
 
     void setHelpItemForTooltip(const MessageId &token, const QString &fqn = {},
                                HelpItem::Category category = HelpItem::Unknown,
@@ -1379,22 +1401,23 @@ void ClangdClient::findUsages(TextDocument *document, const QTextCursor &cursor,
     if (searchTerm.isEmpty())
         return;
 
+    const QTextCursor adjustedCursor = d->adjustedCursor(cursor, document);
     const bool categorize = CppEditor::codeModelSettings()->categorizeFindReferences();
 
     // If it's a "normal" symbol, go right ahead.
     if (searchTerm != "operator" && Utils::allOf(searchTerm, [](const QChar &c) {
             return c.isLetterOrNumber() || c == '_';
     })) {
-        d->findUsages(document, cursor, searchTerm, replacement, categorize);
+        d->findUsages(document, adjustedCursor, searchTerm, replacement, categorize);
         return;
     }
 
     // Otherwise get the proper spelling of the search term from clang, so we can put it into the
     // search widget.
     const TextDocumentIdentifier docId(DocumentUri::fromFilePath(document->filePath()));
-    const TextDocumentPositionParams params(docId, Range(cursor).start());
+    const TextDocumentPositionParams params(docId, Range(adjustedCursor).start());
     SymbolInfoRequest symReq(params);
-    symReq.setResponseCallback([this, doc = QPointer(document), cursor, replacement, categorize]
+    symReq.setResponseCallback([this, doc = QPointer(document), adjustedCursor, replacement, categorize]
                                (const SymbolInfoRequest::Response &response) {
         if (!doc)
             return;
@@ -1407,7 +1430,7 @@ void ClangdClient::findUsages(TextDocument *document, const QTextCursor &cursor,
         const SymbolDetails &sd = list->first();
         if (sd.name().isEmpty())
             return;
-        d->findUsages(doc.data(), cursor, sd.name(), replacement, categorize);
+        d->findUsages(doc.data(), adjustedCursor, sd.name(), replacement, categorize);
     });
     sendContent(symReq);
 }
@@ -1441,6 +1464,12 @@ void ClangdClient::handleDocumentClosed(TextDocument *doc)
     d->astCache.remove(doc);
     d->previousTokens.remove(doc);
     d->virtualRanges.remove(doc);
+}
+
+QTextCursor ClangdClient::adjustedCursorForHighlighting(const QTextCursor &cursor,
+                                                        TextEditor::TextDocument *doc)
+{
+    return d->adjustedCursor(cursor, doc);
 }
 
 const LanguageClient::Client::CustomInspectorTabs ClangdClient::createCustomInspectorTabs()
@@ -1781,15 +1810,16 @@ void ClangdClient::followSymbol(TextDocument *document,
         )
 {
     QTC_ASSERT(documentOpen(document), openDocument(document));
+    const QTextCursor adjustedCursor = d->adjustedCursor(cursor, document);
     if (!resolveTarget) {
         d->followSymbolData.reset();
-        symbolSupport().findLinkAt(document, cursor, std::move(callback), false);
+        symbolSupport().findLinkAt(document, adjustedCursor, std::move(callback), false);
         return;
     }
 
     qCDebug(clangdLog) << "follow symbol requested" << document->filePath()
-                       << cursor.blockNumber() << cursor.positionInBlock();
-    d->followSymbolData.emplace(this, ++d->nextJobId, cursor, editorWidget,
+                       << adjustedCursor.blockNumber() << adjustedCursor.positionInBlock();
+    d->followSymbolData.emplace(this, ++d->nextJobId, adjustedCursor, editorWidget,
                                 DocumentUri::fromFilePath(document->filePath()),
                                 std::move(callback), openInSplit);
 
@@ -1808,7 +1838,7 @@ void ClangdClient::followSymbol(TextDocument *document,
         if (d->followSymbolData->cursorNode)
             d->handleGotoDefinitionResult();
     };
-    symbolSupport().findLinkAt(document, cursor, std::move(gotoDefCallback), true);
+    symbolSupport().findLinkAt(document, adjustedCursor, std::move(gotoDefCallback), true);
 
     if (versionNumber() < QVersionNumber(12)) {
         d->followSymbolData->cursorNode.emplace(AstNode());
@@ -1824,7 +1854,8 @@ void ClangdClient::followSymbol(TextDocument *document,
         if (d->followSymbolData->defLink.hasValidTarget())
             d->handleGotoDefinitionResult();
     };
-    d->getAndHandleAst(document, astHandler, Private::AstCallbackMode::AlwaysAsync, Range(cursor));
+    d->getAndHandleAst(document, astHandler, Private::AstCallbackMode::AlwaysAsync,
+                       Range(adjustedCursor));
 }
 
 void ClangdClient::switchDeclDef(TextDocument *document, const QTextCursor &cursor,
@@ -2346,11 +2377,87 @@ void ClangdClient::Private::handleDeclDefSwitchReplies()
     switchDeclDefData.reset();
 }
 
+CppEditor::CppEditorWidget *ClangdClient::Private::widgetFromDocument(const TextDocument *doc)
+{
+    IEditor * const editor = Utils::findOrDefault(EditorManager::visibleEditors(),
+            [doc](const IEditor *editor) { return editor->document() == doc; });
+    return qobject_cast<CppEditor::CppEditorWidget *>(TextEditorWidget::fromEditor(editor));
+}
+
 QString ClangdClient::Private::searchTermFromCursor(const QTextCursor &cursor) const
 {
     QTextCursor termCursor(cursor);
     termCursor.select(QTextCursor::WordUnderCursor);
     return termCursor.selectedText();
+}
+
+// https://github.com/clangd/clangd/issues/936
+QTextCursor ClangdClient::Private::adjustedCursor(const QTextCursor &cursor,
+                                                  const TextDocument *doc)
+{
+    CppEditor::CppEditorWidget * const widget = widgetFromDocument(doc);
+    if (!widget)
+        return cursor;
+    const Document::Ptr cppDoc = widget->semanticInfo().doc;
+    if (!cppDoc)
+        return cursor;
+    const QList<AST *> builtinAstPath = ASTPath(cppDoc)(cursor);
+    const TranslationUnit * const tu = cppDoc->translationUnit();
+    const auto posForToken = [doc, tu](int tok) {
+        int line, column;
+        tu->getTokenPosition(tok, &line, &column);
+        return Utils::Text::positionInText(doc->document(), line, column);
+    };
+    const auto leftMovedCursor = [cursor] {
+        QTextCursor c = cursor;
+        c.setPosition(cursor.position() - 1);
+        return c;
+    };
+    for (auto it = builtinAstPath.rbegin(); it != builtinAstPath.rend(); ++it) {
+
+        // s|.x or s|->x
+        if (const MemberAccessAST * const memberAccess = (*it)->asMemberAccess()) {
+            switch (tu->tokenAt(memberAccess->access_token).kind()) {
+            case T_DOT:
+                break;
+            case T_ARROW: {
+                const Utils::optional<AstNode> clangdAst = astCache.get(doc);
+                if (!clangdAst)
+                    return cursor;
+                const QList<AstNode> clangdAstPath = getAstPath(*clangdAst, Range(cursor));
+                for (auto it = clangdAstPath.rbegin(); it != clangdAstPath.rend(); ++it) {
+                    if (it->detailIs("operator->") && it->arcanaContains("CXXMethod"))
+                        return cursor;
+                }
+                break;
+            }
+            default:
+                return cursor;
+            }
+            if (posForToken(memberAccess->access_token) != cursor.position())
+                return cursor;
+            return leftMovedCursor();
+        }
+
+        // f(arg1|, arg2)
+        if (const CallAST *const callAst = (*it)->asCall()) {
+            const int tok = builtinAstPath.last()->lastToken();
+            if (posForToken(tok) != cursor.position())
+                return cursor;
+            if (tok == callAst->rparen_token)
+                return leftMovedCursor();
+            if (tu->tokenKind(tok) != T_COMMA)
+                return cursor;
+
+            // Guard against edge case of overloaded comma operator.
+            for (auto list = callAst->expression_list; list; list = list->next) {
+                if (list->value->lastToken() == tok)
+                    return leftMovedCursor();
+            }
+            return cursor;
+        }
+    }
+    return cursor;
 }
 
 void ClangdClient::Private::setHelpItemForTooltip(const MessageId &token, const QString &fqn,
@@ -2474,7 +2581,7 @@ static void semanticHighlighter(QFutureInterface<HighlightingResult> &future,
                                 const Utils::FilePath &filePath,
                                 const QList<ExpandedSemanticToken> &tokens,
                                 const QString &docContents, const AstNode &ast,
-                                const QPointer<TextEditorWidget> &widget,
+                                const QPointer<TextDocument> &textDocument,
                                 int docRevision, const QVersionNumber &clangdVersion)
 {
     ThreadedSubtaskTimer t("highlighting");
@@ -2497,8 +2604,6 @@ static void semanticHighlighter(QFutureInterface<HighlightingResult> &future,
         const Range range = tokenRange(token);
         const QList<AstNode> path = getAstPath(ast, range);
         if (path.size() < 2)
-            return false;
-        if (path.last().hasConstType())
             return false;
         for (auto it = path.rbegin() + 1; it != path.rend(); ++it) {
             if (it->kind() == "Call" || it->kind() == "CXXConstruct"
@@ -2529,7 +2634,7 @@ static void semanticHighlighter(QFutureInterface<HighlightingResult> &future,
 
             if (it->kind() == "Lambda")
                 return false;
-            if (it->kind().endsWith("Cast") && it->hasConstType())
+            if (it->hasConstType())
                 return false;
             if (it->kind() == "Member" && it->arcanaContains("(")
                     && !it->arcanaContains("bound member function type")) {
@@ -2626,9 +2731,9 @@ static void semanticHighlighter(QFutureInterface<HighlightingResult> &future,
 
     auto results = QtConcurrent::blockingMapped<HighlightingResults>(tokens, toResult);
     const QList<BlockRange> ifdefedOutBlocks = cleanupDisabledCode(results, &doc, docContents);
-    QMetaObject::invokeMethod(widget, [widget, ifdefedOutBlocks, docRevision] {
-        if (widget && widget->textDocument()->document()->revision() == docRevision)
-            widget->setIfdefedOutBlocks(ifdefedOutBlocks);
+    QMetaObject::invokeMethod(textDocument, [textDocument, ifdefedOutBlocks, docRevision] {
+        if (textDocument && textDocument->document()->revision() == docRevision)
+            textDocument->setIfdefedOutBlocks(ifdefedOutBlocks);
     }, Qt::QueuedConnection);
     ExtraHighlightingResultsCollector(future, results, filePath, ast, &doc, docContents).collect();
     if (!future.isCanceled()) {
@@ -2703,14 +2808,11 @@ void ClangdClient::Private::handleSemanticTokens(TextDocument *doc,
         if (clangdLogAst().isDebugEnabled())
             ast.print();
 
-        IEditor * const editor = Utils::findOrDefault(EditorManager::visibleEditors(),
-                [doc](const IEditor *editor) { return editor->document() == doc; });
-        const auto editorWidget = TextEditorWidget::fromEditor(editor);
         const auto runner = [tokens, filePath = doc->filePath(),
                              text = doc->document()->toPlainText(), ast,
-                             w = QPointer(editorWidget), rev = doc->document()->revision(),
+                             doc = QPointer(doc), rev = doc->document()->revision(),
                              clangdVersion = q->versionNumber()] {
-            return Utils::runAsync(semanticHighlighter, filePath, tokens, text, ast, w, rev,
+            return Utils::runAsync(semanticHighlighter, filePath, tokens, text, ast, doc, rev,
                                    clangdVersion);
         };
 
@@ -3232,6 +3334,26 @@ ExtraHighlightingResultsCollector::ExtraHighlightingResultsCollector(
 
 void ExtraHighlightingResultsCollector::collect()
 {
+    for (int i = 0; i < m_results.length(); ++i) {
+        const HighlightingResult res = m_results.at(i);
+        if (res.textStyles.mainStyle != C_PREPROCESSOR || res.length != 10)
+            continue;
+        const int pos = Utils::Text::positionInText(m_doc, res.line, res.column);
+        if (subViewLen(m_docContent, pos, 10) != QLatin1String("Q_PROPERTY"))
+            continue;
+        int endPos;
+        if (i < m_results.length() - 1) {
+            const HighlightingResult nextRes = m_results.at(i + 1);
+            endPos = Utils::Text::positionInText(m_doc, nextRes.line, nextRes.column);
+        } else {
+            endPos = m_docContent.length();
+        }
+        const QString qPropertyString = m_docContent.mid(pos, endPos - pos);
+        QPropertyHighlighter propHighlighter(m_doc, qPropertyString, pos);
+        for (const HighlightingResult &newRes : propHighlighter.highlight())
+            m_results.insert(++i, newRes);
+    }
+
     if (!m_ast.isValid())
         return;
     visitNode(m_ast);

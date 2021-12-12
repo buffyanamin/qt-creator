@@ -31,10 +31,6 @@
 
 #include <QVariantMap>
 
-QT_BEGIN_NAMESPACE
-class QSettings;
-QT_END_NAMESPACE
-
 namespace CPlusPlus { class Overview; }
 namespace TextEditor { class TabSettings; }
 namespace ProjectExplorer { class Project; }
@@ -88,11 +84,8 @@ public:
     // CppEditor/QuickFixSetting. Remove in 4.16
     bool preferGetterNameWithoutGetPrefix = true;
 
-    void toSettings(const QString &category, QSettings *s) const;
-    void fromSettings(const QString &category, const QSettings *s);
-
-    void toMap(const QString &prefix, QVariantMap *map) const;
-    void fromMap(const QString &prefix, const QVariantMap &map);
+    QVariantMap toMap() const;
+    void fromMap(const QVariantMap &map);
 
     bool equals(const CppCodeStyleSettings &rhs) const;
     bool operator==(const CppCodeStyleSettings &s) const { return equals(s); }

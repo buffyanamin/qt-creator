@@ -39,7 +39,7 @@ def main():
     kits = getConfiguredKits()
     test.log("Collecting potential project types...")
     availableProjectTypes = []
-    invokeMenuItem("File", "New File or Project...")
+    invokeMenuItem("File", "New Project...")
     categoriesView = waitForObject(":New.templateCategoryView_QTreeView")
     catModel = categoriesView.model()
     projects = catModel.index(0, 0)
@@ -70,7 +70,7 @@ def main():
         template = current.values()[0]
         with TestSection("Testing project template %s -> %s" % (category, template)):
             displayedPlatforms = __createProject__(category, template)
-            if template.startswith("Qt Quick Application - "):
+            if template == "Qt Quick Application":
                 qtVersionsForQuick = ["5.14"]
                 for counter, qtVersion in enumerate(qtVersionsForQuick):
                     def additionalFunc(displayedPlatforms, qtVersion):
@@ -146,7 +146,7 @@ def __createProject__(category, template):
         except:
             return ""
 
-    invokeMenuItem("File", "New File or Project...")
+    invokeMenuItem("File", "New Project...")
     selectFromCombo(waitForObject(":New.comboBox_QComboBox"), "All Templates")
     categoriesView = waitForObject(":New.templateCategoryView_QTreeView")
     mouseClick(waitForObjectItem(categoriesView, "Projects." + category))

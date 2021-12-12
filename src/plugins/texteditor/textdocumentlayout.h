@@ -43,9 +43,11 @@ struct TEXTEDITOR_EXPORT Parenthesis
 {
     enum Type : char { Opened, Closed };
 
-    inline Parenthesis() = default;
-    inline Parenthesis(Type t, QChar c, int position)
-        : pos(position), chr(c), type(t) {}
+    Parenthesis() = default;
+    Parenthesis(Type t, QChar c, int position) : pos(position), chr(c), type(t) {}
+
+    friend TEXTEDITOR_EXPORT QDebug operator<<(QDebug debug, const Parenthesis &parenthesis);
+
     int pos = -1;
     QChar chr;
     Utils::Id source;
@@ -55,8 +57,6 @@ struct TEXTEDITOR_EXPORT Parenthesis
 };
 using Parentheses = QVector<Parenthesis>;
 TEXTEDITOR_EXPORT void insertSorted(Parentheses &list, const Parenthesis &elem);
-
-TEXTEDITOR_EXPORT QDebug operator<<(QDebug debug, const Parenthesis &parenthesis);
 
 class TEXTEDITOR_EXPORT CodeFormatterData
 {
@@ -145,6 +145,9 @@ public:
     KSyntaxHighlighting::State syntaxState() { return m_syntaxState; }
     void setSyntaxState(KSyntaxHighlighting::State state) { m_syntaxState = state; }
 
+    QByteArray expectedRawStringSuffix() { return m_expectedRawStringSuffix; }
+    void setExpectedRawStringSuffix(const QByteArray &suffix) { m_expectedRawStringSuffix = suffix; }
+
 private:
     TextMarks m_marks;
     int m_foldingIndent : 16;
@@ -157,6 +160,7 @@ private:
     Parentheses m_parentheses;
     CodeFormatterData *m_codeFormatterData;
     KSyntaxHighlighting::State m_syntaxState;
+    QByteArray m_expectedRawStringSuffix; // A bit C++-specific, but let's be pragmatic.
 };
 
 
@@ -188,6 +192,8 @@ public:
     static void doFoldOrUnfold(const QTextBlock& block, bool unfold);
     static bool isFolded(const QTextBlock &block);
     static void setFolded(const QTextBlock &block, bool folded);
+    static void setExpectedRawStringSuffix(const QTextBlock &block, const QByteArray &suffix);
+    static QByteArray expectedRawStringSuffix(const QTextBlock &block);
 
     class TEXTEDITOR_EXPORT FoldValidator
     {

@@ -104,8 +104,10 @@ public:
     void setUseCtrlCStub(bool enabled);
     void setLowPriority();
     void setDisableUnixTerminal();
-    void setUseTerminal(bool on);
     void setRunAsRoot(bool on);
+
+    void setUseTerminal(bool on);
+    bool useTerminal() const;
 
     void start();
     void terminate();
@@ -171,6 +173,7 @@ public:
 
     QProcess::ProcessError error() const;
     QProcess::ProcessState state() const;
+    bool isRunning() const; // Short for state() == QProcess::Running.
 
     QString errorString() const;
     void setErrorString(const QString &str);
@@ -214,7 +217,5 @@ private:
 };
 
 using ExitCodeInterpreter = std::function<QtcProcess::Result(int /*exitCode*/)>;
-
-QTCREATOR_UTILS_EXPORT QDebug operator<<(QDebug str, const QtcProcess &);
 
 } // namespace Utils

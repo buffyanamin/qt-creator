@@ -43,19 +43,19 @@ public:
     void toSettings(const QString &category, QSettings *s) const;
     void fromSettings(const QString &category, const QSettings *s);
 
-    void toMap(const QString &prefix, QVariantMap *map) const;
-    void fromMap(const QString &prefix, const QVariantMap &map);
+    QVariantMap toMap() const;
+    void fromMap(const QVariantMap &map);
 
     bool equals(const MarginSettings &other) const;
+
+    friend bool operator==(const MarginSettings &one, const MarginSettings &two)
+    { return one.equals(two); }
+    friend bool operator!=(const MarginSettings &one, const MarginSettings &two)
+    { return !one.equals(two); }
 
     bool m_showMargin;
     bool m_useIndenter;
     int m_marginColumn;
 };
-
-inline bool operator==(const MarginSettings &one, const MarginSettings &two)
-{ return one.equals(two); }
-inline bool operator!=(const MarginSettings &one, const MarginSettings &two)
-{ return !one.equals(two); }
 
 } // namespace TextEditor

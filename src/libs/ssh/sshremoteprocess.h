@@ -43,11 +43,9 @@ class QSSH_EXPORT SshRemoteProcess : public SshProcess
 public:
     ~SshRemoteProcess();
 
-    void requestTerminal();
     void requestX11Forwarding(const QString &displayName);
     void start();
 
-    bool isRunning() const;
     Utils::CommandLine fullLocalCommandLine() const;
 
 signals:

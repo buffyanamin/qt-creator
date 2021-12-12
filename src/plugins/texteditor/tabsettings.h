@@ -59,10 +59,10 @@ public:
                 int indentSize, ContinuationAlignBehavior continuationAlignBehavior);
 
     void toSettings(const QString &category, QSettings *s) const;
-    void fromSettings(const QString &category, const QSettings *s);
+    void fromSettings(const QString &category, QSettings *s);
 
-    void toMap(const QString &prefix, QVariantMap *map) const;
-    void fromMap(const QString &prefix, const QVariantMap &map);
+    QVariantMap toMap() const;
+    void fromMap(const QVariantMap &map);
 
     int lineIndentPosition(const QString &text) const;
     int columnAt(const QString &text, int position) const;
@@ -81,6 +81,9 @@ public:
     bool isIndentationClean(const QTextBlock &block, const int indent) const;
     bool guessSpacesForTabs(const QTextBlock &block) const;
 
+    friend bool operator==(const TabSettings &t1, const TabSettings &t2) { return t1.equals(t2); }
+    friend bool operator!=(const TabSettings &t1, const TabSettings &t2) { return !t1.equals(t2); }
+
     static int firstNonSpace(const QString &text);
     static inline bool onlySpace(const QString &text) { return firstNonSpace(text) == text.length(); }
     static int spacesLeftFromPosition(const QString &text, int position);
@@ -95,9 +98,6 @@ public:
 
     bool equals(const TabSettings &ts) const;
 };
-
-inline bool operator==(const TabSettings &t1, const TabSettings &t2) { return t1.equals(t2); }
-inline bool operator!=(const TabSettings &t1, const TabSettings &t2) { return !t1.equals(t2); }
 
 } // namespace TextEditor
 

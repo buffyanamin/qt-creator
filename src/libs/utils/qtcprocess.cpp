@@ -824,6 +824,11 @@ void QtcProcess::setUseTerminal(bool on)
     d->m_process->setUseTerminal(on);
 }
 
+bool QtcProcess::useTerminal() const
+{
+    return d->m_process->useTerminal();
+}
+
 void QtcProcess::setRunAsRoot(bool on)
 {
     d->m_process->setRunAsRoot(on);
@@ -1075,6 +1080,11 @@ QProcess::ProcessError QtcProcess::error() const
 QProcess::ProcessState QtcProcess::state() const
 {
     return d->m_process->state();
+}
+
+bool QtcProcess::isRunning() const
+{
+    return state() == QProcess::Running;
 }
 
 QString QtcProcess::errorString() const

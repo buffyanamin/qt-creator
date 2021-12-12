@@ -284,6 +284,11 @@ void ClangdTestFindReferences::test_data()
     QTest::newRow("array variable") << "main.cpp" << 1134 << ItemList{
         makeItem(57, 8, Usage::Type::Declaration), makeItem(58, 4, Usage::Type::Write),
         makeItem(59, 15, Usage::Type::Read)};
+    QTest::newRow("free function") << "defs.h" << 510 << ItemList{
+        makeItem(24, 5, Usage::Type::Declaration), makeItem(19, 4, Usage::Type::Other),
+        makeItem(25, 4, Usage::Type::Other), makeItem(60, 26, Usage::Type::Read)};
+    QTest::newRow("member function") << "defs.h" << 192 << ItemList{
+        makeItem(9, 12, Usage::Type::Declaration), makeItem(40, 8, Usage::Type::Other)};
 }
 
 // The main point here is to test our access type categorization.
@@ -1056,12 +1061,26 @@ void ClangdTestHighlighting::test_data()
         << QList<int>{C_PREPROCESSOR} << 0;
     QTest::newRow("Q_PROPERTY (property name)") << 599 << 52 << 599 << 56
         << QList<int>{C_FIELD} << 0;
+    QTest::newRow("Q_PROPERTY (READ keyword)") << 599 << 57 << 599 << 61
+        << QList<int>{C_KEYWORD} << 0;
     QTest::newRow("Q_PROPERTY (getter)") << 599 << 62 << 599 << 69
         << QList<int>{C_FUNCTION} << 0;
+    QTest::newRow("Q_PROPERTY (WRITE keyword)") << 599 << 70 << 599 << 75
+        << QList<int>{C_KEYWORD} << 0;
+    QTest::newRow("Q_PROPERTY (setter)") << 599 << 76 << 599 << 83
+        << QList<int>{C_FUNCTION} << 0;
+    QTest::newRow("Q_PROPERTY (NOTIFY keyword)") << 599 << 84 << 599 << 90
+        << QList<int>{C_KEYWORD} << 0;
     QTest::newRow("Q_PROPERTY (notifier)") << 599 << 91 << 599 << 102
         << QList<int>{C_FUNCTION} << 0;
+    QTest::newRow("Q_PROPERTY (SCRIPTABLE keyword)") << 599 << 103 << 599 << 113
+        << QList<int>{C_KEYWORD} << 0;
+    QTest::newRow("Q_PROPERTY (REVISION keyword)") << 599 << 119 << 599 << 127
+        << QList<int>{C_KEYWORD} << 0;
     QTest::newRow("Q_PROPERTY (type)") << 600 << 22 << 600 << 29
         << QList<int>{C_TYPE} << 0;
+    QTest::newRow("Q_PROPERTY (REVISION keyword [new])") << 600 << 46 << 600 << 54
+        << QList<int>{C_KEYWORD} << 0;
     QTest::newRow("multi-line Q_PROPERTY (macro name)") << 704 << 5 << 704 << 15
         << QList<int>{C_PREPROCESSOR} << 0;
     QTest::newRow("multi-line Q_PROPERTY (property name)") << 718 << 13 << 718 << 17
@@ -1258,6 +1277,8 @@ void ClangdTestHighlighting::test_data()
                                       << QList<int>{C_STRING} << 0;
     QTest::newRow("user-defined operator call") << 860 << 7 << 860 << 8
                                       << QList<int>{C_LOCAL} << 0;
+    QTest::newRow("const member as function argument") << 868 << 32 << 868 << 43
+                                      << QList<int>{C_FIELD} << 0;
 }
 
 void ClangdTestHighlighting::test()
@@ -1298,13 +1319,6 @@ void ClangdTestHighlighting::test()
                      "https://github.com/clangd/clangd/issues/878",
                      Abort);
     }
-    QEXPECT_FAIL("Q_PROPERTY (property name)", "FIXME: How to do this?", Abort);
-    QEXPECT_FAIL("Q_PROPERTY (getter)", "FIXME: How to do this?", Abort);
-    QEXPECT_FAIL("Q_PROPERTY (notifier)", "FIXME: How to do this?", Abort);
-    QEXPECT_FAIL("Q_PROPERTY (type)", "FIXME: How to do this?", Abort);
-    QEXPECT_FAIL("multi-line Q_PROPERTY (property name)", "FIXME: How to do this?", Abort);
-    QEXPECT_FAIL("multi-line Q_PROPERTY (getter)", "FIXME: How to do this?", Abort);
-    QEXPECT_FAIL("multi-line Q_PROPERTY (notifier)", "FIXME: How to do this?", Abort);
     QEXPECT_FAIL("old-style signal (signal)", "check if and how we want to support this", Abort);
     QEXPECT_FAIL("old-style signal (signal parameter)",
                  "check if and how we want to support this", Abort);

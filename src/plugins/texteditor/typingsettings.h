@@ -59,12 +59,15 @@ public:
     bool tabShouldIndent(const QTextDocument *document, const QTextCursor &cursor, int *suggestedPosition) const;
 
     void toSettings(const QString &category, QSettings *s) const;
-    void fromSettings(const QString &category, const QSettings *s);
+    void fromSettings(const QString &category, QSettings *s);
 
-    void toMap(const QString &prefix, QVariantMap *map) const;
-    void fromMap(const QString &prefix, const QVariantMap &map);
+    QVariantMap toMap() const;
+    void fromMap(const QVariantMap &map);
 
     bool equals(const TypingSettings &ts) const;
+
+    friend bool operator==(const TypingSettings &t1, const TypingSettings &t2) { return t1.equals(t2); }
+    friend bool operator!=(const TypingSettings &t1, const TypingSettings &t2) { return !t1.equals(t2); }
 
     bool m_autoIndent;
     TabKeyBehavior m_tabKeyBehavior;
@@ -72,9 +75,6 @@ public:
 
     bool m_preferSingleLineComments;
 };
-
-inline bool operator==(const TypingSettings &t1, const TypingSettings &t2) { return t1.equals(t2); }
-inline bool operator!=(const TypingSettings &t1, const TypingSettings &t2) { return !t1.equals(t2); }
 
 } // namespace TextEditor
 
