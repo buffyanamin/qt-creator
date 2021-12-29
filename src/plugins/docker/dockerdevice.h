@@ -94,10 +94,10 @@ public:
     bool copyFile(const Utils::FilePath &filePath, const Utils::FilePath &target) const override;
     bool renameFile(const Utils::FilePath &filePath, const Utils::FilePath &target) const override;
     Utils::FilePath symLinkTarget(const Utils::FilePath &filePath) const override;
-    QList<Utils::FilePath> directoryEntries(const Utils::FilePath &filePath,
-                                            const QStringList &nameFilters,
-                                            QDir::Filters filters,
-                                            QDir::SortFlags sort) const override;
+    void iterateDirectory(const Utils::FilePath &filePath,
+                          const std::function<bool(const Utils::FilePath &)> &callBack,
+                          const QStringList &nameFilters,
+                          QDir::Filters filters) const override;
     QByteArray fileContents(const Utils::FilePath &filePath, qint64 limit, qint64 offset) const override;
     bool writeFileContents(const Utils::FilePath &filePath, const QByteArray &data) const override;
     QDateTime lastModified(const Utils::FilePath &filePath) const override;
@@ -124,10 +124,10 @@ protected:
     QVariantMap toMap() const final;
 
 private:
-    Utils::FilePaths findFilesWithFind(const Utils::FilePath &filePath,
-                                       const QStringList &nameFilters,
-                                       QDir::Filters filters,
-                                       QDir::SortFlags sort) const;
+    void iterateWithFind(const Utils::FilePath &filePath,
+                         const std::function<bool(const Utils::FilePath &)> &callBack,
+                         const QStringList &nameFilters,
+                         QDir::Filters filters) const;
 
     void aboutToBeRemoved() const final;
 
@@ -144,7 +144,7 @@ public:
     explicit KitDetector(const ProjectExplorer::IDevice::ConstPtr &device);
     ~KitDetector() override;
 
-    void autoDetect(const QString &sharedId) const;
+    void autoDetect(const QString &sharedId, const Utils::FilePaths &selectedPaths) const;
     void undoAutoDetect(const QString &sharedId) const;
     void listAutoDetected(const QString &sharedId) const;
 

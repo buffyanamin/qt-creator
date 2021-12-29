@@ -64,6 +64,7 @@
 
 #include <QApplication>
 #include <QCheckBox>
+#include <QComboBox>
 #include <QDateTime>
 #include <QDialog>
 #include <QDialogButtonBox>
@@ -262,6 +263,10 @@ public:
     void undoAutoDetect() const;
     void listAutoDetected() const;
 
+    void setSharedId(const QString &sharedId) { m_sharedId = sharedId; }
+    void setSearchPaths(const FilePaths &searchPaths) { m_searchPaths = searchPaths; }
+
+private:
     QList<BaseQtVersion *> autoDetectQtVersions() const;
     QList<ToolChain *> autoDetectToolChains();
     void autoDetectCMake();
@@ -270,6 +275,7 @@ public:
     KitDetector *q;
     IDevice::ConstPtr m_device;
     QString m_sharedId;
+    FilePaths m_searchPaths;
 };
 
 KitDetector::KitDetector(const IDevice::ConstPtr &device)
@@ -281,21 +287,22 @@ KitDetector::~KitDetector()
     delete d;
 }
 
-void KitDetector::autoDetect(const QString &sharedId) const
+void KitDetector::autoDetect(const QString &sharedId, const FilePaths &searchPaths) const
 {
-    d->m_sharedId = sharedId;
+    d->setSharedId(sharedId);
+    d->setSearchPaths(searchPaths);
     d->autoDetect();
 }
 
 void KitDetector::undoAutoDetect(const QString &sharedId) const
 {
-    d->m_sharedId = sharedId;
+    d->setSharedId(sharedId);
     d->undoAutoDetect();
 }
 
 void KitDetector::listAutoDetected(const QString &sharedId) const
 {
-    d->m_sharedId = sharedId;
+    d->setSharedId(sharedId);
     d->listAutoDetected();
 }
 
@@ -415,10 +422,35 @@ public:
         auto undoAutoDetectButton = new QPushButton(tr("Remove Auto-Detected Kit Items"));
         auto listAutoDetectedButton = new QPushButton(tr("List Auto-Detected Kit Items"));
 
-        connect(autoDetectButton, &QPushButton::clicked, this, [this, logView, id = data.id(), dockerDevice] {
+        auto searchDirsComboBox = new QComboBox;
+        searchDirsComboBox->addItem(tr("Search in PATH"));
+        searchDirsComboBox->addItem(tr("Search in selected directories"));
+
+        auto searchDirsLineEdit = new QLineEdit;
+        searchDirsLineEdit->setText("/usr/bin;/opt");
+        searchDirsLineEdit->setToolTip(
+            tr("Select the paths in the Docker image that should be scanned for Kit entries"));
+
+        auto searchPaths = [this, searchDirsComboBox, searchDirsLineEdit, dockerDevice] {
+            FilePaths paths;
+            if (searchDirsComboBox->currentIndex() == 0) {
+                paths = dockerDevice->systemEnvironment().path();
+            } else {
+                for (const QString &path : searchDirsLineEdit->text().split(';'))
+                    paths.append(FilePath::fromString(path.trimmed()));
+            }
+            paths = Utils::transform(paths, [dockerDevice](const FilePath &path) {
+                return dockerDevice->mapToGlobalPath(path);
+            });
+            return paths;
+        };
+
+        connect(autoDetectButton, &QPushButton::clicked, this,
+                [this, logView, id = data.id(), dockerDevice, searchPaths] {
             logView->clear();
             dockerDevice->tryCreateLocalFileAccess();
-            m_kitItemDetector.autoDetect(id);
+
+            m_kitItemDetector.autoDetect(id, searchPaths());
 
             if (DockerPlugin::isDaemonRunning().value_or(false) == false)
                 logView->append(tr("Docker daemon appears to be not running."));
@@ -451,11 +483,27 @@ public:
             }, Break(),
             Column {
                 Space(20),
-                Row { autoDetectButton, undoAutoDetectButton, listAutoDetectedButton, Stretch() },
+                Row {
+                    searchDirsComboBox,
+                    searchDirsLineEdit
+                },
+                Row {
+                    autoDetectButton,
+                    undoAutoDetectButton,
+                    listAutoDetectedButton,
+                    Stretch(),
+                },
                 new QLabel(tr("Detection log:")),
                 logView
             }
         }.attachTo(this);
+
+        searchDirsLineEdit->setVisible(false);
+        auto updateDirectoriesLineEdit = [this, searchDirsLineEdit](int index) {
+            searchDirsLineEdit->setVisible(index == 1);
+        };
+        QObject::connect(searchDirsComboBox, qOverload<int>(&QComboBox::activated),
+                         this, updateDirectoriesLineEdit);
     }
 
     void updateDeviceFromUi() final {}
@@ -658,7 +706,7 @@ QList<BaseQtVersion *> KitDetectorPrivate::autoDetectQtVersions() const
     emit q->logOutput('\n' + tr("Searching Qt installations..."));
     for (const QString &candidate : candidates) {
         emit q->logOutput(tr("Searching for %1 executable...").arg(candidate));
-        const FilePath qmake = m_device->searchExecutableInPath(candidate);
+        const FilePath qmake = m_device->searchExecutable(candidate, m_searchPaths);
         if (qmake.isEmpty())
             continue;
         BaseQtVersion *qtVersion = QtVersionFactory::createQtVersionFromQMakePath(qmake, false, m_sharedId, &error);
@@ -703,11 +751,10 @@ void KitDetectorPrivate::autoDetectCMake()
     if (!cmakeManager)
         return;
 
-    const FilePath deviceRoot = m_device->mapToGlobalPath({});
     QString logMessage;
     const bool res = QMetaObject::invokeMethod(cmakeManager,
                                                "autoDetectCMakeForDevice",
-                                               Q_ARG(Utils::FilePath, deviceRoot),
+                                               Q_ARG(Utils::FilePaths, m_searchPaths),
                                                Q_ARG(QString, m_sharedId),
                                                Q_ARG(QString *, &logMessage));
     QTC_CHECK(res);
@@ -720,11 +767,10 @@ void KitDetectorPrivate::autoDetectDebugger()
     if (!debuggerPlugin)
         return;
 
-    const FilePath deviceRoot = m_device->mapToGlobalPath({});
     QString logMessage;
     const bool res = QMetaObject::invokeMethod(debuggerPlugin,
                                                "autoDetectDebuggersForDevice",
-                                               Q_ARG(Utils::FilePath, deviceRoot),
+                                               Q_ARG(Utils::FilePaths, m_searchPaths),
                                                Q_ARG(QString, m_sharedId),
                                                Q_ARG(QString *, &logMessage));
     QTC_CHECK(res);
@@ -949,6 +995,9 @@ void DockerDevicePrivate::tryCreateLocalFileAccess()
 
 bool DockerDevice::hasLocalFileAccess() const
 {
+    static const bool denyLocalAccess = qEnvironmentVariableIsSet("QTC_DOCKER_DENY_LOCAL_ACCESS");
+    if (denyLocalAccess)
+        return false;
     return !d->m_mergedDir.isEmpty();
 }
 
@@ -1380,11 +1429,12 @@ bool DockerDevice::setPermissions(const FilePath &filePath, QFileDevice::Permiss
     return false;
 }
 
-FilePaths DockerDevice::findFilesWithFind(const FilePath &filePath,
-                                          const QStringList &nameFilters,
-                                          QDir::Filters filters,
-                                          QDir::SortFlags sort) const
+void DockerDevice::iterateWithFind(const FilePath &filePath,
+                                   const std::function<bool(const Utils::FilePath &)> &callBack,
+                                   const QStringList &nameFilters,
+                                   QDir::Filters filters) const
 {
+    QTC_ASSERT(callBack, return);
     QTC_CHECK(filePath.isAbsolutePath());
     QStringList arguments{filePath.path(), "-maxdepth", "1"};
     if (filters & QDir::NoSymLinks)
@@ -1432,28 +1482,23 @@ FilePaths DockerDevice::findFilesWithFind(const FilePath &filePath,
     if (!output.isEmpty() && !output.startsWith(filePath.path())) { // missing find, unknown option
         LOG("Setting 'do not use find'" << output.left(output.indexOf('\n')));
         d->m_useFind = false;
-        return {};
+        return;
     }
 
-    QStringList entries = output.split("\n", Qt::SkipEmptyParts);
-    if (sort & QDir::Name)
-        entries.sort(filters & QDir::CaseSensitive ? Qt::CaseSensitive : Qt::CaseInsensitive);
-    QTC_CHECK(sort == QDir::Name || sort == QDir::NoSort || sort == QDir::Unsorted);
-
-    // strip out find messages
-    entries = Utils::filtered(entries,
-                              [](const QString &entry) { return !entry.startsWith("find: "); });
-    FilePaths result;
-    for (const QString &entry : qAsConst(entries))
-        result.append(FilePath::fromString(entry).onDevice(filePath));
-    return result;
+    const QStringList entries = output.split("\n", Qt::SkipEmptyParts);
+    for (const QString &entry : entries) {
+        if (entry.startsWith("find: "))
+            continue;
+        if (!callBack(FilePath::fromString(entry).onDevice(filePath)))
+            break;
+    }
 }
 
-static FilePaths filterEntriesHelper(const FilePath &base,
-                                     const QStringList &entries,
-                                     const QStringList &nameFilters,
-                                     QDir::Filters filters,
-                                     QDir::SortFlags sort)
+static void filterEntriesHelper(const FilePath &base,
+                                const std::function<bool(const FilePath &)> &callBack,
+                                const QStringList &entries,
+                                const QStringList &nameFilters,
+                                QDir::Filters filters)
 {
     const QList<QRegularExpression> nameRegexps = transform(nameFilters, [](const QString &filter) {
         QRegularExpression re;
@@ -1471,43 +1516,46 @@ static FilePaths filterEntriesHelper(const FilePath &base,
         return nameRegexps.isEmpty();
     };
 
-    // FIXME: Handle sort and filters. For now bark on unsupported options.
+    // FIXME: Handle filters. For now bark on unsupported options.
     QTC_CHECK(filters == QDir::NoFilter);
-    QTC_CHECK(sort == QDir::NoSort);
 
     FilePaths result;
     for (const QString &entry : entries) {
         if (!nameMatches(entry))
             continue;
-        result.append(base.pathAppended(entry));
+        if (!callBack(base.pathAppended(entry)))
+            break;
     }
-    return result;
 }
 
-FilePaths DockerDevice::directoryEntries(const FilePath &filePath,
-                                         const QStringList &nameFilters,
-                                         QDir::Filters filters,
-                                         QDir::SortFlags sort) const
+void DockerDevice::iterateDirectory(const FilePath &filePath,
+                                    const std::function<bool(const FilePath &)> &callBack,
+                                    const QStringList &nameFilters,
+                                    QDir::Filters filters) const
 {
-    QTC_ASSERT(handlesFile(filePath), return {});
+    QTC_ASSERT(handlesFile(filePath), return);
     tryCreateLocalFileAccess();
     if (hasLocalFileAccess()) {
-        const FilePaths entries = mapToLocalAccess(filePath).dirEntries(nameFilters, filters, sort);
-        return Utils::transform(entries, [this](const FilePath &entry) {
-            return mapFromLocalAccess(entry);
-        });
+        const FilePath local = mapToLocalAccess(filePath);
+        local.iterateDirectory([&callBack, this](const FilePath &entry) {
+                                    return callBack(mapFromLocalAccess(entry));
+                               },
+                               nameFilters, filters);
+        return;
     }
 
     if (d->m_useFind) {
-        const FilePaths result = findFilesWithFind(filePath, nameFilters, filters, sort);
+        iterateWithFind(filePath, callBack, nameFilters, filters);
+        // d->m_useFind will be set to false if 'find' is not found. In this
+        // case fall back to 'ls' below.
         if (d->m_useFind)
-            return result;
+            return;
     }
 
     // if we do not have find - use ls as fallback
     const QString output = d->outputForRunInShell({"ls", {"-1", "-b", "--", filePath.path()}});
-    QStringList entries = output.split('\n', Qt::SkipEmptyParts);
-    return filterEntriesHelper(filePath, entries, nameFilters, filters, sort);
+    const QStringList entries = output.split('\n', Qt::SkipEmptyParts);
+    filterEntriesHelper(filePath, callBack, entries, nameFilters, filters);
 }
 
 QByteArray DockerDevice::fileContents(const FilePath &filePath, qint64 limit, qint64 offset) const
@@ -1693,13 +1741,14 @@ QString DockerDevicePrivate::outputForRunInShell(const CommandLine &cmd) const
 {
     if (!DockerPlugin::isDaemonRunning().value_or(false))
         return {};
-    QTC_ASSERT(m_shell, return {});
+    QTC_ASSERT(m_shell && m_shell->isRunning(), return {});
     QMutexLocker l(&m_shellMutex);
     m_shell->readAllStandardOutput(); // clean possible left-overs
     const QByteArray markerWithNewLine("___QC_DOCKER_" + randomHex() + "_OUTPUT_MARKER___\n");
     m_shell->write(cmd.toUserOutput().toUtf8() + "\necho -n \"" + markerWithNewLine + "\"\n");
     QByteArray output;
     while (!output.endsWith(markerWithNewLine)) {
+        QTC_ASSERT(m_shell->isRunning(), return {});
         m_shell->waitForReadyRead();
         output.append(m_shell->readAllStandardOutput());
     }

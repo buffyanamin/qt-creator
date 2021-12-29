@@ -32,7 +32,6 @@
 
 #include <extensionsystem/pluginmanager.h>
 
-#include <projectexplorer/devicesupport/devicemanager.h>
 #include <projectexplorer/projectexplorerconstants.h>
 #include <projectexplorer/projectexplorericons.h>
 
@@ -92,7 +91,7 @@ public:
     QVariant registerDebugger(const DebuggerItem &item);
     void readDebuggers(const FilePath &fileName, bool isSystem);
     void autoDetectCdbDebuggers();
-    void autoDetectGdbOrLldbDebuggers(const FilePath &deviceRoot,
+    void autoDetectGdbOrLldbDebuggers(const FilePaths &searchPaths,
                                       const QString &detectionSource,
                                       QString *logMessage = nullptr);
     void autoDetectUvscDebuggers();
@@ -724,7 +723,7 @@ static Utils::FilePaths searchGdbPathsFromRegistry()
     return searchPaths;
 }
 
-void DebuggerItemManagerPrivate::autoDetectGdbOrLldbDebuggers(const FilePath &deviceRoot,
+void DebuggerItemManagerPrivate::autoDetectGdbOrLldbDebuggers(const FilePaths &searchPaths,
                                                               const QString &detectionSource,
                                                               QString *logMessage)
 {
@@ -752,12 +751,12 @@ void DebuggerItemManagerPrivate::autoDetectGdbOrLldbDebuggers(const FilePath &de
     }
     */
 
-    IDevice::ConstPtr device = DeviceManager::deviceForPath(deviceRoot);
-    QTC_ASSERT(device, return);
+    if (searchPaths.isEmpty())
+        return;
 
     FilePaths suspects;
 
-    if (device->osType() == OsTypeMac) {
+    if (searchPaths.front().osType() == OsTypeMac) {
         QtcProcess proc;
         proc.setTimeoutS(2);
         proc.setCommand({"xcrun", {"--find", "lldb"}});
@@ -773,16 +772,15 @@ void DebuggerItemManagerPrivate::autoDetectGdbOrLldbDebuggers(const FilePath &de
         }
     }
 
-    FilePaths paths = device->systemEnvironment().path();
-    if (!deviceRoot.needsDevice())
+    FilePaths paths = searchPaths;
+    if (!searchPaths.front().needsDevice())
         paths.append(searchGdbPathsFromRegistry());
 
     paths = Utils::filteredUnique(paths);
 
-    for (const FilePath &path : paths) {
-        const FilePath globalPath = path.onDevice(deviceRoot);
-        suspects.append(device->directoryEntries(globalPath, filters, QDir::Files | QDir::Executable));
-    }
+    const auto addSuspect = [&suspects](const FilePath &entry) { suspects.append(entry); return true; };
+    for (const FilePath &path : paths)
+        path.iterateDirectory(addSuspect, filters, QDir::Files | QDir::Executable);
 
     QStringList logMessages{tr("Searching debuggers...")};
     for (const FilePath &command : qAsConst(suspects)) {
@@ -1044,11 +1042,11 @@ void DebuggerItemManager::deregisterDebugger(const QVariant &id)
     });
 }
 
-void DebuggerItemManager::autoDetectDebuggersForDevice(const FilePath &deviceRoot,
+void DebuggerItemManager::autoDetectDebuggersForDevice(const FilePaths &searchPaths,
                                                        const QString &detectionSource,
                                                        QString *logMessage)
 {
-    d->autoDetectGdbOrLldbDebuggers(deviceRoot, detectionSource, logMessage);
+    d->autoDetectGdbOrLldbDebuggers(searchPaths, detectionSource, logMessage);
 }
 
 void DebuggerItemManager::removeDetectedDebuggers(const QString &detectionSource,

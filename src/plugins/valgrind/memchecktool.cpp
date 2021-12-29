@@ -72,6 +72,7 @@
 #include <coreplugin/modemanager.h>
 
 #include <ssh/sshconnection.h>
+#include <ssh/sshconnectionmanager.h>
 
 #include <utils/checkablemessagebox.h>
 #include <utils/fancymainwindow.h>
@@ -150,23 +151,42 @@ class LocalAddressFinder : public RunWorker
 {
 public:
     LocalAddressFinder(RunControl *runControl, QHostAddress *localServerAddress)
-        : RunWorker(runControl), connection(device()->sshParameters())
-    {
-        connect(&connection, &QSsh::SshConnection::connected, this, [this, localServerAddress] {
-            *localServerAddress = connection.connectionInfo().localAddress;
-            reportStarted();
-        });
-        connect(&connection, &QSsh::SshConnection::errorOccurred, this, [this] {
-            reportFailure();
-        });
-    }
+        : RunWorker(runControl), m_localServerAddress(localServerAddress) {}
 
     void start() override
     {
-        connection.connectToHost();
+        m_connection = QSsh::SshConnectionManager::acquireConnection(device()->sshParameters());
+        if (!m_connection) {
+            reportFailure();
+            return;
+        }
+
+        connect(m_connection, &QSsh::SshConnection::errorOccurred, this, [this] {
+            reportFailure();
+        });
+
+        auto connected = [this] {
+            *m_localServerAddress = m_connection->connectionInfo().localAddress;
+            reportStarted();
+        };
+        if (m_connection->state() == QSsh::SshConnection::Connected) {
+            connected();
+        } else {
+            connect(m_connection, &QSsh::SshConnection::connected, this, connected);
+            m_connection->connectToHost();
+        }
     }
 
-    QSsh::SshConnection connection;
+    void stop() override
+    {
+        if (m_connection)
+            QSsh::SshConnectionManager::releaseConnection(m_connection);
+        reportStopped();
+    }
+
+private:
+    QSsh::SshConnection *m_connection = nullptr;
+    QHostAddress *m_localServerAddress = nullptr;
 };
 
 QString MemcheckToolRunner::progressTitle() const
@@ -1170,8 +1190,11 @@ MemcheckToolRunner::MemcheckToolRunner(RunControl *runControl)
     }
 
     // We need a real address to connect to from the outside.
-    if (device()->type() != ProjectExplorer::Constants::DESKTOP_DEVICE_TYPE)
-        addStartDependency(new LocalAddressFinder(runControl, &m_localServerAddress));
+    if (device()->type() != ProjectExplorer::Constants::DESKTOP_DEVICE_TYPE) {
+        auto *dependentWorker = new LocalAddressFinder(runControl, &m_localServerAddress);
+        addStartDependency(dependentWorker);
+        addStopDependency(dependentWorker);
+    }
 
     dd->setupRunner(this);
 }

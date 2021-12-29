@@ -310,6 +310,11 @@ function(add_qtc_library name)
       OPTIONAL
     )
   endif()
+
+  get_target_property(have_automoc_prop ${name} AUTOMOC)
+  if("${Qt5_VERSION}" VERSION_GREATER_EQUAL "6.2.0" AND "${have_automoc_prop}")
+    qt_extract_metatypes(${name})
+  endif()
 endfunction(add_qtc_library)
 
 function(add_qtc_plugin target_name)
@@ -864,7 +869,7 @@ function(finalize_qtc_gtest test_name exclude_sources_regex)
     list(FILTER test_sources EXCLUDE REGEX "${exclude_sources_regex}")
   endif()
   include(GoogleTest)
-  gtest_add_tests(TARGET ${test_name} SOURCES ${test_sources} TEST_LIST test_list)
+  gtest_add_tests(TARGET ${test_name} SOURCES ${test_sources} TEST_LIST test_list SKIP_DEPENDENCY)
 
   foreach(test IN LISTS test_list)
     finalize_test_setup(${test})
@@ -1016,6 +1021,7 @@ function(qtc_add_resources target resourceName)
 
   target_sources(${target} PRIVATE "${generatedSourceCode}")
   set_property(SOURCE "${generatedSourceCode}" PROPERTY SKIP_AUTOGEN ON)
+  set_property(SOURCE "${generatedResourceFile}.in" PROPERTY SKIP_AUTOGEN ON)
 endfunction()
 
 function(qtc_add_public_header header)
