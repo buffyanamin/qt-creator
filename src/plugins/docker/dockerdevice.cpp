@@ -329,7 +329,8 @@ public:
     bool runInShell(const CommandLine &cmd) const;
     QString outputForRunInShell(const CommandLine &cmd) const;
 
-    void tryCreateLocalFileAccess();
+    void updateContainerAccess();
+    void updateFileSystemAccess();
 
     void startContainer();
     void stopCurrentContainer();
@@ -396,13 +397,20 @@ public:
             data.useLocalUidGid = on;
         });
 
+        // This tries to find the directory in the host file system that corresponds to the
+        // docker container root file system, which is a merge of the layers from the
+        // container image and the volumes mapped using -v on container startup.
+        //
+        // Accessing files there is much faster than using 'docker exec', but conceptually
+        // only works on Linux, and is restricted there by proper matching of user
+        // permissions between host and container.
         m_usePathMapping = new QCheckBox(tr("Use local file path mapping"));
         m_usePathMapping->setToolTip(tr("Maps docker filesystem to a local directory."));
         m_usePathMapping->setChecked(data.useFilePathMapping);
         m_usePathMapping->setEnabled(HostOsInfo::isLinuxHost());
         connect(m_usePathMapping, &QCheckBox::toggled, this, [&, dockerDevice](bool on) {
             data.useFilePathMapping = on;
-            dockerDevice->tryCreateLocalFileAccess();
+            dockerDevice->updateContainerAccess();
         });
 
         m_pathsListEdit = new PathListEditor;
@@ -448,7 +456,7 @@ public:
         connect(autoDetectButton, &QPushButton::clicked, this,
                 [this, logView, id = data.id(), dockerDevice, searchPaths] {
             logView->clear();
-            dockerDevice->tryCreateLocalFileAccess();
+            dockerDevice->updateContainerAccess();
 
             m_kitItemDetector.autoDetect(id, searchPaths());
 
@@ -815,9 +823,9 @@ void KitDetectorPrivate::autoDetect()
     QApplication::restoreOverrideCursor();
 }
 
-void DockerDevice::tryCreateLocalFileAccess() const
+void DockerDevice::updateContainerAccess() const
 {
-    d->tryCreateLocalFileAccess();
+    d->updateContainerAccess();
 }
 
 void DockerDevicePrivate::stopCurrentContainer()
@@ -942,7 +950,7 @@ void DockerDevicePrivate::startContainer()
     DockerPlugin::setGlobalDaemonState(true);
 }
 
-void DockerDevicePrivate::tryCreateLocalFileAccess()
+void DockerDevicePrivate::updateContainerAccess()
 {
     if (!m_container.isEmpty())
         return;
@@ -953,15 +961,23 @@ void DockerDevicePrivate::tryCreateLocalFileAccess()
     if (!m_shell)
         startContainer();
 
+    updateFileSystemAccess();
+}
+
+void DockerDevicePrivate::updateFileSystemAccess()
+{
     if (!m_data.useFilePathMapping) {
+        // Direct access was used previously, but is not wanted anymore.
         if (!m_mergedDir.isEmpty()) {
             m_mergedDirWatcher.removePath(m_mergedDir);
             m_mergedDir.clear();
         }
         return;
     }
+
     if (!DockerPlugin::isDaemonRunning().value_or(false))
         return;
+
     QtcProcess proc;
     proc.setCommand({"docker", {"inspect", "--format={{.GraphDriver.Data.MergedDir}}", m_container}});
     LOG(proc.commandLine().toUserOutput());
@@ -1138,7 +1154,7 @@ bool DockerDevice::handlesFile(const FilePath &filePath) const
 bool DockerDevice::isExecutableFile(const FilePath &filePath) const
 {
     QTC_ASSERT(handlesFile(filePath), return false);
-    tryCreateLocalFileAccess();
+    updateContainerAccess();
     if (hasLocalFileAccess()) {
         const FilePath localAccess = mapToLocalAccess(filePath);
         const bool res = localAccess.isExecutableFile();
@@ -1152,7 +1168,7 @@ bool DockerDevice::isExecutableFile(const FilePath &filePath) const
 bool DockerDevice::isReadableFile(const FilePath &filePath) const
 {
     QTC_ASSERT(handlesFile(filePath), return false);
-    tryCreateLocalFileAccess();
+    updateContainerAccess();
     if (hasLocalFileAccess()) {
         const FilePath localAccess = mapToLocalAccess(filePath);
         const bool res = localAccess.isReadableFile();
@@ -1166,7 +1182,7 @@ bool DockerDevice::isReadableFile(const FilePath &filePath) const
 bool DockerDevice::isWritableFile(const Utils::FilePath &filePath) const
 {
     QTC_ASSERT(handlesFile(filePath), return false);
-    tryCreateLocalFileAccess();
+    updateContainerAccess();
     if (hasLocalFileAccess()) {
         const FilePath localAccess = mapToLocalAccess(filePath);
         const bool res = localAccess.isWritableFile();
@@ -1180,7 +1196,7 @@ bool DockerDevice::isWritableFile(const Utils::FilePath &filePath) const
 bool DockerDevice::isReadableDirectory(const FilePath &filePath) const
 {
     QTC_ASSERT(handlesFile(filePath), return false);
-    tryCreateLocalFileAccess();
+    updateContainerAccess();
     if (hasLocalFileAccess()) {
         const FilePath localAccess = mapToLocalAccess(filePath);
         const bool res = localAccess.isReadableDir();
@@ -1194,7 +1210,7 @@ bool DockerDevice::isReadableDirectory(const FilePath &filePath) const
 bool DockerDevice::isWritableDirectory(const FilePath &filePath) const
 {
     QTC_ASSERT(handlesFile(filePath), return false);
-    tryCreateLocalFileAccess();
+    updateContainerAccess();
     if (hasLocalFileAccess()) {
         const FilePath localAccess = mapToLocalAccess(filePath);
         const bool res = localAccess.isWritableDir();
@@ -1208,7 +1224,7 @@ bool DockerDevice::isWritableDirectory(const FilePath &filePath) const
 bool DockerDevice::isFile(const FilePath &filePath) const
 {
     QTC_ASSERT(handlesFile(filePath), return false);
-    tryCreateLocalFileAccess();
+    updateContainerAccess();
     if (hasLocalFileAccess()) {
         const FilePath localAccess = mapToLocalAccess(filePath);
         const bool res = localAccess.isFile();
@@ -1222,7 +1238,7 @@ bool DockerDevice::isFile(const FilePath &filePath) const
 bool DockerDevice::isDirectory(const FilePath &filePath) const
 {
     QTC_ASSERT(handlesFile(filePath), return false);
-    tryCreateLocalFileAccess();
+    updateContainerAccess();
     if (hasLocalFileAccess()) {
         const FilePath localAccess = mapToLocalAccess(filePath);
         const bool res = localAccess.isDir();
@@ -1236,7 +1252,7 @@ bool DockerDevice::isDirectory(const FilePath &filePath) const
 bool DockerDevice::createDirectory(const FilePath &filePath) const
 {
     QTC_ASSERT(handlesFile(filePath), return false);
-    tryCreateLocalFileAccess();
+    updateContainerAccess();
     if (hasLocalFileAccess()) {
         const FilePath localAccess = mapToLocalAccess(filePath);
         const bool res = localAccess.createDir();
@@ -1250,7 +1266,7 @@ bool DockerDevice::createDirectory(const FilePath &filePath) const
 bool DockerDevice::exists(const FilePath &filePath) const
 {
     QTC_ASSERT(handlesFile(filePath), return false);
-    tryCreateLocalFileAccess();
+    updateContainerAccess();
     if (hasLocalFileAccess()) {
         const FilePath localAccess = mapToLocalAccess(filePath);
         const bool res = localAccess.exists();
@@ -1264,7 +1280,7 @@ bool DockerDevice::exists(const FilePath &filePath) const
 bool DockerDevice::ensureExistingFile(const FilePath &filePath) const
 {
     QTC_ASSERT(handlesFile(filePath), return false);
-    tryCreateLocalFileAccess();
+    updateContainerAccess();
     if (hasLocalFileAccess()) {
         const FilePath localAccess = mapToLocalAccess(filePath);
         const bool res = localAccess.ensureExistingFile();
@@ -1278,7 +1294,7 @@ bool DockerDevice::ensureExistingFile(const FilePath &filePath) const
 bool DockerDevice::removeFile(const FilePath &filePath) const
 {
     QTC_ASSERT(handlesFile(filePath), return false);
-    tryCreateLocalFileAccess();
+    updateContainerAccess();
     if (hasLocalFileAccess()) {
         const FilePath localAccess = mapToLocalAccess(filePath);
         const bool res = localAccess.removeFile();
@@ -1292,7 +1308,7 @@ bool DockerDevice::removeRecursively(const FilePath &filePath) const
 {
     QTC_ASSERT(handlesFile(filePath), return false);
     QTC_ASSERT(filePath.path().startsWith('/'), return false);
-    tryCreateLocalFileAccess();
+    updateContainerAccess();
     if (hasLocalFileAccess()) {
         const FilePath localAccess = mapToLocalAccess(filePath);
         const bool res = localAccess.removeRecursively();
@@ -1314,7 +1330,7 @@ bool DockerDevice::copyFile(const FilePath &filePath, const FilePath &target) co
 {
     QTC_ASSERT(handlesFile(filePath), return false);
     QTC_ASSERT(handlesFile(target), return false);
-    tryCreateLocalFileAccess();
+    updateContainerAccess();
     if (hasLocalFileAccess()) {
         const FilePath localAccess = mapToLocalAccess(filePath);
         const FilePath localTarget = mapToLocalAccess(target);
@@ -1329,7 +1345,7 @@ bool DockerDevice::renameFile(const FilePath &filePath, const FilePath &target) 
 {
     QTC_ASSERT(handlesFile(filePath), return false);
     QTC_ASSERT(handlesFile(target), return false);
-    tryCreateLocalFileAccess();
+    updateContainerAccess();
     if (hasLocalFileAccess()) {
         const FilePath localAccess = mapToLocalAccess(filePath);
         const FilePath localTarget = mapToLocalAccess(target);
@@ -1343,7 +1359,7 @@ bool DockerDevice::renameFile(const FilePath &filePath, const FilePath &target) 
 QDateTime DockerDevice::lastModified(const FilePath &filePath) const
 {
     QTC_ASSERT(handlesFile(filePath), return {});
-    tryCreateLocalFileAccess();
+    updateContainerAccess();
     if (hasLocalFileAccess()) {
         const FilePath localAccess = mapToLocalAccess(filePath);
         const QDateTime res = localAccess.lastModified();
@@ -1360,7 +1376,7 @@ QDateTime DockerDevice::lastModified(const FilePath &filePath) const
 FilePath DockerDevice::symLinkTarget(const FilePath &filePath) const
 {
     QTC_ASSERT(handlesFile(filePath), return {});
-    tryCreateLocalFileAccess();
+    updateContainerAccess();
     if (hasLocalFileAccess()) {
         const FilePath localAccess = mapToLocalAccess(filePath);
         const FilePath target = localAccess.symLinkTarget();
@@ -1377,7 +1393,7 @@ FilePath DockerDevice::symLinkTarget(const FilePath &filePath) const
 qint64 DockerDevice::fileSize(const FilePath &filePath) const
 {
     QTC_ASSERT(handlesFile(filePath), return -1);
-    tryCreateLocalFileAccess();
+    updateContainerAccess();
     if (hasLocalFileAccess()) {
         const FilePath localAccess = mapToLocalAccess(filePath);
         LOG("File size? " << filePath.toUserOutput() << localAccess.toUserOutput() << localAccess.fileSize());
@@ -1391,7 +1407,7 @@ qint64 DockerDevice::fileSize(const FilePath &filePath) const
 QFileDevice::Permissions DockerDevice::permissions(const FilePath &filePath) const
 {
     QTC_ASSERT(handlesFile(filePath), return {});
-    tryCreateLocalFileAccess();
+    updateContainerAccess();
     if (hasLocalFileAccess()) {
         const FilePath localAccess = mapToLocalAccess(filePath);
         LOG("Permissions? " << filePath.toUserOutput() << localAccess.toUserOutput() << localAccess.permissions());
@@ -1418,7 +1434,7 @@ QFileDevice::Permissions DockerDevice::permissions(const FilePath &filePath) con
 bool DockerDevice::setPermissions(const FilePath &filePath, QFileDevice::Permissions permissions) const
 {
     QTC_ASSERT(handlesFile(filePath), return {});
-    tryCreateLocalFileAccess();
+    updateContainerAccess();
     if (hasLocalFileAccess()) {
         const FilePath localAccess = mapToLocalAccess(filePath);
         LOG("Set permissions? " << filePath.toUserOutput() << localAccess.toUserOutput() << localAccess.permissions());
@@ -1519,7 +1535,6 @@ static void filterEntriesHelper(const FilePath &base,
     // FIXME: Handle filters. For now bark on unsupported options.
     QTC_CHECK(filters == QDir::NoFilter);
 
-    FilePaths result;
     for (const QString &entry : entries) {
         if (!nameMatches(entry))
             continue;
@@ -1534,7 +1549,7 @@ void DockerDevice::iterateDirectory(const FilePath &filePath,
                                     QDir::Filters filters) const
 {
     QTC_ASSERT(handlesFile(filePath), return);
-    tryCreateLocalFileAccess();
+    updateContainerAccess();
     if (hasLocalFileAccess()) {
         const FilePath local = mapToLocalAccess(filePath);
         local.iterateDirectory([&callBack, this](const FilePath &entry) {
@@ -1561,7 +1576,7 @@ void DockerDevice::iterateDirectory(const FilePath &filePath,
 QByteArray DockerDevice::fileContents(const FilePath &filePath, qint64 limit, qint64 offset) const
 {
     QTC_ASSERT(handlesFile(filePath), return {});
-    tryCreateLocalFileAccess();
+    updateContainerAccess();
     if (hasLocalFileAccess())
         return mapToLocalAccess(filePath).fileContents(limit, offset);
 
@@ -1585,7 +1600,7 @@ QByteArray DockerDevice::fileContents(const FilePath &filePath, qint64 limit, qi
 bool DockerDevice::writeFileContents(const FilePath &filePath, const QByteArray &data) const
 {
     QTC_ASSERT(handlesFile(filePath), return {});
-    tryCreateLocalFileAccess();
+    updateContainerAccess();
     if (hasLocalFileAccess())
         return mapToLocalAccess(filePath).writeFileContents(data);
 
@@ -1615,7 +1630,7 @@ bool DockerDevice::writeFileContents(const FilePath &filePath, const QByteArray 
 
 void DockerDevice::runProcess(QtcProcess &process) const
 {
-    tryCreateLocalFileAccess();
+    updateContainerAccess();
     if (!DockerPlugin::isDaemonRunning().value_or(false))
         return;
     if (d->m_container.isEmpty()) {

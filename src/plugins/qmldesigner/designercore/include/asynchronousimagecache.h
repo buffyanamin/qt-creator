@@ -27,6 +27,8 @@
 
 #include "asynchronousimagecacheinterface.h"
 
+#include <utils/optional.h>
+
 #include <condition_variable>
 #include <deque>
 #include <functional>
@@ -43,7 +45,6 @@ class ImageCacheCollectorInterface;
 class AsynchronousImageCache final : public AsynchronousImageCacheInterface
 {
 public:
-
     ~AsynchronousImageCache();
 
     AsynchronousImageCache(ImageCacheStorageInterface &storage,
@@ -62,7 +63,6 @@ public:
                            ImageCache::AuxiliaryData auxiliaryData = {}) override;
 
     void clean();
-    //   void waitForFinished();
 
 private:
     enum class RequestType { Image, SmallImage, Icon };
@@ -91,7 +91,7 @@ private:
         RequestType requestType = RequestType::Image;
     };
 
-    std::tuple<bool, Entry> getEntry();
+    Utils::optional<Entry> getEntry();
     void addEntry(Utils::PathString &&name,
                   Utils::SmallString &&extraId,
                   ImageCache::CaptureImageCallback &&captureCallback,

@@ -27,32 +27,34 @@
 #ifndef CMAKEGENERATORDIALOG_H
 #define CMAKEGENERATORDIALOG_H
 
-#include "checkablefilelistmodel.h"
+#include "cmakegeneratordialogtreemodel.h"
 
 #include <utils/fileutils.h>
 
 #include <QDialog>
+#include <QTextEdit>
 
 
 namespace QmlDesigner {
 namespace GenerateCmake {
 
-class CMakeGeneratorDialogModel : public CheckableFileListModel
-{
-public:
-    CMakeGeneratorDialogModel(const Utils::FilePath &rootDir, const Utils::FilePaths &files, QObject *parent = nullptr);
-protected:
-    virtual bool checkedByDefault(const Utils::FilePath &file) const;
-};
-
 class CmakeGeneratorDialog : public QDialog
 {
+    Q_OBJECT
+
 public:
     CmakeGeneratorDialog(const Utils::FilePath &rootDir, const Utils::FilePaths &files);
     Utils::FilePaths getFilePaths();
 
+public slots:
+    void refreshNotificationText();
+
 private:
-    CheckableFileListModel *model;
+    CMakeGeneratorDialogTreeModel *m_model;
+    QTextEdit *m_notifications;
+    QVariant m_warningIcon;
+    Utils::FilePath m_rootDir;
+    Utils::FilePaths m_files;
 };
 
 }

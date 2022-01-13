@@ -39,6 +39,8 @@ public:
     RemoteLinuxPlugin();
     ~RemoteLinuxPlugin() final;
 
+    QVector<QObject *> createTestObjects() const override;
+
 private:
     bool initialize(const QStringList &arguments, QString *errorMessage) final;
 };

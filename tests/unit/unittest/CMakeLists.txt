@@ -114,6 +114,8 @@ add_qtc_test(unittest GTEST
     imagecachecollectormock.h
     mockimagecachegenerator.h
     mockimagecachestorage.h
+    asynchronousexplicitimagecache-test.cpp
+    asynchronousimagefactory-test.cpp
 )
 
 if (NOT TARGET unittest)
@@ -281,7 +283,10 @@ extend_qtc_test(unittest
     exceptions/notimplementedexception.cpp
     exceptions/removebasestateexception.cpp
     exceptions/rewritingexception.cpp
+    imagecache/asynchronousexplicitimagecache.cpp
     imagecache/asynchronousimagecache.cpp
+    imagecache/asynchronousimagefactory.cpp
+    imagecache/asynchronousimagefactory.h
     imagecache/imagecachecollectorinterface.h
     imagecache/imagecachegenerator.cpp
     imagecache/imagecachegenerator.h
@@ -292,6 +297,7 @@ extend_qtc_test(unittest
     imagecache/timestampproviderinterface.h
     include/abstractproperty.h
     include/abstractview.h
+    include/asynchronousexplicitimagecache.h
     include/asynchronousimagecache.h
     include/asynchronousimagecacheinterface.h
     include/bindingproperty.h

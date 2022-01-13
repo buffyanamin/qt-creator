@@ -29,31 +29,16 @@
 #include <QImage>
 
 #include <sqlitetimestamp.h>
+#include <utils/optional.h>
 #include <utils/smallstringview.h>
 
 namespace QmlDesigner {
-namespace Internal {
-class ImageCacheStorageImageEntry
-{
-public:
-    QImage image;
-    bool hasEntry = false;
-};
-
-class ImageCacheStorageIconEntry
-{
-public:
-    QIcon icon;
-    bool hasEntry = false;
-};
-
-} // namespace Internal
 
 class ImageCacheStorageInterface
 {
 public:
-    using ImageEntry = Internal::ImageCacheStorageImageEntry;
-    using IconEntry = Internal::ImageCacheStorageIconEntry;
+    using ImageEntry = Utils::optional<QImage>;
+    using IconEntry = Utils::optional<QIcon>;
 
     virtual ImageEntry fetchImage(Utils::SmallStringView name,
                                   Sqlite::TimeStamp minimumTimeStamp) const = 0;
@@ -68,6 +53,8 @@ public:
         = 0;
     virtual void storeIcon(Utils::SmallStringView name, Sqlite::TimeStamp newTimeStamp, const QIcon &icon) = 0;
     virtual void walCheckpointFull() = 0;
+    virtual Sqlite::TimeStamp fetchModifiedImageTime(Utils::SmallStringView name) const = 0;
+    virtual bool fetchHasImage(Utils::SmallStringView name) const = 0;
 
 protected:
     ~ImageCacheStorageInterface() = default;

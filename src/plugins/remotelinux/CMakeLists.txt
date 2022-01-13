@@ -45,3 +45,10 @@ add_qtc_plugin(RemoteLinux
     tarpackagecreationstep.cpp tarpackagecreationstep.h
     uploadandinstalltarpackagestep.cpp uploadandinstalltarpackagestep.h
 )
+
+extend_qtc_plugin(RemoteLinux
+  CONDITION WITH_TESTS
+  SOURCES
+    filesystemaccess_test.cpp
+    filesystemaccess_test.h
+)

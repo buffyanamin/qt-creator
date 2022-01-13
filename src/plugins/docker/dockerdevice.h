@@ -44,7 +44,7 @@ public:
     QString tag;
     QString size;
     bool useLocalUidGid = true;
-    bool useFilePathMapping = true;
+    bool useFilePathMapping = false;
     QStringList mounts;
 };
 
@@ -111,7 +111,7 @@ public:
     const DockerDeviceData &data() const;
     DockerDeviceData &data();
 
-    void tryCreateLocalFileAccess() const;
+    void updateContainerAccess() const;
     bool hasLocalFileAccess() const;
     void setMounts(const QStringList &mounts) const;
 

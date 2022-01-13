@@ -98,6 +98,15 @@ Project {
             "images/embeddedtarget.png",
         ]
 
+        Group {
+            name: "Tests"
+            condition: qtc.testsEnabled
+            files: [
+                "filesystemaccess_test.cpp",
+                "filesystemaccess_test.h",
+            ]
+        }
+
         Export {
             Depends { name: "Debugger" }
             Depends { name: "Core" }

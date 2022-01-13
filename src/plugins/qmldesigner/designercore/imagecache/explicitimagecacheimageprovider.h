@@ -1,9 +1,9 @@
 /****************************************************************************
 **
-** Copyright (C) 2021 The Qt Company Ltd.
+** Copyright (C) 2022 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
-** This file is part of the Qt Design Tooling
+** This file is part of Qt Creator.
 **
 ** Commercial License Usage
 ** Licensees holding valid commercial Qt licenses may use this file in
@@ -23,43 +23,29 @@
 **
 ****************************************************************************/
 
-#ifndef CHECKABLEFILELISTMODEL_H
-#define CHECKABLEFILELISTMODEL_H
+#pragma once
 
-#include <utils/fileutils.h>
-#include <QStandardItemModel>
+#include <QQuickAsyncImageProvider>
+#include <QQuickImageResponse>
 
 namespace QmlDesigner {
 
-class CheckableStandardItem : public QStandardItem
+class AsynchronousExplicitImageCache;
+
+class ExplicitImageCacheImageProvider : public QQuickAsyncImageProvider
 {
 public:
-    explicit CheckableStandardItem(const QString &text = QString(), bool checked = false);
-    bool isChecked() const;
-    void setChecked(bool checked);
-    int type() const;
+    ExplicitImageCacheImageProvider(AsynchronousExplicitImageCache &imageCache,
+                                    const QImage &defaultImage)
+        : m_cache(imageCache)
+        , m_defaultImage(defaultImage)
+    {}
+
+    QQuickImageResponse *requestImageResponse(const QString &id, const QSize &requestedSize) override;
 
 private:
-    bool checked;
+    AsynchronousExplicitImageCache &m_cache;
+    QImage m_defaultImage;
 };
 
-class CheckableFileListModel : public QStandardItemModel
-{
-public:
-    CheckableFileListModel(const Utils::FilePath &rootDir,
-                           const Utils::FilePaths &files,
-                           bool checkedByDefault = false,
-                           QObject *parent = nullptr);
-    QVariant data(const QModelIndex &index, int role) const;
-    bool setData(const QModelIndex &index, const QVariant &value, int role);
-    QList<CheckableStandardItem*> checkedItems() const;
-
-protected:
-    Utils::FilePath rootDir;
-};
-
-} //QmlDesigner
-
-Q_DECLARE_METATYPE(QmlDesigner::CheckableStandardItem)
-
-#endif // CHECKABLEFILELISTMODEL_H
+} // namespace QmlDesigner

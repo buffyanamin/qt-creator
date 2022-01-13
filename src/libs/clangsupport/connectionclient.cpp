@@ -157,6 +157,7 @@ void ConnectionClient::restartProcessIfTimerIsNotResettedAndSocketIsEmpty()
     if (!m_localSocket || m_localSocket->bytesAvailable() > 0)
         return; // We come first, the incoming data was not yet processed.
 
+    disconnectLocalSocketDisconnected();
     disconnectFromServer();
     restartProcessAsynchronously();
 }
@@ -315,7 +316,7 @@ QIODevice *ConnectionClient::ioDevice()
 
 bool ConnectionClient::isProcessRunning(QtcProcess *process)
 {
-    return process && process->isRunning();
+    return process && process->state() == QProcess::Running;
 }
 
 void ConnectionClient::connectStandardOutputAndError(QtcProcess *process) const
