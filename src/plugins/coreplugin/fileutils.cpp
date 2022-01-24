@@ -93,18 +93,7 @@ void FileUtils::showInGraphicalShell(QWidget *parent, const FilePath &pathIn)
         param += QDir::toNativeSeparators(fileInfo.canonicalFilePath());
         QtcProcess::startDetached({explorer, param});
     } else if (HostOsInfo::isMacHost()) {
-        QStringList scriptArgs;
-        scriptArgs << QLatin1String("-e")
-                   << QString::fromLatin1("tell application \"Finder\" to reveal POSIX file \"%1\"")
-                                         .arg(fileInfo.canonicalFilePath());
-        QtcProcess osascriptProcess;
-        osascriptProcess.setCommand({"/usr/bin/osascript", scriptArgs});
-        osascriptProcess.runBlocking();
-        scriptArgs.clear();
-        scriptArgs << QLatin1String("-e")
-                   << QLatin1String("tell application \"Finder\" to activate");
-        osascriptProcess.setCommand({"/usr/bin/osascript", scriptArgs});
-        osascriptProcess.runBlocking();
+        QtcProcess::startDetached({"/usr/bin/open", {"-R", fileInfo.canonicalFilePath()}});
     } else {
         // we cannot select a file here, because no file browser really supports it...
         const QString folder = fileInfo.isDir() ? fileInfo.absoluteFilePath() : fileInfo.filePath();
@@ -150,7 +139,7 @@ void FileUtils::openTerminal(const FilePath &path, const Environment &env)
     const QString pwd = QDir::toNativeSeparators(fileInfo.isDir() ?
                                                  fileInfo.absoluteFilePath() :
                                                  fileInfo.absolutePath());
-    ConsoleProcess::startTerminalEmulator(ICore::settings(), pwd, env);
+    ConsoleProcess::startTerminalEmulator(pwd, env);
 }
 
 QString FileUtils::msgFindInDirectory()

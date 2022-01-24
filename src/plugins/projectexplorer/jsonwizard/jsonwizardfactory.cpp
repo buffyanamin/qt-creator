@@ -278,6 +278,59 @@ QVariant JsonWizardFactory::getDataValue(const QLatin1String &key, const QVarian
     return retVal;
 }
 
+std::pair<int, QStringList> JsonWizardFactory::screenSizeInfoFromPage(const QString &pageType) const
+{
+    /* Retrieving the ScreenFactor "trKey" values from pages[i]/data[j]/data["items"], where
+     * pages[i] is the page of type `pageType` and data[j] is the data item with name ScreenFactor
+    */
+
+    const Utils::Id id = Utils::Id::fromString(Constants::PAGE_ID_PREFIX + pageType);
+
+    const auto it = std::find_if(std::cbegin(m_pages), std::cend(m_pages), [&id](const Page &page) {
+        return page.typeId == id;
+    });
+
+    if (it == std::cend(m_pages))
+        return {};
+
+    const QVariant data = it->data;
+    if (data.type() != QVariant::List)
+        return {};
+
+    const QVariant screenFactorField = Utils::findOrDefault(data.toList(),
+                                                            [](const QVariant &field) {
+                                                                const QVariantMap m = field.toMap();
+                                                                return "ScreenFactor" == m["name"];
+                                                            });
+
+    if (screenFactorField.type() != QVariant::Map)
+        return {};
+
+    const QVariant screenFactorData = screenFactorField.toMap()["data"];
+    if (screenFactorData.type() != QVariant::Map)
+        return {};
+
+    const QVariantMap screenFactorDataMap = screenFactorData.toMap();
+    if (!screenFactorDataMap.contains("items"))
+        return {};
+
+    bool ok = false;
+    const int index = screenFactorDataMap["index"].toInt(&ok);
+    const QVariantList items = screenFactorDataMap["items"].toList();
+    if (items.isEmpty())
+        return {};
+
+    QStringList values = Utils::transform(items, [](const QVariant &item) {
+        const QVariantMap m = item.toMap();
+        return m["trKey"].toString();
+    });
+
+    if (values.isEmpty())
+        return {};
+
+    return std::make_pair(index, values);
+}
+
 JsonWizardFactory::Page JsonWizardFactory::parsePage(const QVariant &value, QString *errorMessage)
 {
     JsonWizardFactory::Page p;
@@ -372,7 +425,8 @@ QList<Core::IWizardFactory *> JsonWizardFactory::createWizardFactories()
 
         const QDir::Filters filters = QDir::Dirs|QDir::Readable|QDir::NoDotAndDotDot;
         const QDir::SortFlags sortflags = QDir::Name|QDir::IgnoreCase;
-        FilePaths dirs = path.dirEntries({}, filters, sortflags);
+        const QDirIterator::IteratorFlag iteratorFlags = QDirIterator::NoIteratorFlags;
+        FilePaths dirs = path.dirEntries({}, filters, iteratorFlags, sortflags);
 
         while (!dirs.isEmpty()) {
             const FilePath currentDir = dirs.takeFirst();
@@ -429,7 +483,7 @@ QList<Core::IWizardFactory *> JsonWizardFactory::createWizardFactories()
 
                 result << factory;
             } else {
-                FilePaths subDirs = currentDir.dirEntries({}, filters, sortflags);
+                FilePaths subDirs = currentDir.dirEntries({}, filters, iteratorFlags, sortflags);
                 if (!subDirs.isEmpty()) {
                     // There is no QList::prepend(QList)...
                     dirs.swap(subDirs);

@@ -154,7 +154,10 @@ FunctionHintProposalWidget::FunctionHintProposalWidget()
 
     connect(upArrow, &QAbstractButton::clicked, this, &FunctionHintProposalWidget::previousPage);
     connect(downArrow, &QAbstractButton::clicked, this, &FunctionHintProposalWidget::nextPage);
-    connect(d->m_popupFrame.data(), &QObject::destroyed, this, &FunctionHintProposalWidget::abort);
+    connect(d->m_popupFrame.data(), &QObject::destroyed, this, [this](){
+        qApp->removeEventFilter(this);
+        deleteLater();
+    });
 
     setFocusPolicy(Qt::NoFocus);
 }
@@ -221,7 +224,7 @@ void FunctionHintProposalWidget::closeProposal()
 
 bool FunctionHintProposalWidget::proposalIsVisible() const
 {
-    return d->m_popupFrame->isVisible();
+    return d->m_popupFrame && d->m_popupFrame->isVisible();
 }
 
 void FunctionHintProposalWidget::abort()

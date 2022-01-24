@@ -174,12 +174,12 @@ TerminalRunner::TerminalRunner(RunControl *runControl,
 {
     setId("TerminalRunner");
 
-    connect(&m_stubProc, &ConsoleProcess::processError,
+    connect(&m_stubProc, &ConsoleProcess::errorOccurred,
             this, &TerminalRunner::stubError);
-    connect(&m_stubProc, &ConsoleProcess::processStarted,
+    connect(&m_stubProc, &ConsoleProcess::started,
             this, &TerminalRunner::stubStarted);
-    connect(&m_stubProc, &ConsoleProcess::processStopped,
-            this, [this] { reportDone(); });
+    connect(&m_stubProc, &ConsoleProcess::finished,
+            this, &TerminalRunner::reportDone);
 }
 
 void TerminalRunner::kickoffProcess()
@@ -209,13 +209,8 @@ void TerminalRunner::start()
 
     m_stubProc.setEnvironment(stub.environment);
     m_stubProc.setWorkingDirectory(stub.workingDirectory);
-
-    if (HostOsInfo::isWindowsHost()) {
-        m_stubProc.setMode(ConsoleProcess::Suspend);
-    } else {
-        m_stubProc.setMode(ConsoleProcess::Debug);
-        m_stubProc.setSettings(Core::ICore::settings());
-    }
+    m_stubProc.setMode(HostOsInfo::isWindowsHost() ? ConsoleProcess::Suspend
+                                                   : ConsoleProcess::Debug);
 
     // Error message for user is delivered via a signal.
     m_stubProc.setCommand(stub.command);
@@ -224,20 +219,20 @@ void TerminalRunner::start()
 
 void TerminalRunner::stop()
 {
-    m_stubProc.stop();
+    m_stubProc.stopProcess();
     reportStopped();
 }
 
 void TerminalRunner::stubStarted()
 {
-    m_applicationPid = m_stubProc.applicationPID();
+    m_applicationPid = m_stubProc.processId();
     m_applicationMainThreadId = m_stubProc.applicationMainThreadID();
     reportStarted();
 }
 
-void TerminalRunner::stubError(const QString &msg)
+void TerminalRunner::stubError()
 {
-    reportFailure(msg);
+    reportFailure(m_stubProc.errorString());
 }
 
 } // namespace Internal

@@ -249,7 +249,7 @@ public:
         m_widgetStack = new QStackedWidget;
         m_container->setWidget(m_widgetStack);
 
-        foreach (ToolChain *tc, ToolChainManager::toolChains())
+        for (ToolChain *tc : ToolChainManager::toolchains())
             insertToolChain(tc);
 
         auto buttonLayout = new QVBoxLayout;
@@ -398,7 +398,7 @@ StaticTreeItem *ToolChainOptionsWidget::parentForToolChain(ToolChain *tc)
 void ToolChainOptionsWidget::redetectToolchains()
 {
     QList<ToolChainTreeItem *> itemsToRemove;
-    QList<ToolChain *> knownTcs;
+    Toolchains knownTcs;
     m_model.forAllItems([&itemsToRemove, &knownTcs](TreeItem *item) {
         if (item->level() != 3)
             return;
@@ -410,10 +410,12 @@ void ToolChainOptionsWidget::redetectToolchains()
             knownTcs << tcItem->toolChain;
         }
     });
-    QList<ToolChain *> toAdd;
+    Toolchains toAdd;
     QSet<ToolChain *> toDelete;
+    ToolChainManager::resetBadToolchains();
     for (ToolChainFactory *f : ToolChainFactory::allToolChainFactories()) {
-        for (ToolChain * const tc : f->autoDetect(knownTcs, {})) {  // FIXME: Pass device.
+        const ToolchainDetector detector(knownTcs, {});  // FIXME: Pass device.
+        for (ToolChain * const tc : f->autoDetect(detector)) {
             if (knownTcs.contains(tc) || toDelete.contains(tc))
                 continue;
             const auto matchItem = [tc](const ToolChainTreeItem *item) {

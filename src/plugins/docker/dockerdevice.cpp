@@ -628,7 +628,7 @@ void KitDetectorPrivate::undoAutoDetect() const
     };
 
     emit q->logOutput('\n' + tr("Removing toolchain entries..."));
-    for (ToolChain *toolChain : ToolChainManager::toolChains()) {
+    for (ToolChain *toolChain : ToolChainManager::toolchains()) {
         QString detectionSource = toolChain->detectionSource();
         if (toolChain->detectionSource() == m_sharedId) {
             emit q->logOutput(tr("Removed \"%1\"").arg(toolChain->displayName()));
@@ -676,10 +676,9 @@ void KitDetectorPrivate::listAutoDetected() const
     };
 
     emit q->logOutput('\n' + tr("Toolchains:"));
-    for (ToolChain *toolChain : ToolChainManager::toolChains()) {
-        if (toolChain->detectionSource() == m_sharedId) {
+    for (ToolChain *toolChain : ToolChainManager::toolchains()) {
+        if (toolChain->detectionSource() == m_sharedId)
             emit q->logOutput(toolChain->displayName());
-        }
     };
 
     if (QObject *cmakeManager = ExtensionSystem::PluginManager::getObjectByName("CMakeToolManager")) {
@@ -729,17 +728,18 @@ QList<BaseQtVersion *> KitDetectorPrivate::autoDetectQtVersions() const
     return qtVersions;
 }
 
-QList<ToolChain *> KitDetectorPrivate::autoDetectToolChains()
+Toolchains KitDetectorPrivate::autoDetectToolChains()
 {
     const QList<ToolChainFactory *> factories = ToolChainFactory::allToolChainFactories();
 
-    QList<ToolChain *> alreadyKnown = ToolChainManager::toolChains();
-    QList<ToolChain *> allNewToolChains;
+    Toolchains alreadyKnown = ToolChainManager::toolchains();
+    Toolchains allNewToolChains;
     QApplication::processEvents();
     emit q->logOutput('\n' + tr("Searching toolchains..."));
     for (ToolChainFactory *factory : factories) {
         emit q->logOutput(tr("Searching toolchains of type %1").arg(factory->displayName()));
-        const QList<ToolChain *> newToolChains = factory->autoDetect(alreadyKnown, m_device.constCast<IDevice>());
+        const ToolchainDetector detector(alreadyKnown, m_device);
+        const Toolchains newToolChains = factory->autoDetect(detector);
         for (ToolChain *toolChain : newToolChains) {
             emit q->logOutput(tr("Found \"%1\"").arg(toolChain->compilerCommand().toUserOutput()));
             toolChain->setDetectionSource(m_sharedId);
@@ -1546,8 +1546,11 @@ static void filterEntriesHelper(const FilePath &base,
 void DockerDevice::iterateDirectory(const FilePath &filePath,
                                     const std::function<bool(const FilePath &)> &callBack,
                                     const QStringList &nameFilters,
-                                    QDir::Filters filters) const
+                                    QDir::Filters filters,
+                                    QDirIterator::IteratorFlags flags) const
 {
+    Q_UNUSED(flags) // FIXME: Use it.
+
     QTC_ASSERT(handlesFile(filePath), return);
     updateContainerAccess();
     if (hasLocalFileAccess()) {
@@ -1717,7 +1720,7 @@ bool DockerDevicePrivate::runInContainer(const CommandLine &cmd) const
 
     QtcProcess proc;
     proc.setCommand(dcmd);
-    proc.setWorkingDirectory(QDir::tempPath());
+    proc.setWorkingDirectory(FilePath::fromString(QDir::tempPath()));
     proc.start();
     proc.waitForFinished();
 

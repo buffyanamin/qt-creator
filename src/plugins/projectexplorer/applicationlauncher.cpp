@@ -77,7 +77,7 @@ public:
     // Local
     void handleProcessStarted();
     void localGuiProcessError();
-    void localConsoleProcessError(const QString &error);
+    void localConsoleProcessError();
     void readLocalStandardOutput();
     void readLocalStandardError();
     void cannotRetrieveLocalDebugOutput();
@@ -147,13 +147,11 @@ ApplicationLauncherPrivate::ApplicationLauncherPrivate(ApplicationLauncher *pare
     connect(&m_guiProcess, &QtcProcess::errorOccurred,
             q, &ApplicationLauncher::error);
 
-    m_consoleProcess.setSettings(Core::ICore::settings());
-
-    connect(&m_consoleProcess, &ConsoleProcess::processStarted,
+    connect(&m_consoleProcess, &ConsoleProcess::started,
             this, &ApplicationLauncherPrivate::handleProcessStarted);
-    connect(&m_consoleProcess, &ConsoleProcess::processError,
+    connect(&m_consoleProcess, &ConsoleProcess::errorOccurred,
             this, &ApplicationLauncherPrivate::localConsoleProcessError);
-    connect(&m_consoleProcess, &ConsoleProcess::processStopped, this, [this] {
+    connect(&m_consoleProcess, &ConsoleProcess::finished, this, [this] {
         localProcessDone(m_consoleProcess.exitCode(), m_consoleProcess.exitStatus());
     });
     connect(&m_consoleProcess, &ConsoleProcess::errorOccurred,
@@ -199,7 +197,7 @@ void ApplicationLauncherPrivate::stop()
         if (!isRunning())
             return;
         if (m_useTerminal) {
-            m_consoleProcess.stop();
+            m_consoleProcess.stopProcess();
             localProcessDone(0, QProcess::CrashExit);
         } else {
             m_guiProcess.terminate();
@@ -253,7 +251,7 @@ qint64 ApplicationLauncherPrivate::applicationPID() const
         return 0;
 
     if (m_useTerminal)
-        return m_consoleProcess.applicationPID();
+        return m_consoleProcess.processId();
 
     return m_guiProcess.processId();
 }
@@ -294,10 +292,10 @@ void ApplicationLauncherPrivate::localGuiProcessError()
     }
 }
 
-void ApplicationLauncherPrivate::localConsoleProcessError(const QString &error)
+void ApplicationLauncherPrivate::localConsoleProcessError()
 {
-    emit q->appendMessage(error, ErrorMessageFormat);
-    if (m_processRunning && m_consoleProcess.applicationPID() == 0) {
+    emit q->appendMessage(m_consoleProcess.errorString(), ErrorMessageFormat);
+    if (m_processRunning && m_consoleProcess.processId() == 0) {
         m_processRunning = false;
         emit q->processExited(-1, QProcess::NormalExit);
     }
@@ -462,12 +460,8 @@ void ApplicationLauncherPrivate::setFinished()
         return;
 
     int exitCode = 0;
-    if (m_deviceProcess) {
+    if (m_deviceProcess)
         exitCode = m_deviceProcess->exitCode();
-        m_deviceProcess->disconnect(this);
-        m_deviceProcess->deleteLater();
-        m_deviceProcess = nullptr;
-    }
 
     m_state = Inactive;
     emit q->processExited(exitCode, m_remoteExitStatus);

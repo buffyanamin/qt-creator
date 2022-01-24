@@ -39,6 +39,8 @@
 #include <QFileInfo>
 #include <QUuid>
 
+#include <utility>
+
 using namespace Utils;
 
 static const char ID_KEY[] = "ProjectExplorer.ToolChain.Id";
@@ -539,15 +541,13 @@ const QList<ToolChainFactory *> ToolChainFactory::allToolChainFactories()
     return Internal::g_toolChainFactories;
 }
 
-QList<ToolChain *> ToolChainFactory::autoDetect(const QList<ToolChain *> &alreadyKnown,
-                                                const IDevice::Ptr &device)
+Toolchains ToolChainFactory::autoDetect(const ToolchainDetector &detector) const
 {
-    Q_UNUSED(alreadyKnown)
-    Q_UNUSED(device)
+    Q_UNUSED(detector)
     return {};
 }
 
-QList<ToolChain *> ToolChainFactory::detectForImport(const ToolChainDescription &tcd)
+Toolchains ToolChainFactory::detectForImport(const ToolChainDescription &tcd) const
 {
     Q_UNUSED(tcd)
     return {};
@@ -558,7 +558,7 @@ bool ToolChainFactory::canCreate() const
     return m_userCreatable;
 }
 
-ToolChain *ToolChainFactory::create()
+ToolChain *ToolChainFactory::create() const
 {
     return m_toolchainConstructor ? m_toolchainConstructor() : nullptr;
 }
@@ -648,6 +648,68 @@ void ToolChainFactory::setToolchainConstructor
 void ToolChainFactory::setUserCreatable(bool userCreatable)
 {
     m_userCreatable = userCreatable;
+}
+
+ToolchainDetector::ToolchainDetector(const Toolchains &alreadyKnown, const IDevice::ConstPtr &device)
+    : alreadyKnown(alreadyKnown), device(device)
+{}
+
+BadToolchain::BadToolchain(const Utils::FilePath &filePath)
+    : BadToolchain(filePath, filePath.symLinkTarget(), filePath.lastModified())
+{}
+
+BadToolchain::BadToolchain(const Utils::FilePath &filePath, const Utils::FilePath &symlinkTarget,
+                           const QDateTime &timestamp)
+    : filePath(filePath), symlinkTarget(symlinkTarget), timestamp(timestamp)
+{}
+
+
+static QString badToolchainFilePathKey() { return {"FilePath"}; }
+static QString badToolchainSymlinkTargetKey() { return {"TargetFilePath"}; }
+static QString badToolchainTimestampKey() { return {"Timestamp"}; }
+
+QVariantMap BadToolchain::toMap() const
+{
+    return {
+        std::make_pair(badToolchainFilePathKey(), filePath.toVariant()),
+        std::make_pair(badToolchainSymlinkTargetKey(), symlinkTarget.toVariant()),
+        std::make_pair(badToolchainTimestampKey(), timestamp.toMSecsSinceEpoch()),
+    };
+}
+
+BadToolchain BadToolchain::fromMap(const QVariantMap &map)
+{
+    return {
+        FilePath::fromVariant(map.value(badToolchainFilePathKey())),
+        FilePath::fromVariant(map.value(badToolchainSymlinkTargetKey())),
+        QDateTime::fromMSecsSinceEpoch(map.value(badToolchainTimestampKey()).toLongLong())
+    };
+}
+
+BadToolchains::BadToolchains(const QList<BadToolchain> &toolchains)
+    : toolchains(Utils::filtered(toolchains, [](const BadToolchain &badTc) {
+          return badTc.filePath.lastModified() == badTc.timestamp
+                  && badTc.filePath.symLinkTarget() == badTc.symlinkTarget;
+      }))
+{}
+
+bool BadToolchains::isBadToolchain(const FilePath &toolchain) const
+{
+    return Utils::contains(toolchains, [toolchain](const BadToolchain &badTc) {
+        return badTc.filePath == toolchain.absoluteFilePath()
+                || badTc.symlinkTarget == toolchain.absoluteFilePath();
+    });
+}
+
+QVariant BadToolchains::toVariant() const
+{
+    return Utils::transform<QVariantList>(toolchains, &BadToolchain::toMap);
+}
+
+BadToolchains BadToolchains::fromVariant(const QVariant &v)
+{
+    return Utils::transform<QList<BadToolchain>>(v.toList(),
+            [](const QVariant &e) { return BadToolchain::fromMap(e.toMap()); });
 }
 
 } // namespace ProjectExplorer

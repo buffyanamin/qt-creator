@@ -88,6 +88,7 @@ const char DO_NOT_SHOW_SPLASHSCREEN_AGAIN_KEY[] = "StudioSplashScreen";
 const char DETAILED_USAGE_STATISTICS[] = "DetailedUsageStatistics";
 const char STATISTICS_COLLECTION_MODE[] = "StatisticsCollectionMode";
 const char NO_TELEMETRY[] = "NoTelemetry";
+const char CRASH_REPORTER_SETTING[] = "CrashReportingEnabled";
 
 QPointer<QQuickWidget> s_view = nullptr;
 static StudioWelcomePlugin *s_pluginInstance = nullptr;
@@ -122,6 +123,8 @@ class UsageStatisticPluginModel : public QObject
     Q_OBJECT
 
     Q_PROPERTY(bool usageStatisticEnabled MEMBER m_usageStatisticEnabled NOTIFY usageStatisticChanged)
+    Q_PROPERTY(bool crashReporterEnabled MEMBER m_crashReporterEnabled NOTIFY crashReporterEnabledChanged)
+
 public:
     explicit UsageStatisticPluginModel(QObject *parent = nullptr)
         : QObject(parent)
@@ -135,7 +138,27 @@ public:
         QVariant value = settings->value(STATISTICS_COLLECTION_MODE);
         m_usageStatisticEnabled = value.isValid() && value.toString() == DETAILED_USAGE_STATISTICS;
 
+        m_crashReporterEnabled = Core::ICore::settings()->value(CRASH_REPORTER_SETTING, false).toBool();
+
         emit usageStatisticChanged();
+        emit crashReporterEnabledChanged();
+    }
+
+    Q_INVOKABLE void setCrashReporterEnabled(bool b)
+    {
+        if (m_crashReporterEnabled == b)
+            return;
+
+        Core::ICore::settings()->setValue(CRASH_REPORTER_SETTING, b);
+
+        s_pluginInstance->pauseRemoveSplashTimer();
+
+        const QString restartText = tr("The change will take effect after restart.");
+        Core::RestartDialog restartDialog(Core::ICore::dialogParent(), restartText);
+        restartDialog.exec();
+
+        s_pluginInstance->resumeRemoveSplashTimer();
+        setupModel();
     }
 
     Q_INVOKABLE void setTelemetryEnabled(bool b)
@@ -160,9 +183,11 @@ public:
 
 signals:
     void usageStatisticChanged();
+    void crashReporterEnabledChanged();
 
 private:
     bool m_usageStatisticEnabled = false;
+    bool m_crashReporterEnabled = false;
 };
 
 class ProjectModel : public QAbstractListModel
@@ -172,6 +197,7 @@ public:
     enum { FilePathRole = Qt::UserRole + 1, PrettyFilePathRole, PreviewUrl, TagData, Description };
 
     Q_PROPERTY(bool communityVersion MEMBER m_communityVersion NOTIFY communityVersionChanged)
+    Q_PROPERTY(bool enterpriseVersion MEMBER m_enterpriseVersion NOTIFY enterpriseVersionChanged)
 
     explicit ProjectModel(QObject *parent = nullptr);
 
@@ -206,11 +232,13 @@ public:
     Q_INVOKABLE void openExample(const QString &example,
                                  const QString &formFile,
                                  const QString &url,
-                                 const QString &explicitQmlproject)
+                                 const QString &explicitQmlproject,
+                                 const QString &tempFile,
+                                 const QString &completeBaseName)
     {
         if (!url.isEmpty()) {
             ExampleCheckout *checkout = new ExampleCheckout;
-            checkout->checkoutExample(QUrl::fromUserInput(url));
+            checkout->checkoutExample(QUrl::fromUserInput(url), tempFile, completeBaseName);
             connect(checkout,
                     &ExampleCheckout::finishedSucessfully,
                     this,
@@ -246,10 +274,47 @@ public slots:
 
 signals:
     void communityVersionChanged();
+    void enterpriseVersionChanged();
 
 private:
-    bool m_communityVersion = false;
+    void setupVersion();
+
+    bool m_communityVersion = true;
+    bool m_enterpriseVersion = false;
 };
+
+void ProjectModel::setupVersion()
+{
+    const ExtensionSystem::PluginSpec *pluginSpec = Utils::findOrDefault(
+        ExtensionSystem::PluginManager::plugins(),
+        Utils::equal(&ExtensionSystem::PluginSpec::name, QString("LicenseChecker")));
+
+    if (!pluginSpec)
+        return;
+
+    ExtensionSystem::IPlugin *plugin = pluginSpec->plugin();
+
+    if (!plugin)
+        return;
+
+    m_communityVersion = false;
+
+    bool retVal = false;
+    bool success = QMetaObject::invokeMethod(plugin,
+                                             "qdsEnterpriseLicense",
+                                             Qt::DirectConnection,
+                                             Q_RETURN_ARG(bool, retVal));
+
+    if (!success) {
+        qWarning("Check for Qt Design Studio Enterprise License failed.");
+        return;
+    }
+    if (!retVal) {
+        qWarning("No Qt Design Studio Enterprise License. Disabling asset importer.");
+        return;
+    }
+    m_enterpriseVersion = true;
+}
 
 ProjectModel::ProjectModel(QObject *parent)
     : QAbstractListModel(parent)
@@ -259,10 +324,7 @@ ProjectModel::ProjectModel(QObject *parent)
             this,
             &ProjectModel::resetProjects);
 
-    if (!Utils::findOrDefault(ExtensionSystem::PluginManager::plugins(),
-                              Utils::equal(&ExtensionSystem::PluginSpec::name,
-                                           QString("LicenseChecker"))))
-        m_communityVersion = true;
+    setupVersion();
 }
 
 int ProjectModel::rowCount(const QModelIndex &) const
@@ -487,7 +549,9 @@ bool StudioWelcomePlugin::initialize(const QStringList &arguments, QString *erro
     m_welcomeMode = new WelcomeMode;
 
     m_removeSplashTimer.setSingleShot(true);
-    m_removeSplashTimer.setInterval(15000);
+    const QString splashScreenTimeoutEntry = "QML/Designer/splashScreenTimeout";
+    m_removeSplashTimer.setInterval(
+        Core::ICore::settings()->value(splashScreenTimeoutEntry, 15000).toInt());
     connect(&m_removeSplashTimer, &QTimer::timeout, this, [this] { closeSplashScreen(); });
     return true;
 }
@@ -564,7 +628,7 @@ bool StudioWelcomePlugin::delayedInitialize()
 
 #ifdef ENABLE_CRASHPAD
     const bool crashReportingEnabled = true;
-    const bool crashReportingOn = Core::ICore::settings()->value("CrashReportingEnabled", false).toBool();
+    const bool crashReportingOn = Core::ICore::settings()->value(CRASH_REPORTER_SETTING, false).toBool();
 #else
     const bool crashReportingEnabled = false;
     const bool crashReportingOn = false;
@@ -606,6 +670,7 @@ WelcomeMode::WelcomeMode()
     setContext(Core::Context(Core::Constants::C_WELCOME_MODE));
 
     QFontDatabase::addApplicationFont(":/studiofonts/TitilliumWeb-Regular.ttf");
+    ExampleCheckout::registerTypes();
 
     m_modeWidget = new QQuickWidget;
     m_modeWidget->setMinimumSize(1024, 768);

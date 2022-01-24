@@ -27,50 +27,12 @@
 
 #include <utils/fileutils.h>
 
-#include <QHash>
-#include <QObject>
-
-namespace Core { class IDocument; }
-namespace LanguageClient {
-class Client;
-class StdIOSettings;
-}
-namespace TextEditor { class TextDocument; }
-
 namespace Python {
 namespace Internal {
 
 enum class ReplType { Unmodified, Import, ImportToplevel };
-
-void openPythonRepl(const Utils::FilePath &file, ReplType type);
-
-struct PythonLanguageServerState;
-
-class PyLSConfigureAssistant : public QObject
-{
-    Q_OBJECT
-public:
-    static PyLSConfigureAssistant *instance();
-
-    static const LanguageClient::StdIOSettings *languageServerForPython(
-        const Utils::FilePath &python);
-    static void documentOpened(Core::IDocument *document);
-    static void updateEditorInfoBars(const Utils::FilePath &python, LanguageClient::Client *client);
-
-    void openDocumentWithPython(const Utils::FilePath &python, TextEditor::TextDocument *document);
-
-private:
-    explicit PyLSConfigureAssistant(QObject *parent);
-
-    void handlePyLSState(const Utils::FilePath &python,
-                         const PythonLanguageServerState &state,
-                         TextEditor::TextDocument *document);
-    void resetEditorInfoBar(TextEditor::TextDocument *document);
-    void installPythonLanguageServer(const Utils::FilePath &python,
-                                     QPointer<TextEditor::TextDocument> document);
-
-    QHash<Utils::FilePath, QList<TextEditor::TextDocument *>> m_infoBarEntries;
-};
+void openPythonRepl(QObject *parent, const Utils::FilePath &file, ReplType type);
+Utils::FilePath detectPython(const Utils::FilePath &documentPath);
 
 } // namespace Internal
 } // namespace Python
