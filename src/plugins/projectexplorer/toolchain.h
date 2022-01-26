@@ -100,6 +100,7 @@ public:
     void setDisplayName(const QString &name);
 
     bool isAutoDetected() const;
+    bool isSdkProvided() const { return detection() == AutoDetectionFromSdk; }
     Detection detection() const;
     QString detectionSource() const;
 
@@ -125,6 +126,10 @@ public:
     virtual Utils::WarningFlags warningFlags(const QStringList &cflags) const = 0;
     virtual QStringList includedFiles(const QStringList &flags, const QString &directory) const;
     virtual QString sysRoot() const;
+
+    QString explicitCodeModelTargetTriple() const;
+    QString effectiveCodeModelTargetTriple() const;
+    void setExplicitCodeModelTargetTriple(const QString &triple);
 
     class MacroInspectionReport
     {

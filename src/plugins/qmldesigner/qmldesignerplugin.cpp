@@ -85,6 +85,9 @@
 #include <QWindow>
 #include <QApplication>
 
+#include "nanotrace/nanotrace.h"
+#include <modelnodecontextmenu_helper.h>
+
 static Q_LOGGING_CATEGORY(qmldesignerLog, "qtc.qmldesigner", QtWarningMsg)
 
 using namespace QmlDesigner::Internal;
@@ -233,6 +236,40 @@ bool QmlDesignerPlugin::initialize(const QStringList & /*arguments*/, QString *e
     if (QFontDatabase::addApplicationFont(fontPath) < 0)
         qCWarning(qmldesignerLog) << "Could not add font " << fontPath << "to font database";
 
+#ifdef NANOTRACE_ENABLED
+    auto handleShutdownNanotraceAction = [](const SelectionContext &) {};
+    auto shutdownNanotraceIcon = []() { return QIcon(); };
+    auto startNanotraceAction = new ModelNodeAction("Start Nanotrace",
+                     QObject::tr("Start Nanotrace"),
+                     shutdownNanotraceIcon(),
+                     QObject::tr("Start Nanotrace"),
+                     ComponentCoreConstants::eventListCategory,
+                     QKeySequence(),
+                     220,
+                     handleShutdownNanotraceAction);
+
+    connect(startNanotraceAction->defaultAction(), &QAction::triggered, [this]() {
+        d->viewManager.nodeInstanceView()->startNanotrace();
+    });
+
+    designerActionManager().addDesignerAction(startNanotraceAction);
+
+    auto shutDownNanotraceAction = new ModelNodeAction("ShutDown Nanotrace",
+                      QObject::tr("ShutDown Nanotrace"),
+                      shutdownNanotraceIcon(),
+                      QObject::tr("ShutDown Nanotrace"),
+                      ComponentCoreConstants::eventListCategory,
+                      QKeySequence(),
+                      220,
+                      handleShutdownNanotraceAction);
+
+    connect(shutDownNanotraceAction->defaultAction(), &QAction::triggered, [this]() {
+        d->viewManager.nodeInstanceView()->endNanotrace();
+    });
+
+    designerActionManager().addDesignerAction(shutDownNanotraceAction);
+#endif
+
     return true;
 }
 
@@ -265,11 +302,11 @@ bool QmlDesignerPlugin::delayedInitialize()
         std::make_unique<QmlDesigner::TransitionEditorView>());
     transitionEditorView->registerActions();
 
-    d->viewManager.registerFormEditorToolTakingOwnership(new QmlDesigner::SourceTool);
-    d->viewManager.registerFormEditorToolTakingOwnership(new QmlDesigner::ColorTool);
-    d->viewManager.registerFormEditorToolTakingOwnership(new QmlDesigner::TextTool);
-    d->viewManager.registerFormEditorToolTakingOwnership(new QmlDesigner::PathTool);
-    d->viewManager.registerFormEditorToolTakingOwnership(new QmlDesigner::TransitionTool);
+    d->viewManager.registerFormEditorTool(std::make_unique<QmlDesigner::SourceTool>());
+    d->viewManager.registerFormEditorTool(std::make_unique<QmlDesigner::ColorTool>());
+    d->viewManager.registerFormEditorTool(std::make_unique<QmlDesigner::TextTool>());
+    d->viewManager.registerFormEditorTool(std::make_unique<QmlDesigner::PathTool>());
+    d->viewManager.registerFormEditorTool(std::make_unique<QmlDesigner::TransitionTool>());
 
     if (DesignerSettings::getValue(DesignerSettingsKey::STANDALONE_MODE).toBool())
         emitUsageStatistics("StandaloneMode");

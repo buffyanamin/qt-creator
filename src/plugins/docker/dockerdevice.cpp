@@ -267,7 +267,7 @@ public:
     void setSearchPaths(const FilePaths &searchPaths) { m_searchPaths = searchPaths; }
 
 private:
-    QList<BaseQtVersion *> autoDetectQtVersions() const;
+    QtVersions autoDetectQtVersions() const;
     QList<ToolChain *> autoDetectToolChains();
     void autoDetectCMake();
     void autoDetectDebugger();
@@ -620,7 +620,7 @@ void KitDetectorPrivate::undoAutoDetect() const
     };
 
     emit q->logOutput('\n' + tr("Removing Qt version entries..."));
-    for (BaseQtVersion *qtVersion : QtVersionManager::versions()) {
+    for (QtVersion *qtVersion : QtVersionManager::versions()) {
         if (qtVersion->detectionSource() == m_sharedId) {
             emit q->logOutput(tr("Removed \"%1\"").arg(qtVersion->displayName()));
             QtVersionManager::removeVersion(qtVersion);
@@ -670,7 +670,7 @@ void KitDetectorPrivate::listAutoDetected() const
     };
 
     emit q->logOutput('\n' + tr("Qt versions:"));
-    for (BaseQtVersion *qtVersion : QtVersionManager::versions()) {
+    for (QtVersion *qtVersion : QtVersionManager::versions()) {
         if (qtVersion->detectionSource() == m_sharedId)
             emit q->logOutput(qtVersion->displayName());
     };
@@ -704,9 +704,9 @@ void KitDetectorPrivate::listAutoDetected() const
     emit q->logOutput('\n' + tr("Listing of previously auto-detected kit items finished.") + "\n\n");
 }
 
-QList<BaseQtVersion *> KitDetectorPrivate::autoDetectQtVersions() const
+QtVersions KitDetectorPrivate::autoDetectQtVersions() const
 {
-    QList<BaseQtVersion *> qtVersions;
+    QtVersions qtVersions;
 
     QString error;
     const QStringList candidates = {"qmake-qt6", "qmake-qt5", "qmake"};
@@ -716,7 +716,7 @@ QList<BaseQtVersion *> KitDetectorPrivate::autoDetectQtVersions() const
         const FilePath qmake = m_device->searchExecutable(candidate, m_searchPaths);
         if (qmake.isEmpty())
             continue;
-        BaseQtVersion *qtVersion = QtVersionFactory::createQtVersionFromQMakePath(qmake, false, m_sharedId, &error);
+        QtVersion *qtVersion = QtVersionFactory::createQtVersionFromQMakePath(qmake, false, m_sharedId, &error);
         if (!qtVersion)
             continue;
         qtVersions.append(qtVersion);
@@ -794,7 +794,7 @@ void KitDetectorPrivate::autoDetect()
     emit q->logOutput(tr("Starting auto-detection. This will take a while..."));
 
     QList<ToolChain *> toolChains = autoDetectToolChains();
-    QList<BaseQtVersion *> qtVersions = autoDetectQtVersions();
+    QtVersions qtVersions = autoDetectQtVersions();
 
     autoDetectCMake();
     autoDetectDebugger();
@@ -806,10 +806,18 @@ void KitDetectorPrivate::autoDetect()
 
         DeviceTypeKitAspect::setDeviceTypeId(k, Constants::DOCKER_DEVICE_TYPE);
         DeviceKitAspect::setDevice(k, m_device);
-        for (ToolChain *tc : toolChains)
-            ToolChainKitAspect::setToolChain(k, tc);
-        if (!qtVersions.isEmpty())
-            QtSupport::QtKitAspect::setQtVersion(k, qtVersions.at(0));
+        QtVersion *qt = nullptr;
+        if (!qtVersions.isEmpty()) {
+            qt = qtVersions.at(0);
+            QtSupport::QtKitAspect::setQtVersion(k, qt);
+        }
+        Toolchains toolchainsToSet;
+        toolchainsToSet = ToolChainManager::toolchains([qt, this](const ToolChain *tc){
+             return tc->detectionSource() == m_sharedId
+                    && (!qt || qt->qtAbis().contains(tc->targetAbi()));
+        });
+        for (ToolChain *toolChain : toolchainsToSet)
+            ToolChainKitAspect::setToolChain(k, toolChain);
 
         k->setSticky(ToolChainKitAspect::id(), true);
         k->setSticky(QtSupport::QtKitAspect::id(), true);
@@ -1484,13 +1492,17 @@ void DockerDevice::iterateWithFind(const FilePath &filePath,
 
     const QString nameOption = (filters & QDir::CaseSensitive) ? QString{"-name"}
                                                                : QString{"-iname"};
+    QStringList criticalWildcards;
     if (!nameFilters.isEmpty()) {
-        filterOptions << nameOption << nameFilters.first();
         const QRegularExpression oneChar("\\[.*?\\]");
-        for (int i = 1, len = nameFilters.size(); i < len; ++i) {
+        for (int i = 0, len = nameFilters.size(); i < len; ++i) {
+            if (i > 0)
+                filterOptions << "-o";
             QString current = nameFilters.at(i);
+            if (current.indexOf(oneChar) != -1)
+                criticalWildcards.append(current);
             current.replace(oneChar, "?"); // BAD! but still better than nothing
-            filterOptions << "-o" << nameOption << current;
+            filterOptions << nameOption << current;
         }
     }
     arguments << filterOptions;
@@ -1505,7 +1517,19 @@ void DockerDevice::iterateWithFind(const FilePath &filePath,
     for (const QString &entry : entries) {
         if (entry.startsWith("find: "))
             continue;
-        if (!callBack(FilePath::fromString(entry).onDevice(filePath)))
+        const FilePath fp = FilePath::fromString(entry);
+
+        if (!Utils::anyOf(criticalWildcards,
+                          [name = fp.fileName()](const QString &pattern) {
+                          const QRegularExpression regex(QRegularExpression::wildcardToRegularExpression(pattern));
+                          if (regex.match(name).hasMatch())
+                              return true;
+                          return false;
+        })) {
+            continue;
+        }
+
+        if (!callBack(fp.onDevice(filePath)))
             break;
     }
 }

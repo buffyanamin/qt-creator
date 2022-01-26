@@ -63,17 +63,20 @@
 namespace Utils {
 namespace Internal {
 
-static QString modeOption(TerminalProcess::Mode m)
+static QString modeOption(QtcProcess::TerminalMode m)
 {
     switch (m) {
-        case TerminalProcess::Debug:
+        case QtcProcess::TerminalRun:
+        return QLatin1String("run");
+        case QtcProcess::TerminalDebug:
         return QLatin1String("debug");
-        case TerminalProcess::Suspend:
+        case QtcProcess::TerminalSuspend:
         return QLatin1String("suspend");
-        case TerminalProcess::Run:
+        case QtcProcess::TerminalOff:
+        QTC_CHECK(false);
         break;
     }
-    return QLatin1String("run");
+    return {};
 }
 
 static QString msgCommChannelFailed(const QString &error)
@@ -120,9 +123,13 @@ static QString msgCannotExecute(const QString & p, const QString &why)
 class TerminalProcessPrivate
 {
 public:
-    TerminalProcessPrivate() = default;
+    TerminalProcessPrivate(QObject *parent, QtcProcess::ProcessImpl processImpl,
+                           QtcProcess::TerminalMode terminalMode)
+        : m_terminalMode(terminalMode)
+        , m_process(processImpl, parent)
+    {}
 
-    TerminalProcess::Mode m_mode = TerminalProcess::Run;
+    const QtcProcess::TerminalMode m_terminalMode;
     FilePath m_workingDir;
     Environment m_environment;
     qint64 m_processId = 0;
@@ -153,8 +160,9 @@ public:
 #endif
 };
 
-TerminalProcess::TerminalProcess(QObject *parent) :
-    QObject(parent), d(new TerminalProcessPrivate)
+TerminalProcess::TerminalProcess(QObject *parent, QtcProcess::ProcessImpl processImpl,
+                                 QtcProcess::TerminalMode terminalMode) :
+    QObject(parent), d(new TerminalProcessPrivate(this, processImpl, terminalMode))
 {
     connect(&d->m_stubServer, &QLocalServer::newConnection,
             this, &TerminalProcess::stubConnectionAvailable);
@@ -235,48 +243,6 @@ static QString createWinCommandline(const QString &program, const QString &args)
     return programName;
 }
 
-bool TerminalProcess::startTerminalEmulator(const QString &workingDir, const Environment &env)
-{
-#ifdef Q_OS_WIN
-    STARTUPINFO si;
-    ZeroMemory(&si, sizeof(si));
-    si.cb = sizeof(si);
-
-    PROCESS_INFORMATION pinfo;
-    ZeroMemory(&pinfo, sizeof(pinfo));
-
-    QString cmdLine = createWinCommandline(
-                QString::fromLocal8Bit(qgetenv("COMSPEC")), QString());
-    // cmdLine is assumed to be detached -
-    // https://blogs.msdn.microsoft.com/oldnewthing/20090601-00/?p=18083
-
-    QString totalEnvironment = env.toStringList().join(QChar(QChar::Null)) + QChar(QChar::Null);
-    LPVOID envPtr = (env != Environment::systemEnvironment())
-            ? (WCHAR *)(totalEnvironment.utf16()) : nullptr;
-
-    bool success = CreateProcessW(0, (WCHAR *)cmdLine.utf16(),
-                                  0, 0, FALSE, CREATE_NEW_CONSOLE | CREATE_UNICODE_ENVIRONMENT,
-                                  envPtr, workingDir.isEmpty() ? 0 : (WCHAR *)workingDir.utf16(),
-                                  &si, &pinfo);
-
-    if (success) {
-        CloseHandle(pinfo.hThread);
-        CloseHandle(pinfo.hProcess);
-    }
-
-    return success;
-#else
-    const TerminalCommand term = TerminalCommand::terminalEmulator();
-    QProcess process;
-    process.setProgram(term.command);
-    process.setArguments(ProcessArgs::splitArgs(term.openArgs));
-    process.setProcessEnvironment(env.toProcessEnvironment());
-    process.setWorkingDirectory(workingDir);
-
-    return process.startDetached();
-#endif
-}
-
 void TerminalProcess::setAbortOnMetaChars(bool abort)
 {
     d->m_abortOnMetaChars = abort;
@@ -301,7 +267,7 @@ void TerminalProcess::start()
 
     QString pcmd;
     QString pargs;
-    if (d->m_mode != Run) { // The debugger engines already pre-process the arguments.
+    if (d->m_terminalMode != QtcProcess::TerminalRun) { // The debugger engines already pre-process the arguments.
         pcmd = d->m_commandLine.executable().toString();
         pargs = d->m_commandLine.arguments();
     } else {
@@ -369,7 +335,7 @@ void TerminalProcess::start()
         workDir.append(QLatin1Char('\\'));
 
     QStringList stubArgs;
-    stubArgs << modeOption(d->m_mode)
+    stubArgs << modeOption(d->m_terminalMode)
              << d->m_stubServer.fullServerName()
              << workDir
              << (d->m_tempFile ? d->m_tempFile->fileName() : QString())
@@ -415,7 +381,7 @@ void TerminalProcess::start()
             emitError(QProcess::FailedToStart, tr("Quoting error in command."));
             return;
         }
-        if (d->m_mode == Debug) {
+        if (d->m_terminalMode == QtcProcess::TerminalDebug) {
             // FIXME: QTCREATORBUG-2809
             emitError(QProcess::FailedToStart, tr("Debugging complex shell commands in a terminal"
                                  " is currently not supported."));
@@ -475,7 +441,7 @@ void TerminalProcess::start()
         allArgs << "sudo" << "-A";
 
     allArgs << stubPath
-            << modeOption(d->m_mode)
+            << modeOption(d->m_terminalMode)
             << d->m_stubServer.fullServerName()
             << msgPromptToClose()
             << workingDirectory().path()
@@ -517,7 +483,7 @@ void TerminalProcess::finish(int exitCode, QProcess::ExitStatus exitStatus)
     d->m_processId = 0;
     d->m_exitCode = exitCode;
     d->m_appStatus = exitStatus;
-    emit finished();
+    emit finished(exitCode, exitStatus);
 }
 
 void TerminalProcess::kickoffProcess()
@@ -597,6 +563,16 @@ bool TerminalProcess::isRunning() const
 #else
     return d->m_process.state() != QProcess::NotRunning
             || (d->m_stubSocket && d->m_stubSocket->isOpen());
+#endif
+}
+
+QProcess::ProcessState TerminalProcess::state() const
+{
+#ifdef Q_OS_WIN
+    return (d->m_pid != nullptr) ? QProcess::Running : QProcess::NotRunning;
+#else
+    return (d->m_stubSocket && d->m_stubSocket->isOpen())
+            ? QProcess::Running : d->m_process.state();
 #endif
 }
 
@@ -790,16 +766,6 @@ void TerminalProcess::cleanupStub()
     delete d->m_tempFile;
     d->m_tempFile = nullptr;
 #endif
-}
-
-void TerminalProcess::setMode(Mode m)
-{
-    d->m_mode = m;
-}
-
-TerminalProcess::Mode TerminalProcess::mode() const
-{
-    return d->m_mode;
 }
 
 qint64 TerminalProcess::processId() const
