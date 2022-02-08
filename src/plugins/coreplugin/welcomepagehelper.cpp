@@ -81,7 +81,8 @@ QWidget *panelBar(QWidget *parent)
     auto frame = new QWidget(parent);
     frame->setAutoFillBackground(true);
     frame->setMinimumWidth(WelcomePageHelpers::HSpacing);
-    QPalette pal = frame->palette();
+    QPalette pal;
+    pal.setBrush(QPalette::Window, {});
     pal.setColor(QPalette::Window, themeColor(Theme::Welcome_BackgroundPrimaryColor));
     frame->setPalette(pal);
     return frame;
@@ -412,10 +413,13 @@ void ListItemDelegate::paint(QPainter *painter, const QStyleOptionViewItem &opti
         }
         constexpr float hoverAnimationDuration = 260;
         animationProgress = m_startTime.elapsed() / hoverAnimationDuration;
-        static const QEasingCurve animationCurve(QEasingCurve::OutCubic);
-        offset = animationCurve.valueForProgress(animationProgress) * shiftY;
-        if (offset < shiftY)
+        if (animationProgress < 1) {
+            static const QEasingCurve animationCurve(QEasingCurve::OutCubic);
+            offset = animationCurve.valueForProgress(animationProgress) * shiftY;
             QTimer::singleShot(10, this, &ListItemDelegate::goon);
+        } else {
+            offset = shiftY;
+        }
     } else if (index == m_previousIndex) {
         m_previousIndex = QModelIndex();
     }

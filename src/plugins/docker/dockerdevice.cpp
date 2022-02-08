@@ -105,35 +105,18 @@ public:
     ~DockerDeviceProcess() {}
 
     void start(const Runnable &runnable) override;
-
     void interrupt() override;
-    void terminate() override { m_process.terminate(); }
-    void kill() override;
-
-    QProcess::ProcessState state() const override;
-    QProcess::ExitStatus exitStatus() const override;
-    int exitCode() const override;
-    QString errorString() const override;
-
-    QByteArray readAllStandardOutput() override;
-    QByteArray readAllStandardError() override;
-
-    qint64 write(const QByteArray &data) override { return m_process.write(data); }
-
-private:
-    QtcProcess m_process;
 };
 
 DockerDeviceProcess::DockerDeviceProcess(const QSharedPointer<const IDevice> &device,
-                                           QObject *parent)
-    : DeviceProcess(device, parent)
-    , m_process(ProcessMode::Writer)
+                                          QObject *parent)
+    : DeviceProcess(device, ProcessMode::Writer, parent)
 {
 }
 
 void DockerDeviceProcess::start(const Runnable &runnable)
 {
-    QTC_ASSERT(m_process.state() == QProcess::NotRunning, return);
+    QTC_ASSERT(state() == QProcess::NotRunning, return);
     DockerDevice::ConstPtr dockerDevice = qSharedPointerCast<const DockerDevice>(device());
     QTC_ASSERT(dockerDevice, return);
 
@@ -146,71 +129,26 @@ void DockerDeviceProcess::start(const Runnable &runnable)
         MessageManager::writeDisrupting(QString::fromLocal8Bit(readAllStandardError()));
     });
 
-    disconnect(&m_process);
-
     CommandLine command = runnable.command;
     command.setExecutable(
         command.executable().withNewPath(dockerDevice->mapToDevicePath(command.executable())));
-    m_process.setCommand(command);
-    m_process.setEnvironment(runnable.environment);
-    m_process.setWorkingDirectory(runnable.workingDirectory);
-    connect(&m_process, &QtcProcess::errorOccurred, this, &DeviceProcess::error);
-    connect(&m_process, &QtcProcess::finished, this, &DeviceProcess::finished);
-    connect(&m_process, &QtcProcess::readyReadStandardOutput,
-            this, &DeviceProcess::readyReadStandardOutput);
-    connect(&m_process, &QtcProcess::readyReadStandardError,
-            this, &DeviceProcess::readyReadStandardError);
-    connect(&m_process, &QtcProcess::started, this, &DeviceProcess::started);
+    setCommand(command);
+    setEnvironment(runnable.environment);
+    setWorkingDirectory(runnable.workingDirectory);
 
     LOG("Running process:" << command.toUserOutput()
             << "in" << runnable.workingDirectory.toUserOutput());
-    dockerDevice->runProcess(m_process);
+    dockerDevice->runProcess(*this);
 }
 
 void DockerDeviceProcess::interrupt()
 {
-    device()->signalOperation()->interruptProcess(m_process.processId());
+    device()->signalOperation()->interruptProcess(processId());
 }
-
-void DockerDeviceProcess::kill()
-{
-    m_process.kill();
-}
-
-QProcess::ProcessState DockerDeviceProcess::state() const
-{
-    return m_process.state();
-}
-
-QProcess::ExitStatus DockerDeviceProcess::exitStatus() const
-{
-    return m_process.exitStatus();
-}
-
-int DockerDeviceProcess::exitCode() const
-{
-    return m_process.exitCode();
-}
-
-QString DockerDeviceProcess::errorString() const
-{
-    return m_process.errorString();
-}
-
-QByteArray DockerDeviceProcess::readAllStandardOutput()
-{
-    return m_process.readAllStandardOutput();
-}
-
-QByteArray DockerDeviceProcess::readAllStandardError()
-{
-    return m_process.readAllStandardError();
-}
-
 
 class DockerPortsGatheringMethod : public PortsGatheringMethod
 {
-    Runnable runnable(QAbstractSocket::NetworkLayerProtocol protocol) const override
+    CommandLine commandLine(QAbstractSocket::NetworkLayerProtocol protocol) const override
     {
         // We might encounter the situation that protocol is given IPv6
         // but the consumer of the free port information decides to open
@@ -223,10 +161,8 @@ class DockerPortsGatheringMethod : public PortsGatheringMethod
         Q_UNUSED(protocol)
 
         // /proc/net/tcp* covers /proc/net/tcp and /proc/net/tcp6
-        Runnable runnable;
-        runnable.command.setExecutable("sed");
-        runnable.command.setArguments("-e 's/.*: [[:xdigit:]]*:\\([[:xdigit:]]\\{4\\}\\).*/\\1/g' /proc/net/tcp*");
-        return runnable;
+        return {"sed", "-e 's/.*: [[:xdigit:]]*:\\([[:xdigit:]]\\{4\\}\\).*/\\1/g' /proc/net/tcp*",
+                CommandLine::Raw};
     }
 
     QList<Utils::Port> usedPorts(const QByteArray &output) const override
@@ -327,7 +263,7 @@ public:
 
     bool runInContainer(const CommandLine &cmd) const;
     bool runInShell(const CommandLine &cmd) const;
-    QString outputForRunInShell(const CommandLine &cmd) const;
+    QByteArray outputForRunInShell(const CommandLine &cmd) const;
 
     void updateContainerAccess();
     void updateFileSystemAccess();
@@ -569,7 +505,7 @@ DockerDevice::DockerDevice(const DockerDeviceData &data)
             }
             proc->deleteLater();
         });
-        QObject::connect(proc, &DeviceProcess::error, [proc] {
+        QObject::connect(proc, &DeviceProcess::errorOccurred, [proc] {
             MessageManager::writeDisrupting(tr("Error starting remote shell."));
             proc->deleteLater();
         });
@@ -628,9 +564,9 @@ void KitDetectorPrivate::undoAutoDetect() const
     };
 
     emit q->logOutput('\n' + tr("Removing toolchain entries..."));
-    for (ToolChain *toolChain : ToolChainManager::toolchains()) {
-        QString detectionSource = toolChain->detectionSource();
-        if (toolChain->detectionSource() == m_sharedId) {
+    const Toolchains toolchains = ToolChainManager::toolchains();
+    for (ToolChain *toolChain : toolchains) {
+        if (toolChain && toolChain->detectionSource() == m_sharedId) {
             emit q->logOutput(tr("Removed \"%1\"").arg(toolChain->displayName()));
             ToolChainManager::deregisterToolChain(toolChain);
         }
@@ -709,20 +645,26 @@ QtVersions KitDetectorPrivate::autoDetectQtVersions() const
     QtVersions qtVersions;
 
     QString error;
+
+    const auto handleQmake = [this, &qtVersions, &error](const FilePath &qmake) {
+        if (QtVersion *qtVersion = QtVersionFactory::createQtVersionFromQMakePath(qmake, false, m_sharedId, &error)) {
+            qtVersions.append(qtVersion);
+            QtVersionManager::addVersion(qtVersion);
+            emit q->logOutput(tr("Found \"%1\"").arg(qtVersion->qmakeFilePath().toUserOutput()));
+        }
+        return true;
+    };
+
+    emit q->logOutput(tr("Searching for qmake executables..."));
+
     const QStringList candidates = {"qmake-qt6", "qmake-qt5", "qmake"};
-    emit q->logOutput('\n' + tr("Searching Qt installations..."));
-    for (const QString &candidate : candidates) {
-        emit q->logOutput(tr("Searching for %1 executable...").arg(candidate));
-        const FilePath qmake = m_device->searchExecutable(candidate, m_searchPaths);
-        if (qmake.isEmpty())
-            continue;
-        QtVersion *qtVersion = QtVersionFactory::createQtVersionFromQMakePath(qmake, false, m_sharedId, &error);
-        if (!qtVersion)
-            continue;
-        qtVersions.append(qtVersion);
-        QtVersionManager::addVersion(qtVersion);
-        emit q->logOutput(tr("Found \"%1\"").arg(qtVersion->qmakeFilePath().toUserOutput()));
+    for (const FilePath &searchPath : m_searchPaths) {
+        searchPath.iterateDirectory(handleQmake, {candidates, QDir::Files | QDir::Executable,
+                                                  QDirIterator::Subdirectories});
     }
+
+    if (!error.isEmpty())
+        emit q->logOutput(tr("Error: %1.").arg(error));
     if (qtVersions.isEmpty())
         emit q->logOutput(tr("No Qt installation found."));
     return qtVersions;
@@ -793,19 +735,20 @@ void KitDetectorPrivate::autoDetect()
 
     emit q->logOutput(tr("Starting auto-detection. This will take a while..."));
 
-    QList<ToolChain *> toolChains = autoDetectToolChains();
-    QtVersions qtVersions = autoDetectQtVersions();
+    const Toolchains toolchains = autoDetectToolChains();
+    const QtVersions qtVersions = autoDetectQtVersions();
 
     autoDetectCMake();
     autoDetectDebugger();
 
-    const auto initializeKit = [this, toolChains, qtVersions](Kit *k) {
+    const auto initializeKit = [this, toolchains, qtVersions](Kit *k) {
         k->setAutoDetected(false);
         k->setAutoDetectionSource(m_sharedId);
         k->setUnexpandedDisplayName("%{Device:Name}");
 
         DeviceTypeKitAspect::setDeviceTypeId(k, Constants::DOCKER_DEVICE_TYPE);
         DeviceKitAspect::setDevice(k, m_device);
+
         QtVersion *qt = nullptr;
         if (!qtVersions.isEmpty()) {
             qt = qtVersions.at(0);
@@ -880,8 +823,8 @@ static QString getLocalIPv4Address()
 
 void DockerDevicePrivate::startContainer()
 {
-    const QString display = HostOsInfo::isWindowsHost() ? QString(getLocalIPv4Address() + ":0.0")
-                                                        : QString(":0");
+    const QString display = HostOsInfo::isLinuxHost() ? QString(":0")
+                                                      : QString(getLocalIPv4Address() + ":0.0");
     CommandLine dockerCreate{"docker", {"create",
                                         "-i",
                                         "--rm",
@@ -1375,7 +1318,7 @@ QDateTime DockerDevice::lastModified(const FilePath &filePath) const
         return res;
     }
 
-    const QString output = d->outputForRunInShell({"stat", {"-c", "%Y", filePath.path()}});
+    const QByteArray output = d->outputForRunInShell({"stat", {"-c", "%Y", filePath.path()}});
     qint64 secs = output.toLongLong();
     const QDateTime dt = QDateTime::fromSecsSinceEpoch(secs, Qt::UTC);
     return dt;
@@ -1394,8 +1337,9 @@ FilePath DockerDevice::symLinkTarget(const FilePath &filePath) const
         return mapToGlobalPath(target);
     }
 
-    const QString output = d->outputForRunInShell({"readlink", {"-n", "-e", filePath.path()}});
-    return output.isEmpty() ? FilePath() : filePath.withNewPath(output);
+    const QByteArray output = d->outputForRunInShell({"readlink", {"-n", "-e", filePath.path()}});
+    const QString out = QString::fromUtf8(output.data(), output.size());
+    return out.isEmpty() ? FilePath() : filePath.withNewPath(out);
 }
 
 qint64 DockerDevice::fileSize(const FilePath &filePath) const
@@ -1408,7 +1352,7 @@ qint64 DockerDevice::fileSize(const FilePath &filePath) const
         return localAccess.fileSize();
     }
 
-    const QString output = d->outputForRunInShell({"stat", {"-c", "%s", filePath.path()}});
+    const QByteArray output = d->outputForRunInShell({"stat", {"-c", "%s", filePath.path()}});
     return output.toLongLong();
 }
 
@@ -1422,7 +1366,7 @@ QFileDevice::Permissions DockerDevice::permissions(const FilePath &filePath) con
         return localAccess.permissions();
     }
 
-    const QString output = d->outputForRunInShell({"stat", {"-c", "%a", filePath.path()}});
+    const QByteArray output = d->outputForRunInShell({"stat", {"-c", "%a", filePath.path()}});
     const uint bits = output.toUInt(nullptr, 8);
     QFileDevice::Permissions perm = {};
 #define BIT(n, p) if (bits & (1<<n)) perm |= QFileDevice::p
@@ -1495,43 +1439,35 @@ void DockerDevice::iterateWithFind(const FilePath &filePath,
 
     const QString nameOption = (filters & QDir::CaseSensitive) ? QString{"-name"}
                                                                : QString{"-iname"};
-    QStringList criticalWildcards;
     if (!filter.nameFilters.isEmpty()) {
         const QRegularExpression oneChar("\\[.*?\\]");
-        for (int i = 0, len = filter.nameFilters.size(); i < len; ++i) {
-            if (i > 0)
+        bool addedFirst = false;
+        for (const QString &current : filter.nameFilters) {
+            if (current.indexOf(oneChar) != -1) {
+                LOG("Skipped" << current << "due to presence of [] wildcard");
+                continue;
+            }
+
+            if (addedFirst)
                 filterOptions << "-o";
-            QString current = filter.nameFilters.at(i);
-            if (current.indexOf(oneChar) != -1)
-                criticalWildcards.append(current);
-            current.replace(oneChar, "?"); // BAD! but still better than nothing
             filterOptions << nameOption << current;
+            addedFirst = true;
         }
     }
     arguments << filterOptions;
-    const QString output = d->outputForRunInShell({"find", arguments});
-    if (!output.isEmpty() && !output.startsWith(filePath.path())) { // missing find, unknown option
-        LOG("Setting 'do not use find'" << output.left(output.indexOf('\n')));
+    const QByteArray output = d->outputForRunInShell({"find", arguments});
+    const QString out = QString::fromUtf8(output.data(), output.size());
+    if (!output.isEmpty() && !out.startsWith(filePath.path())) { // missing find, unknown option
+        LOG("Setting 'do not use find'" << out.left(out.indexOf('\n')));
         d->m_useFind = false;
         return;
     }
 
-    const QStringList entries = output.split("\n", Qt::SkipEmptyParts);
+    const QStringList entries = out.split("\n", Qt::SkipEmptyParts);
     for (const QString &entry : entries) {
         if (entry.startsWith("find: "))
             continue;
         const FilePath fp = FilePath::fromString(entry);
-
-        if (!criticalWildcards.isEmpty() &&
-                !Utils::anyOf(criticalWildcards,
-                          [name = fp.fileName()](const QString &pattern) {
-                          const QRegularExpression regex(QRegularExpression::wildcardToRegularExpression(pattern));
-                          if (regex.match(name).hasMatch())
-                              return true;
-                          return false;
-        })) {
-            continue;
-        }
 
         if (!callBack(fp.onDevice(filePath)))
             break;
@@ -1597,8 +1533,9 @@ void DockerDevice::iterateDirectory(const FilePath &filePath,
     }
 
     // if we do not have find - use ls as fallback
-    const QString output = d->outputForRunInShell({"ls", {"-1", "-b", "--", filePath.path()}});
-    const QStringList entries = output.split('\n', Qt::SkipEmptyParts);
+    const QByteArray output = d->outputForRunInShell({"ls", {"-1", "-b", "--", filePath.path()}});
+    const QString out = QString::fromUtf8(output.data(), output.size());
+    const QStringList entries = out.split('\n', Qt::SkipEmptyParts);
     filterEntriesHelper(filePath, callBack, entries, filter);
 }
 
@@ -1718,8 +1655,9 @@ void DockerDevice::aboutToBeRemoved() const
 void DockerDevicePrivate::fetchSystemEnviroment()
 {
     if (m_shell) {
-        const QString remoteOutput = outputForRunInShell({"env", {}});
-        m_cachedEnviroment = Environment(remoteOutput.split('\n', Qt::SkipEmptyParts), q->osType());
+        const QByteArray output = outputForRunInShell({"env", {}});
+        const QString out = QString::fromUtf8(output.data(), output.size());
+        m_cachedEnviroment = Environment(out.split('\n', Qt::SkipEmptyParts), q->osType());
         return;
     }
 
@@ -1781,7 +1719,7 @@ static QByteArray randomHex()
     return QString::number(val, 16).toUtf8();
 }
 
-QString DockerDevicePrivate::outputForRunInShell(const CommandLine &cmd) const
+QByteArray DockerDevicePrivate::outputForRunInShell(const CommandLine &cmd) const
 {
     if (!DockerPlugin::isDaemonRunning().value_or(false))
         return {};
@@ -1799,7 +1737,7 @@ QString DockerDevicePrivate::outputForRunInShell(const CommandLine &cmd) const
     LOG("Run command in shell:" << cmd.toUserOutput() << "output size:" << output.size());
     if (QTC_GUARD(output.endsWith(markerWithNewLine)))
         output.chop(markerWithNewLine.size());
-    return QString::fromUtf8(output);
+    return output;
 }
 
 // Factory
@@ -1954,7 +1892,6 @@ DockerDeviceFactory::DockerDeviceFactory()
 {
     setDisplayName(DockerDevice::tr("Docker Device"));
     setIcon(QIcon());
-    setCanCreate(true);
     setCreator([] {
         DockerDeviceSetupWizard wizard;
         if (wizard.exec() != QDialog::Accepted)

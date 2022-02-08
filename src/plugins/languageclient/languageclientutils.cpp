@@ -88,17 +88,22 @@ bool applyTextDocumentEdit(const Client *client, const TextDocumentEdit &edit)
     LanguageClientValue<int> version = edit.textDocument().version();
     if (!version.isNull() && version.value(0) < client->documentVersion(filePath))
         return false;
-    return applyTextEdits(uri, edits);
+    return applyTextEdits(client, uri, edits);
 }
 
-bool applyTextEdits(const DocumentUri &uri, const QList<TextEdit> &edits)
+bool applyTextEdits(const Client *client, const DocumentUri &uri, const QList<TextEdit> &edits)
 {
     if (edits.isEmpty())
         return true;
-    RefactoringChanges changes;
+    RefactoringChangesData * const backend = client->createRefactoringChangesBackend();
+    RefactoringChanges changes(backend);
     RefactoringFilePtr file;
     file = changes.file(uri.toFilePath());
     file->setChangeSet(editsToChangeSet(edits, file->document()));
+    if (backend) {
+        for (const TextEdit &edit : edits)
+            file->appendIndentRange(convertRange(file->document(), edit.range()));
+    }
     return file->apply();
 }
 
@@ -130,7 +135,7 @@ bool applyWorkspaceEdit(const Client *client, const WorkspaceEdit &edit)
     } else {
         const WorkspaceEdit::Changes &changes = edit.changes().value_or(WorkspaceEdit::Changes());
         for (auto it = changes.cbegin(); it != changes.cend(); ++it)
-            result |= applyTextEdits(it.key(), it.value());
+            result |= applyTextEdits(client, it.key(), it.value());
         return result;
     }
     return result;
@@ -273,8 +278,8 @@ void updateEditorToolBar(Core::IEditor *editor)
         });
     }
 
-    if (!extras->m_client || extras->m_client != client ||
-            !LanguageClientOutlineWidgetFactory::clientSupportsDocumentSymbols(client, document)) {
+    if (!extras->m_client || !client || extras->m_client != client
+        || !client->supportsDocumentSymbols(document)) {
         if (extras->m_outlineAction) {
             widget->toolBar()->removeAction(extras->m_outlineAction);
             delete extras->m_outlineAction;
@@ -283,10 +288,11 @@ void updateEditorToolBar(Core::IEditor *editor)
     }
 
     if (!extras->m_client) {
-        if (QWidget *comboBox = LanguageClientOutlineWidgetFactory::createComboBox(client, editor)) {
+        QWidget *comboBox = LanguageClientOutlineWidgetFactory::createComboBox(client, textEditor);
+        if (comboBox) {
             extras->m_client = client;
             extras->m_outlineAction = widget->insertExtraToolBarWidget(TextEditorWidget::Left,
-                                                                        comboBox);
+                                                                       comboBox);
         }
     }
 }

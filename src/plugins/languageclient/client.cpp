@@ -292,13 +292,18 @@ void Client::initialize()
     InitializeParams params;
     params.setCapabilities(m_clientCapabilities);
     params.setInitializationOptions(m_initializationOptions);
-    if (m_project) {
+    if (m_project)
         params.setRootUri(DocumentUri::fromFilePath(m_project->projectDirectory()));
-        params.setWorkSpaceFolders(Utils::transform(SessionManager::projects(), [](Project *pro) {
-            return WorkSpaceFolder(DocumentUri::fromFilePath(pro->projectDirectory()),
-                                   pro->displayName());
-        }));
-    }
+
+    const QList<WorkSpaceFolder> workspaces
+        = Utils::transform(SessionManager::projects(), [](Project *pro) {
+              return WorkSpaceFolder(DocumentUri::fromFilePath(pro->projectDirectory()),
+                                     pro->displayName());
+          });
+    if (workspaces.isEmpty())
+        params.setWorkSpaceFolders(nullptr);
+    else
+        params.setWorkSpaceFolders(workspaces);
     InitializeRequest initRequest(params);
     initRequest.setResponseCallback([this](const InitializeRequest::Response &initResponse){
         initializeCallback(initResponse);
@@ -991,6 +996,17 @@ void Client::projectClosed(ProjectExplorer::Project *project)
     }
 }
 
+void Client::updateConfiguration(const QJsonValue &configuration)
+{
+    if (m_dynamicCapabilities.isRegistered(DidChangeConfigurationNotification::methodName)
+            .value_or(true)) {
+        DidChangeConfigurationParams params;
+        params.setSettings(configuration);
+        DidChangeConfigurationNotification notification(params);
+        sendContent(notification);
+    }
+}
+
 void Client::setSupportedLanguage(const LanguageFilter &filter)
 {
     m_languagFilter = filter;
@@ -1079,6 +1095,31 @@ void Client::setCompletionAssistProvider(LanguageClientCompletionAssistProvider 
     m_clientProviders.completionAssistProvider = provider;
 }
 
+void Client::setQuickFixAssistProvider(LanguageClientQuickFixProvider *provider)
+{
+    delete m_clientProviders.quickFixAssistProvider;
+    m_clientProviders.quickFixAssistProvider = provider;
+}
+
+bool Client::supportsDocumentSymbols(const TextEditor::TextDocument *doc) const
+{
+    if (!doc)
+        return false;
+    DynamicCapabilities dc = dynamicCapabilities();
+    if (dc.isRegistered(DocumentSymbolsRequest::methodName).value_or(false)) {
+        TextDocumentRegistrationOptions options(dc.option(DocumentSymbolsRequest::methodName));
+        return !options.isValid()
+               || options.filterApplies(doc->filePath(), Utils::mimeTypeForName(doc->mimeType()));
+    }
+    const Utils::optional<Utils::variant<bool, WorkDoneProgressOptions>> &provider
+        = capabilities().documentSymbolProvider();
+    if (!provider.has_value())
+        return false;
+    if (Utils::holds_alternative<bool>(*provider))
+        return Utils::get<bool>(*provider);
+    return true;
+}
+
 void Client::start()
 {
     LanguageClientManager::addClient(this);
@@ -1157,6 +1198,11 @@ void Client::log(const QString &message) const
         qCDebug(LOGLSPCLIENT) << message;
         break;
     }
+}
+
+TextEditor::RefactoringChangesData *Client::createRefactoringChangesBackend() const
+{
+    return new TextEditor::RefactoringChangesData;
 }
 
 const ServerCapabilities &Client::capabilities() const

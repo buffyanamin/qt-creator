@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.10)
+cmake_minimum_required(VERSION 3.16)
 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/../../../cmake")
 
@@ -25,18 +25,6 @@ if (CMAKE_SIZEOF_VOID_P EQUAL 8)
   set(ArchSuffix 64)
 endif()
 
-# statically link MSVC runtime
-# see https://gitlab.kitware.com/cmake/community/-/wikis/FAQ#how-can-i-build-my-msvc-application-with-a-static-runtime
-# TODO change to MSVC_RUNTIME_LIBRARY when CMake 3.15 is required
-# set_property(TARGET qtcreatorcdbext PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
-foreach(flag_var
-    CMAKE_CXX_FLAGS CMAKE_CXX_FLAGS_DEBUG CMAKE_CXX_FLAGS_RELEASE
-    CMAKE_CXX_FLAGS_MINSIZEREL CMAKE_CXX_FLAGS_RELWITHDEBINFO)
-  if(${flag_var} MATCHES "/MD")
-    string(REGEX REPLACE "/MD" "/MT" ${flag_var} "${${flag_var}}")
-  endif()
-endforeach()
-
 add_qtc_library(qtcreatorcdbext
   COMPONENT qtcreatorcdbext
   DEPENDS ${DbgEngLib}
@@ -60,17 +48,12 @@ add_qtc_library(qtcreatorcdbext
 
 qtc_library_enabled(_library_enabled qtcreatorcdbext)
 if (_library_enabled)
-  # TODO: Remove when cmake_minimum_required greater than 3.12
-  if (CMAKE_VERSION VERSION_GREATER 3.12)
-    find_package(Python3 3.8 COMPONENTS Development)
-    set(PYTHONLIBS_FOUND ${Python3_Development_FOUND})
-    set(PYTHON_LIBRARIES ${Python3_LIBRARIES})
-    set(PYTHON_INCLUDE_DIR ${Python3_INCLUDE_DIRS})
-  else()
-    find_package(PythonLibs 3.8)
-  endif()
+  # statically link MSVC runtime
+  set_property(TARGET qtcreatorcdbext PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 
-  if (NOT ${PYTHONLIBS_FOUND})
+  find_package(Python3 3.8 COMPONENTS Development)
+
+  if (NOT ${Python3_Development_FOUND})
     message(WARNING "PythonLibs (at least version 3.8) not found. qtcreatorcdbext will be built without Python support.")
     return()
   endif()
@@ -80,7 +63,7 @@ if (_library_enabled)
     set(PythonRegex "^(.*)/(.*)/(python([0-9]+)_d)${CMAKE_IMPORT_LIBRARY_SUFFIX}$")
   endif()
 
-  foreach(lib IN LISTS PYTHON_LIBRARIES)
+  foreach(lib IN LISTS Python3_LIBRARIES)
     if (lib MATCHES ${PythonRegex})
       if (CMAKE_BUILD_TYPE STREQUAL "Debug")
         set(PythonZipFileName "python${CMAKE_MATCH_4}_d.zip")
@@ -105,8 +88,8 @@ if (_library_enabled)
   endif()
 
   extend_qtc_library(qtcreatorcdbext
-    DEPENDS "${PYTHON_LIBRARIES}"
-    INCLUDES "${PYTHON_INCLUDE_DIR}"
+    DEPENDS "${Python3_LIBRARIES}"
+    INCLUDES "${Python3_INCLUDE_DIRS}"
     DEFINES WITH_PYTHON=1
     SOURCES
       pycdbextmodule.cpp pycdbextmodule.h

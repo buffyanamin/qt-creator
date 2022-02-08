@@ -42,6 +42,8 @@ namespace TextEditor { class BaseTextEditor; }
 namespace ClangCodeModel {
 namespace Internal {
 
+void setupClangdConfigFile();
+
 class ClangdClient : public LanguageClient::Client
 {
     Q_OBJECT
@@ -105,6 +107,7 @@ private:
     QTextCursor adjustedCursorForHighlighting(const QTextCursor &cursor,
                                               TextEditor::TextDocument *doc) override;
     const CustomInspectorTabs createCustomInspectorTabs() override;
+    TextEditor::RefactoringChangesData *createRefactoringChangesBackend() const override;
 
     class Private;
     class FollowSymbolData;

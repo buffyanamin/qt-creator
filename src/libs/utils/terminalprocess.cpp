@@ -142,7 +142,6 @@ public:
     QProcess::ProcessError m_error = QProcess::UnknownError;
     QString m_errorString;
     bool m_abortOnMetaChars = true;
-    bool m_runAsRoot = false;
 
     // Used on Unix only
     QtcProcess m_process;
@@ -184,63 +183,6 @@ void TerminalProcess::setCommand(const CommandLine &command)
 const CommandLine &TerminalProcess::commandLine() const
 {
     return d->m_commandLine;
-}
-
-static QString quoteWinCommand(const QString &program)
-{
-    const QChar doubleQuote = QLatin1Char('"');
-
-    // add the program as the first arg ... it works better
-    QString programName = program;
-    programName.replace(QLatin1Char('/'), QLatin1Char('\\'));
-    if (!programName.startsWith(doubleQuote) && !programName.endsWith(doubleQuote)
-            && programName.contains(QLatin1Char(' '))) {
-        programName.prepend(doubleQuote);
-        programName.append(doubleQuote);
-    }
-    return programName;
-}
-
-static QString quoteWinArgument(const QString &arg)
-{
-    if (arg.isEmpty())
-        return QString::fromLatin1("\"\"");
-
-    QString ret(arg);
-    // Quotes are escaped and their preceding backslashes are doubled.
-    ret.replace(QRegularExpression("(\\\\*)\""), "\\1\\1\\\"");
-    if (ret.contains(QRegularExpression("\\s"))) {
-        // The argument must not end with a \ since this would be interpreted
-        // as escaping the quote -- rather put the \ behind the quote: e.g.
-        // rather use "foo"\ than "foo\"
-        int i = ret.length();
-        while (i > 0 && ret.at(i - 1) == QLatin1Char('\\'))
-            --i;
-        ret.insert(i, QLatin1Char('"'));
-        ret.prepend(QLatin1Char('"'));
-    }
-    return ret;
-}
-
-// Quote a Windows command line correctly for the "CreateProcess" API
-static QString createWinCommandline(const QString &program, const QStringList &args)
-{
-    QString programName = quoteWinCommand(program);
-    for (const QString &arg : args) {
-        programName += QLatin1Char(' ');
-        programName += quoteWinArgument(arg);
-    }
-    return programName;
-}
-
-static QString createWinCommandline(const QString &program, const QString &args)
-{
-    QString programName = quoteWinCommand(program);
-    if (!args.isEmpty()) {
-        programName += QLatin1Char(' ');
-        programName += args;
-    }
-    return programName;
 }
 
 void TerminalProcess::setAbortOnMetaChars(bool abort)
@@ -334,15 +276,66 @@ void TerminalProcess::start()
     if (!workDir.isEmpty() && !workDir.endsWith(QLatin1Char('\\')))
         workDir.append(QLatin1Char('\\'));
 
+    // Quote a Windows command line correctly for the "CreateProcess" API
+    static const auto quoteWinCommand = [](const QString &program) {
+        const QChar doubleQuote = QLatin1Char('"');
+
+        // add the program as the first arg ... it works better
+        QString programName = program;
+        programName.replace(QLatin1Char('/'), QLatin1Char('\\'));
+        if (!programName.startsWith(doubleQuote) && !programName.endsWith(doubleQuote)
+                && programName.contains(QLatin1Char(' '))) {
+            programName.prepend(doubleQuote);
+            programName.append(doubleQuote);
+        }
+        return programName;
+    };
+    static const auto quoteWinArgument = [](const QString &arg) {
+        if (arg.isEmpty())
+            return QString::fromLatin1("\"\"");
+
+        QString ret(arg);
+        // Quotes are escaped and their preceding backslashes are doubled.
+        ret.replace(QRegularExpression("(\\\\*)\""), "\\1\\1\\\"");
+        if (ret.contains(QRegularExpression("\\s"))) {
+            // The argument must not end with a \ since this would be interpreted
+            // as escaping the quote -- rather put the \ behind the quote: e.g.
+            // rather use "foo"\ than "foo\"
+            int i = ret.length();
+            while (i > 0 && ret.at(i - 1) == QLatin1Char('\\'))
+                --i;
+            ret.insert(i, QLatin1Char('"'));
+            ret.prepend(QLatin1Char('"'));
+        }
+        return ret;
+    };
+    static const auto createWinCommandlineMultiArgs = [](const QString &program, const QStringList &args) {
+        QString programName = quoteWinCommand(program);
+        for (const QString &arg : args) {
+            programName += QLatin1Char(' ');
+            programName += quoteWinArgument(arg);
+        }
+        return programName;
+    };
+    static const auto createWinCommandlineSingleArg = [](const QString &program, const QString &args)
+    {
+        QString programName = quoteWinCommand(program);
+        if (!args.isEmpty()) {
+            programName += QLatin1Char(' ');
+            programName += args;
+        }
+        return programName;
+    };
+
     QStringList stubArgs;
     stubArgs << modeOption(d->m_terminalMode)
              << d->m_stubServer.fullServerName()
              << workDir
              << (d->m_tempFile ? d->m_tempFile->fileName() : QString())
-             << createWinCommandline(pcmd, pargs)
+             << createWinCommandlineSingleArg(pcmd, pargs)
              << msgPromptToClose();
 
-    const QString cmdLine = createWinCommandline(
+    const QString cmdLine = createWinCommandlineMultiArgs(
             QCoreApplication::applicationDirPath() + QLatin1String("/qtcreator_process_stub.exe"), stubArgs);
 
     bool success = CreateProcessW(0, (WCHAR*)cmdLine.utf16(),
@@ -437,8 +430,6 @@ void TerminalProcess::start()
             + QLatin1String("/" RELATIVE_LIBEXEC_PATH "/qtcreator_process_stub");
 
     QStringList allArgs = terminalArgs.toUnixArgs();
-    if (d->m_runAsRoot)
-        allArgs << "sudo" << "-A";
 
     allArgs << stubPath
             << modeOption(d->m_terminalMode)
@@ -801,11 +792,6 @@ void TerminalProcess::setEnvironment(const Environment &env)
 const Environment &TerminalProcess::environment() const
 {
     return d->m_environment;
-}
-
-void TerminalProcess::setRunAsRoot(bool on)
-{
-    d->m_runAsRoot = on;
 }
 
 QProcess::ProcessError TerminalProcess::error() const

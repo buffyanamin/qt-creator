@@ -251,7 +251,7 @@ F2TestCase::F2TestCase(CppEditorAction action,
 
     const QString curTestName = QLatin1String(QTest::currentTestFunction());
     const QString tag = QLatin1String(QTest::currentDataTag());
-    const bool useClangd = ClangdSettings::instance().useClangd();
+    const bool useClangd = m_testKit;
     if (useClangd) {
         if (curTestName == "testFollowSymbolQObjectConnect"
                 || curTestName == "testFollowSymbolQObjectOldStyleConnect") {
@@ -263,10 +263,6 @@ F2TestCase::F2TestCase(CppEditorAction action,
             QSKIP("fuzzy matching is not supposed to work with clangd"); // TODO: Implement fallback as we do with libclang
         if (tag == "baseClassFunctionIntroducedByUsingDeclaration")
             QSKIP("clangd points to the using declaration");
-        if (tag == "classDestructor" || tag == "fromDestructorDefinitionSymbol"
-                || tag == "fromDestructorBody") {
-            QSKIP("clangd wants the cursor before the ~ character");
-        }
         if (curTestName == "testFollowClassOperatorInOp")
             QSKIP("clangd goes to operator name first");
     }
@@ -438,11 +434,15 @@ F2TestCase::F2TestCase(CppEditorAction action,
     } else {
         currentTextEditor->convertPosition(targetTestFile->m_targetCursorPosition,
                                            &expectedLine, &expectedColumn);
+        if (useClangd && (tag == "classDestructor" || tag == "fromDestructorDefinitionSymbol"
+                || tag == "fromDestructorBody")) {
+            --expectedColumn; // clangd goes before the ~, built-in code model after
+        }
     }
 //    qDebug() << "Expected line:" << expectedLine;
 //    qDebug() << "Expected column:" << expectedColumn;
 
-    if (!ClangdSettings::instance().useClangd()) {
+    if (!useClangd) {
         QEXPECT_FAIL("globalVarFromEnum", "Contributor works on a fix.", Abort);
         QEXPECT_FAIL("matchFunctionSignature_Follow_5", "foo(int) resolved as CallAST", Abort);
     }

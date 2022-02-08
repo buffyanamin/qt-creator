@@ -133,6 +133,7 @@ public:
     ~ConfigModel() override;
 
     QVariant data(const QModelIndex &idx, int role) const final;
+    bool setData(const QModelIndex &idx, const QVariant &data, int role) final;
 
     void appendConfiguration(const QString &key,
                              const QString &value = QString(),
@@ -145,7 +146,7 @@ public:
     void setInitialParametersConfiguration(const CMakeConfig &config);
     void setConfiguration(const QList<DataItem> &config);
 
-    using KitConfiguration = QHash<QString, QPair<QString,QString>>;
+    using KitConfiguration = QHash<QString, CMakeConfigItem>;
     void setConfigurationFromKit(const KitConfiguration &kitConfig);
 
     void flush();
@@ -158,25 +159,33 @@ public:
 
     void toggleUnsetFlag(const QModelIndex &idx);
 
+    void applyKitValue(const  QModelIndex &idx);
+    void applyInitialValue(const  QModelIndex &idx);
+
     static DataItem dataItemFromIndex(const QModelIndex &idx);
 
     QList<DataItem> configurationForCMake() const;
 
+    Utils::MacroExpander *macroExpander() const;
+    void setMacroExpander(Utils::MacroExpander *newExpander);
 
 private:
+    enum class KitOrInitial { Kit, Initial };
+    void applyKitOrInitialValue(const QModelIndex &idx, KitOrInitial ki);
+
     class InternalDataItem : public DataItem
     {
     public:
         InternalDataItem(const DataItem &item);
         InternalDataItem(const InternalDataItem &item) = default;
 
-        QString toolTip() const;
         QString currentValue() const;
 
         bool isUserChanged = false;
         bool isUserNew = false;
         QString newValue;
         QString kitValue;
+        QString initialValue;
     };
 
     void generateTree();
@@ -184,6 +193,7 @@ private:
     void setConfiguration(const QList<InternalDataItem> &config);
     QList<InternalDataItem> m_configuration;
     KitConfiguration m_kitConfiguration;
+    Utils::MacroExpander *m_macroExpander = nullptr;
 
     friend class Internal::ConfigModelTreeItem;
 };

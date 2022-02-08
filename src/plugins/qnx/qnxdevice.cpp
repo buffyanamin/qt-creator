@@ -58,12 +58,10 @@ class QnxPortsGatheringMethod : public PortsGatheringMethod
 {
     // TODO: The command is probably needlessly complicated because the parsing method
     // used to be fixed. These two can now be matched to each other.
-    Runnable runnable(QAbstractSocket::NetworkLayerProtocol protocol) const override
+    CommandLine commandLine(QAbstractSocket::NetworkLayerProtocol protocol) const override
     {
         Q_UNUSED(protocol)
-        Runnable runnable;
-        runnable.command = {"netstat", {"-na"}};
-        return runnable;
+        return {"netstat", {"-na"}};
     }
 
     QList<Port> usedPorts(const QByteArray &output) const override
@@ -104,7 +102,7 @@ void QnxDevice::updateVersionNumber() const
     QEventLoop eventLoop;
     SshDeviceProcess versionNumberProcess(sharedFromThis());
     QObject::connect(&versionNumberProcess, &SshDeviceProcess::finished, &eventLoop, &QEventLoop::quit);
-    QObject::connect(&versionNumberProcess, &DeviceProcess::error, &eventLoop, &QEventLoop::quit);
+    QObject::connect(&versionNumberProcess, &DeviceProcess::errorOccurred, &eventLoop, &QEventLoop::quit);
 
     Runnable r;
     r.command = {"uname", {"-r"}};
@@ -178,7 +176,6 @@ QnxDeviceFactory::QnxDeviceFactory() : IDeviceFactory(Constants::QNX_QNX_OS_TYPE
     setCombinedIcon(":/qnx/images/qnxdevicesmall.png",
                     ":/qnx/images/qnxdevice.png");
     setConstructionFunction(&QnxDevice::create);
-    setCanCreate(true);
     setCreator([] {
         QnxDeviceWizard wizard;
         if (wizard.exec() != QDialog::Accepted)

@@ -30,7 +30,6 @@
 
 #include <texteditor/codeassist/assistinterface.h>
 #include <texteditor/codeassist/genericproposal.h>
-#include <texteditor/codeassist/iassistprocessor.h>
 #include <texteditor/quickfix.h>
 
 
@@ -74,22 +73,6 @@ private:
     QPointer<Client> m_client;
 };
 
-class LanguageClientQuickFixAssistProcessor : public IAssistProcessor
-{
-public:
-    explicit LanguageClientQuickFixAssistProcessor(Client *client) : m_client(client) {}
-    bool running() override { return m_currentRequest.has_value(); }
-    IAssistProposal *perform(const AssistInterface *interface) override;
-    void cancel() override;
-
-private:
-    void handleCodeActionResponse(const CodeActionRequest::Response &response);
-
-    QSharedPointer<const AssistInterface> m_assistInterface;
-    Client *m_client = nullptr; // not owned
-    Utils::optional<MessageId> m_currentRequest;
-};
-
 IAssistProposal *LanguageClientQuickFixAssistProcessor::perform(const AssistInterface *interface)
 {
     m_assistInterface = QSharedPointer<const AssistInterface>(interface);
@@ -131,8 +114,7 @@ void LanguageClientQuickFixAssistProcessor::cancel()
     }
 }
 
-void LanguageClientQuickFixAssistProcessor::handleCodeActionResponse(
-        const CodeActionRequest::Response &response)
+void LanguageClientQuickFixAssistProcessor::handleCodeActionResponse(const CodeActionRequest::Response &response)
 {
     m_currentRequest.reset();
     if (const Utils::optional<CodeActionRequest::Response::Error> &error = response.error())
@@ -150,6 +132,11 @@ void LanguageClientQuickFixAssistProcessor::handleCodeActionResponse(
         }
     }
     m_client->removeAssistProcessor(this);
+    handleProposalReady(ops);
+}
+
+void LanguageClientQuickFixAssistProcessor::handleProposalReady(const QuickFixOperations &ops)
+{
     setAsyncProposalAvailable(GenericProposal::createProposal(m_assistInterface.data(), ops));
 }
 

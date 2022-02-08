@@ -62,7 +62,8 @@ class QTCREATOR_UTILS_EXPORT QtcProcess : public QObject
 public:
     enum ProcessImpl {
         QProcessImpl,
-        ProcessLauncherImpl
+        ProcessLauncherImpl,
+        DefaultImpl,
     };
 
     enum TerminalMode {
@@ -73,15 +74,23 @@ public:
         TerminalOn = TerminalRun // default mode for ON
     };
 
-    QtcProcess(ProcessImpl processImpl, ProcessMode processMode, TerminalMode terminalMode,
-               QObject *parent = nullptr);
-    QtcProcess(ProcessImpl processImpl, QObject *parent = nullptr);
-    QtcProcess(ProcessMode processMode, QObject *parent = nullptr);
-    QtcProcess(TerminalMode terminalMode, QObject *parent = nullptr);
-    QtcProcess(QObject *parent = nullptr);
+    struct Setup {
+        Setup() {}
+        Setup(ProcessImpl processImpl) : processImpl(processImpl) {}
+        Setup(ProcessMode processMode) : processMode(processMode) {}
+        Setup(TerminalMode terminalMode) : terminalMode(terminalMode) {}
+
+        ProcessImpl processImpl = DefaultImpl;
+        ProcessMode processMode = ProcessMode::Reader;
+        TerminalMode terminalMode = TerminalOff;
+    };
+
+    QtcProcess(const Setup &setup = {}, QObject *parent = nullptr);
+    QtcProcess(QObject *parent);
     ~QtcProcess();
 
     ProcessMode processMode() const;
+    TerminalMode terminalMode() const;
 
     enum Result {
         // Finished successfully. Unless an ExitCodeInterpreter is set
@@ -103,6 +112,7 @@ public:
     void setEnvironment(const Environment &env);
     void unsetEnvironment();
     const Environment &environment() const;
+    bool hasEnvironment() const;
 
     void setCommand(const CommandLine &cmdLine);
     const CommandLine &commandLine() const;
@@ -114,15 +124,13 @@ public:
     void setLowPriority();
     void setDisableUnixTerminal();
     void setRunAsRoot(bool on);
-
-    void setUseTerminal(bool on);
-    bool useTerminal() const;
+    bool isRunAsRoot() const;
 
     void setAbortOnMetaChars(bool abort);
 
     void start();
-    void terminate();
-    void interrupt();
+    virtual void terminate();
+    virtual void interrupt();
 
     static bool startDetached(const CommandLine &cmd, const FilePath &workingDirectory = {},
                               qint64 *pid = nullptr);
@@ -170,7 +178,7 @@ public:
 
     QByteArray rawStdOut() const;
 
-    int exitCode() const;
+    virtual int exitCode() const;
 
     QString exitMessage();
 
@@ -190,10 +198,10 @@ public:
     void setProcessChannelMode(QProcess::ProcessChannelMode mode);
 
     QProcess::ProcessError error() const;
-    QProcess::ProcessState state() const;
+    virtual QProcess::ProcessState state() const;
     bool isRunning() const; // Short for state() == QProcess::Running.
 
-    QString errorString() const;
+    virtual QString errorString() const;
     void setErrorString(const QString &str);
 
     qint64 processId() const;
@@ -202,14 +210,14 @@ public:
     bool waitForReadyRead(int msecs = 30000);
     bool waitForFinished(int msecs = 30000);
 
-    QByteArray readAllStandardOutput();
-    QByteArray readAllStandardError();
+    virtual QByteArray readAllStandardOutput();
+    virtual QByteArray readAllStandardError();
 
-    QProcess::ExitStatus exitStatus() const;
+    virtual QProcess::ExitStatus exitStatus() const;
 
-    void kill();
+    virtual void kill();
 
-    qint64 write(const QByteArray &input);
+    virtual qint64 write(const QByteArray &input);
     void close();
 
     void setStandardInputFile(const QString &inputFile);

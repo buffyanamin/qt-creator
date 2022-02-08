@@ -165,6 +165,7 @@ public:
     ProjectExplorer::Project *project() const;
     virtual void projectOpened(ProjectExplorer::Project *project);
     virtual void projectClosed(ProjectExplorer::Project *project);
+    void updateConfiguration(const QJsonValue &configuration);
 
     // commands
     void requestCodeActions(const LanguageServerProtocol::DocumentUri &uri,
@@ -192,6 +193,8 @@ public:
     LanguageServerProtocol::SymbolStringifier symbolStringifier() const;
     void setSnippetsGroup(const QString &group);
     void setCompletionAssistProvider(LanguageClientCompletionAssistProvider *provider);
+    void setQuickFixAssistProvider(LanguageClientQuickFixProvider *provider);
+    virtual bool supportsDocumentSymbols(const TextEditor::TextDocument *doc) const;
 
     // logging
     enum class LogTarget { Console, Ui };
@@ -205,6 +208,9 @@ public:
     using CustomInspectorTab = std::pair<QWidget *, QString>;
     using CustomInspectorTabs = QList<CustomInspectorTab>;
     virtual const CustomInspectorTabs createCustomInspectorTabs() { return {}; }
+
+    // Caller takes ownership
+    virtual TextEditor::RefactoringChangesData *createRefactoringChangesBackend() const;
 
 signals:
     void initialized(const LanguageServerProtocol::ServerCapabilities &capabilities);

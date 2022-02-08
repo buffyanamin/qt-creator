@@ -41,7 +41,6 @@ public:
 
     void run(const QString &command, const SshConnectionParameters &sshParams);
     void runInTerminal(const QString &command, const SshConnectionParameters &sshParams);
-    QString command() const;
 
     QString lastConnectionErrorString() const;
 
