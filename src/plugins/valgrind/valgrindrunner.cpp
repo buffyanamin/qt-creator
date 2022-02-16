@@ -114,7 +114,7 @@ bool ValgrindRunner::Private::run()
     // consider appending our options last so they override any interfering user-supplied options
     // -q as suggested by valgrind manual
 
-    connect(&m_valgrindProcess, &ApplicationLauncher::processExited,
+    connect(&m_valgrindProcess, &ApplicationLauncher::finished,
             q, &ValgrindRunner::processFinished);
     connect(&m_valgrindProcess, &ApplicationLauncher::processStarted,
             this, &ValgrindRunner::Private::processStarted);
@@ -138,12 +138,15 @@ bool ValgrindRunner::Private::run()
     valgrind.device = m_device;
 
     if (m_device->type() == ProjectExplorer::Constants::DESKTOP_DEVICE_TYPE) {
-        m_valgrindProcess.start(valgrind);
+        m_valgrindProcess.setRunnable(valgrind);
+        m_valgrindProcess.start();
     } else if (m_device->type() == "DockerDeviceType") {
         valgrind.device = {};
-        m_valgrindProcess.start(valgrind);
+        m_valgrindProcess.setRunnable(valgrind);
+        m_valgrindProcess.start();
     } else {
-        m_valgrindProcess.start(valgrind, m_device);
+        m_valgrindProcess.setRunnable(valgrind);
+        m_valgrindProcess.start(m_device);
     }
 
     return true;
@@ -193,7 +196,8 @@ void ValgrindRunner::Private::remoteProcessStarted()
 //    m_remote.m_findPID = m_remote.m_connection->createRemoteProcess(cmd.toUtf8());
     connect(&m_findPID, &ApplicationLauncher::appendMessage,
             this, &ValgrindRunner::Private::findPidOutputReceived);
-    m_findPID.start(findPid, m_device);
+    m_findPID.setRunnable(findPid);
+    m_findPID.start(m_device);
 }
 
 void ValgrindRunner::Private::findPidOutputReceived(const QString &out, Utils::OutputFormat format)
@@ -291,7 +295,7 @@ void ValgrindRunner::processError(QProcess::ProcessError e)
     emit finished();
 }
 
-void ValgrindRunner::processFinished(int ret, QProcess::ExitStatus status)
+void ValgrindRunner::processFinished()
 {
     emit extraProcessFinished();
 
@@ -303,7 +307,7 @@ void ValgrindRunner::processFinished(int ret, QProcess::ExitStatus status)
     // make sure we don't wait for the connection anymore
     emit finished();
 
-    if (ret != 0 || status == QProcess::CrashExit)
+    if (d->m_valgrindProcess.exitCode() != 0 || d->m_valgrindProcess.exitStatus() == QProcess::CrashExit)
         emit processErrorReceived(errorString(), d->m_valgrindProcess.processError());
 }
 

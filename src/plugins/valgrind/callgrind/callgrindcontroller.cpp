@@ -117,7 +117,7 @@ void CallgrindController::run(Option option)
 #if CALLGRIND_CONTROL_DEBUG
     m_controllerProcess->setProcessChannelMode(QProcess::ForwardedChannels);
 #endif
-    connect(m_controllerProcess, &ApplicationLauncher::processExited,
+    connect(m_controllerProcess, &ApplicationLauncher::finished,
             this, &CallgrindController::controllerProcessFinished);
     connect(m_controllerProcess, &ApplicationLauncher::error,
             this, &CallgrindController::handleControllerProcessError);
@@ -126,11 +126,12 @@ void CallgrindController::run(Option option)
     controller.command.setExecutable(FilePath::fromString(CALLGRIND_CONTROL_BINARY));
     controller.command.setArguments(QString("%1 %2").arg(toOptionString(option)).arg(m_pid));
 
+    m_controllerProcess->setRunnable(controller);
     if (!m_valgrindRunnable.device
             || m_valgrindRunnable.device->type() == ProjectExplorer::Constants::DESKTOP_DEVICE_TYPE)
-        m_controllerProcess->start(controller);
+        m_controllerProcess->start();
     else
-        m_controllerProcess->start(controller, m_valgrindRunnable.device);
+        m_controllerProcess->start(m_valgrindRunnable.device);
 }
 
 void CallgrindController::setValgrindPid(qint64 pid)
@@ -148,7 +149,7 @@ void CallgrindController::handleControllerProcessError(QProcess::ProcessError)
     m_controllerProcess = nullptr;
 }
 
-void CallgrindController::controllerProcessFinished(int rc, QProcess::ExitStatus status)
+void CallgrindController::controllerProcessFinished()
 {
     QTC_ASSERT(m_controllerProcess, return);
     const QString error = m_controllerProcess->errorString();
@@ -156,7 +157,7 @@ void CallgrindController::controllerProcessFinished(int rc, QProcess::ExitStatus
     m_controllerProcess->deleteLater(); // Called directly from finished() signal in m_process
     m_controllerProcess = nullptr;
 
-    if (rc != 0 || status != QProcess::NormalExit) {
+    if (m_controllerProcess->exitCode() != 0 || m_controllerProcess->exitStatus() != QProcess::NormalExit) {
         qWarning() << "Controller exited abnormally:" << error;
         return;
     }

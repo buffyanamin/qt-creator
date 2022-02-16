@@ -1095,6 +1095,7 @@ class MemoryUsageWidget : public QWidget
     Q_DECLARE_TR_FUNCTIONS(MemoryUsageWidget)
 public:
     MemoryUsageWidget(ClangdClient *client);
+    ~MemoryUsageWidget();
 
 private:
     void setupUi();
@@ -1103,6 +1104,7 @@ private:
     ClangdClient * const m_client;
     MemoryTreeModel * const m_model;
     Utils::TreeView m_view;
+    Utils::optional<MessageId> m_currentRequest;
 };
 
 class ClangdClient::Private
@@ -1161,6 +1163,7 @@ public:
     std::unordered_map<TextDocument *, CppEditor::SemanticHighlighter *> highlighters;
 
     QHash<TextDocument *, QPair<QList<ExpandedSemanticToken>, int>> previousTokens;
+    QHash<Utils::FilePath, CppEditor::BaseEditorDocumentParser::Configuration> parserConfigs;
 
     // The ranges of symbols referring to virtual functions, with document version,
     // as extracted by the highlighting procedure.
@@ -1534,6 +1537,7 @@ void ClangdClient::handleDocumentClosed(TextDocument *doc)
     d->astCache.remove(doc);
     d->previousTokens.remove(doc);
     d->virtualRanges.remove(doc);
+    d->parserConfigs.remove(doc->filePath());
 }
 
 QTextCursor ClangdClient::adjustedCursorForHighlighting(const QTextCursor &cursor,
@@ -1695,6 +1699,39 @@ void ClangdClient::handleUiHeaderChange(const QString &fileName)
             break; // No sane project includes the same UI header twice.
         }
     }
+}
+
+void ClangdClient::updateParserConfig(const Utils::FilePath &filePath,
+        const CppEditor::BaseEditorDocumentParser::Configuration &config)
+{
+    if (config.preferredProjectPartId.isEmpty())
+        return;
+
+    CppEditor::BaseEditorDocumentParser::Configuration &cachedConfig = d->parserConfigs[filePath];
+    if (cachedConfig == config)
+        return;
+    cachedConfig = config;
+
+    // TODO: Also handle editorDefines (and usePrecompiledHeaders?)
+    const auto projectPart = CppEditor::CppModelManager::instance()
+            ->projectPartForId(config.preferredProjectPartId);
+    if (!projectPart)
+        return;
+    const CppEditor::ClangDiagnosticConfig projectWarnings = warningsConfigForProject(project());
+    const QStringList projectOptions = optionsForProject(project());
+    QJsonObject cdbChanges;
+    QStringList args = createClangOptions(*projectPart, filePath.toString(), projectWarnings,
+                                          projectOptions);
+    args.prepend("clang");
+    args.append(filePath.toString());
+    QJsonObject value;
+    value.insert("workingDirectory", filePath.parentDir().toString());
+    value.insert("compilationCommand", QJsonArray::fromStringList(args));
+    cdbChanges.insert(filePath.toUserOutput(), value);
+    const QJsonObject settings({qMakePair(QString("compilationDatabaseChanges"), cdbChanges)});
+    DidChangeConfigurationParams configChangeParams;
+    configChangeParams.setSettings(settings);
+    sendContent(DidChangeConfigurationNotification(configChangeParams));
 }
 
 void ClangdClient::Private::handleFindUsagesResult(quint64 key, const QList<Location> &locations)
@@ -2604,7 +2641,7 @@ private:
 // clangd reports also the #ifs, #elses and #endifs around the disabled code as disabled,
 // and not even in a consistent manner. We don't want this, so we have to clean up here.
 // But note that we require this behavior, as otherwise we would not be able to grey out
-// e.g. empty lines after an #fdef, due to the lack of symbols.
+// e.g. empty lines after an #ifdef, due to the lack of symbols.
 static QList<BlockRange> cleanupDisabledCode(HighlightingResults &results, const QTextDocument *doc,
                                              const QString &docContent)
 {
@@ -2612,7 +2649,8 @@ static QList<BlockRange> cleanupDisabledCode(HighlightingResults &results, const
     int rangeStartPos = -1;
     for (auto it = results.begin(); it != results.end();) {
         const bool wasIfdefedOut = rangeStartPos != -1;
-        if (it->textStyles.mainStyle != C_DISABLED_CODE) {
+        const bool isIfDefedOut = it->textStyles.mainStyle == C_DISABLED_CODE;
+        if (!isIfDefedOut) {
             if (wasIfdefedOut) {
                 const QTextBlock block = doc->findBlockByNumber(it->line - 1);
                 ifdefedOutRanges << BlockRange(rangeStartPos, block.position());
@@ -2624,12 +2662,26 @@ static QList<BlockRange> cleanupDisabledCode(HighlightingResults &results, const
 
         if (!wasIfdefedOut)
             rangeStartPos = doc->findBlockByNumber(it->line - 1).position();
-        const int pos = Utils::Text::positionInText(doc, it->line, it->column);
-        const QStringView content = subViewLen(docContent, pos, it->length).trimmed();
-        if (!content.startsWith(QLatin1String("#if"))
-                && !content.startsWith(QLatin1String("#elif"))
-                && !content.startsWith(QLatin1String("#else"))
-                && !content.startsWith(QLatin1String("#endif"))) {
+
+        // Does the current line contain a potential "ifdefed-out switcher"?
+        // If not, no state change is possible and we continue with the next line.
+        const auto isPreprocessorControlStatement = [&] {
+            const int pos = Utils::Text::positionInText(doc, it->line, it->column);
+            const QStringView content = subViewLen(docContent, pos, it->length).trimmed();
+            if (content.isEmpty() || content.first() != '#')
+                return false;
+            int offset = 1;
+            while (offset < content.size() && content.at(offset).isSpace())
+                ++offset;
+            if (offset == content.size())
+                return false;
+            const QStringView ppDirective = content.mid(offset);
+            return ppDirective.startsWith(QLatin1String("if"))
+                    || ppDirective.startsWith(QLatin1String("elif"))
+                    || ppDirective.startsWith(QLatin1String("else"))
+                    || ppDirective.startsWith(QLatin1String("endif"));
+        };
+        if (!isPreprocessorControlStatement()) {
             ++it;
             continue;
         }
@@ -2643,7 +2695,8 @@ static QList<BlockRange> cleanupDisabledCode(HighlightingResults &results, const
         }
 
         if (wasIfdefedOut && (it + 1 == results.end()
-                || (it + 1)->textStyles.mainStyle != C_DISABLED_CODE)) {
+                || (it + 1)->textStyles.mainStyle != C_DISABLED_CODE
+                || (it + 1)->line != it->line + 1)) {
             // The #else or #endif that ends disabled code should not be disabled.
             const QTextBlock block = doc->findBlockByNumber(it->line - 1);
             ifdefedOutRanges << BlockRange(rangeStartPos, block.position());
@@ -2656,6 +2709,12 @@ static QList<BlockRange> cleanupDisabledCode(HighlightingResults &results, const
 
     if (rangeStartPos != -1)
         ifdefedOutRanges << BlockRange(rangeStartPos, doc->characterCount());
+
+    qCDebug(clangdLogHighlight) << "found" << ifdefedOutRanges.size() << "ifdefed-out ranges";
+    if (clangdLogHighlight().isDebugEnabled()) {
+        for (const BlockRange &r : qAsConst(ifdefedOutRanges))
+            qCDebug(clangdLogHighlight) << r.first() << r.last();
+    }
 
     return ifdefedOutRanges;
 }
@@ -2698,10 +2757,22 @@ static void semanticHighlighter(QFutureInterface<HighlightingResult> &future,
             // where the user sees that it's being written.
             if (it->kind() == "CXXOperatorCall") {
                 const QList<AstNode> children = it->children().value_or(QList<AstNode>());
+
+                // Child 1 is the call itself, Child 2 is the named entity on which the call happens
+                // (a lambda or a class instance), after that follow the actual call arguments.
                 if (children.size() < 2)
                     return false;
-                if (!children.last().range().contains(range))
+
+                // The call itself is never modifiable.
+                if (children.first().range() == range)
                     return false;
+
+                // The callable is never displayed as an output parameter.
+                // TODO: A good argument can be made to display objects on which a non-const
+                //       operator or function is called as output parameters.
+                if (children.at(1).range() == range)
+                    return false;
+
                 QList<AstNode> firstChildTree{children.first()};
                 while (!firstChildTree.isEmpty()) {
                     const AstNode n = firstChildTree.takeFirst();
@@ -2816,13 +2887,13 @@ static void semanticHighlighter(QFutureInterface<HighlightingResult> &future,
 
     auto results = QtConcurrent::blockingMapped<HighlightingResults>(tokens, toResult);
     const QList<BlockRange> ifdefedOutBlocks = cleanupDisabledCode(results, &doc, docContents);
-    QMetaObject::invokeMethod(textDocument, [textDocument, ifdefedOutBlocks, docRevision] {
-        if (textDocument && textDocument->document()->revision() == docRevision)
-            textDocument->setIfdefedOutBlocks(ifdefedOutBlocks);
-    }, Qt::QueuedConnection);
     ExtraHighlightingResultsCollector(future, results, filePath, ast, &doc, docContents).collect();
     if (!future.isCanceled()) {
         qCDebug(clangdLog) << "reporting" << results.size() << "highlighting results";
+        QMetaObject::invokeMethod(textDocument, [textDocument, ifdefedOutBlocks, docRevision] {
+            if (textDocument && textDocument->document()->revision() == docRevision)
+                textDocument->setIfdefedOutBlocks(ifdefedOutBlocks);
+        }, Qt::QueuedConnection);
         QList<Range> virtualRanges;
         for (const HighlightingResult &r : results) {
             if (r.textStyles.mainStyle != C_VIRTUAL_METHOD)
@@ -2837,8 +2908,7 @@ static void semanticHighlighter(QFutureInterface<HighlightingResult> &future,
                 client->setVirtualRanges(filePath, virtualRanges, docRevision);
             }
         }, Qt::QueuedConnection);
-        future.reportResults(QVector<HighlightingResult>(results.cbegin(),
-                                                                     results.cend()));
+        future.reportResults(QVector<HighlightingResult>(results.cbegin(), results.cend()));
     }
     future.reportFinished();
 }
@@ -3261,7 +3331,8 @@ void ClangdCompletionItem::apply(TextDocumentManipulatorInterface &manipulator,
     QTextCursor cursor = manipulator.textCursorAt(rangeStart);
     cursor.movePosition(QTextCursor::EndOfWord);
     const QString textAfterCursor = manipulator.textAt(currentPos, cursor.position() - currentPos);
-    if (textToBeInserted != textAfterCursor
+    if (currentPos < cursor.position()
+            && textToBeInserted != textAfterCursor
             && textToBeInserted.indexOf(textAfterCursor, currentPos - rangeStart) >= 0) {
         currentPos = cursor.position();
     }
@@ -4033,6 +4104,12 @@ MemoryUsageWidget::MemoryUsageWidget(ClangdClient *client)
     getMemoryTree();
 }
 
+MemoryUsageWidget::~MemoryUsageWidget()
+{
+    if (m_currentRequest.has_value())
+        m_client->cancelRequest(m_currentRequest.value());
+}
+
 void MemoryUsageWidget::setupUi()
 {
     const auto layout = new QVBoxLayout(this);
@@ -4052,11 +4129,13 @@ void MemoryUsageWidget::getMemoryTree()
 {
     Request<MemoryTree, std::nullptr_t, JsonObject> request("$/memoryUsage", {});
     request.setResponseCallback([this](decltype(request)::Response response) {
+        m_currentRequest.reset();
         qCDebug(clangdLog) << "received memory usage response";
         if (const auto result = response.result())
             m_model->update(*result);
     });
     qCDebug(clangdLog) << "sending memory usage request";
+    m_currentRequest = request.id();
     m_client->sendContent(request, ClangdClient::SendDocUpdates::Ignore);
 }
 

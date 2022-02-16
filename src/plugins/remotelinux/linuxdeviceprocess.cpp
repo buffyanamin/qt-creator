@@ -52,7 +52,7 @@ LinuxDeviceProcess::LinuxDeviceProcess(const QSharedPointer<const ProjectExplore
 QByteArray LinuxDeviceProcess::readAllStandardOutput()
 {
     QByteArray output = SshDeviceProcess::readAllStandardOutput();
-    if (m_pidParsed || runInTerminal())
+    if (m_pidParsed || usesTerminal())
         return output;
 
     m_output.append(output);
@@ -79,7 +79,7 @@ qint64 LinuxDeviceProcess::processId() const
     return m_processId < 0 ? 0 : m_processId;
 }
 
-QString LinuxDeviceProcess::fullCommandLine(const Runnable &runnable) const
+QString LinuxDeviceProcess::fullCommandLine() const
 {
     CommandLine cmd;
 
@@ -91,23 +91,22 @@ QString LinuxDeviceProcess::fullCommandLine(const Runnable &runnable) const
         cmd.addArgs(";", CommandLine::Raw);
     }
 
-    if (!runnable.workingDirectory.isEmpty()) {
-        cmd.addArgs({"cd", runnable.workingDirectory.path()});
+    if (!workingDirectory().isEmpty()) {
+        cmd.addArgs({"cd", workingDirectory().path()});
         cmd.addArgs("&&", CommandLine::Raw);
     }
 
-    if (!runInTerminal())
+    if (!usesTerminal())
         cmd.addArgs(QString("echo ") + pidMarker + "$$" + pidMarker + " && ", CommandLine::Raw);
 
-    const Environment &env = runnable.environment;
+    const Environment &env = environment();
     for (auto it = env.constBegin(); it != env.constEnd(); ++it)
         cmd.addArgs(env.key(it) + "='" + env.expandedValueForKey(env.key(it)) + '\'', CommandLine::Raw);
 
-    if (!runInTerminal())
+    if (!usesTerminal())
         cmd.addArg("exec");
 
-    cmd.addArg(runnable.command.executable().toString());
-    cmd.addArgs(runnable.command.arguments(), CommandLine::Raw);
+    cmd.addCommandLineAsArgs(commandLine(), CommandLine::Raw);
 
     return cmd.arguments();
 }

@@ -269,7 +269,7 @@ QmlEngine::QmlEngine()
     connect(stackHandler(), &StackHandler::currentIndexChanged,
             this, &QmlEngine::updateCurrentContext);
 
-    connect(&d->applicationLauncher, &ApplicationLauncher::processExited,
+    connect(&d->applicationLauncher, &ApplicationLauncher::finished,
             this, &QmlEngine::disconnected);
     connect(&d->applicationLauncher, &ApplicationLauncher::appendMessage,
             this, &QmlEngine::appMessage);
@@ -507,14 +507,15 @@ void QmlEngine::startApplicationLauncher()
         const Runnable runnable = runParameters().inferior;
         showMessage(tr("Starting %1").arg(runnable.command.toUserOutput()),
                     NormalMessageFormat);
-        d->applicationLauncher.start(runnable);
+        d->applicationLauncher.setRunnable(runnable);
+        d->applicationLauncher.start();
     }
 }
 
 void QmlEngine::stopApplicationLauncher()
 {
     if (d->applicationLauncher.isRunning()) {
-        disconnect(&d->applicationLauncher, &ApplicationLauncher::processExited,
+        disconnect(&d->applicationLauncher, &ApplicationLauncher::finished,
                    this, &QmlEngine::disconnected);
         d->applicationLauncher.stop();
     }
@@ -795,9 +796,15 @@ void QmlEngine::assignValueInDebugger(WatchItem *item,
     const QString &expression, const QVariant &editValue)
 {
     if (!expression.isEmpty()) {
-        QVariant value = (editValue.type() == QVariant::String)
-                ? QVariant('"' + editValue.toString().replace('"', "\\\"") + '"')
-                : editValue;
+        QTC_CHECK(editValue.type() == QVariant::String);
+        QVariant value;
+        QString val = editValue.toString();
+        if (item->type == "boolean")
+            value = val != "false" && val != "0";
+        else if (item->type == "number")
+            value = val.toDouble();
+        else
+            value = QString('"' + val.replace('"', "\\\"") + '"');
 
         if (item->isInspect()) {
             d->inspectorAgent.assignValue(item, expression, value);

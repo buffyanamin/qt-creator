@@ -24,6 +24,7 @@
 ****************************************************************************/
 
 #include "mcusupportplugin.h"
+#include "mcukitinformation.h"
 #include "mcusupportconstants.h"
 #include "mcusupportdevice.h"
 #include "mcusupportoptions.h"
@@ -53,11 +54,9 @@ class McuSupportPluginPrivate
 public:
     McuSupportDeviceFactory deviceFactory;
     McuSupportRunConfigurationFactory runConfigurationFactory;
-    RunWorkerFactory runWorkerFactory{
-        makeFlashAndRunWorker(),
-        {ProjectExplorer::Constants::NORMAL_RUN_MODE},
-        {Constants::RUNCONFIGURATION}
-    };
+    RunWorkerFactory runWorkerFactory{makeFlashAndRunWorker(),
+                                      {ProjectExplorer::Constants::NORMAL_RUN_MODE},
+                                      {Constants::RUNCONFIGURATION}};
     McuSupportOptionsPage optionsPage;
     McuDependenciesKitAspect environmentPathsKitAspect;
 };
@@ -75,7 +74,7 @@ McuSupportPlugin::~McuSupportPlugin()
     dd = nullptr;
 }
 
-bool McuSupportPlugin::initialize(const QStringList& arguments, QString* errorString)
+bool McuSupportPlugin::initialize(const QStringList &arguments, QString *errorString)
 {
     Q_UNUSED(arguments)
     Q_UNUSED(errorString)
@@ -93,7 +92,7 @@ void McuSupportPlugin::extensionsInitialized()
 {
     ProjectExplorer::DeviceManager::instance()->addDevice(McuSupportDevice::create());
 
-    connect(KitManager::instance(), &KitManager::kitsLoaded, [](){
+    connect(KitManager::instance(), &KitManager::kitsLoaded, []() {
         McuSupportOptions::removeOutdatedKits();
         McuSupportOptions::createAutomaticKits();
         McuSupportOptions::fixExistingKits();
@@ -133,12 +132,11 @@ void McuSupportPlugin::askUserAboutMcuSupportKitsUpgrade()
                              Utils::InfoBarEntry::GlobalSuppression::Enabled);
 
     static McuSupportOptions::UpgradeOption selectedOption;
-    const QStringList options = { tr("Create new kits"), tr("Replace existing kits") };
+    const QStringList options = {tr("Create new kits"), tr("Replace existing kits")};
     selectedOption = McuSupportOptions::UpgradeOption::Keep;
     info.setComboInfo(options, [options](const QString &selected) {
-        selectedOption = options.indexOf(selected) == 0 ?
-                    McuSupportOptions::UpgradeOption::Keep :
-                    McuSupportOptions::UpgradeOption::Replace;
+        selectedOption = options.indexOf(selected) == 0 ? McuSupportOptions::UpgradeOption::Keep
+                                                        : McuSupportOptions::UpgradeOption::Replace;
     });
 
     info.addCustomButton(tr("Proceed"), [upgradeMcuSupportKits] {

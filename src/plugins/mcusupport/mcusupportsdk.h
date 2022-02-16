@@ -25,11 +25,10 @@
 
 #pragma once
 
-#include <QVector>
+#include <utils/filepath.h>
 
-namespace Utils {
-class FilePath;
-}
+#include <QSettings>
+#include <QVector>
 
 namespace McuSupport {
 namespace Internal {
@@ -48,6 +47,9 @@ void targetsAndPackages(const Utils::FilePath &qulDir, McuSdkRepository *repo);
 
 Utils::FilePath kitsPath(const Utils::FilePath &dir);
 
+Utils::FilePath packagePathFromSettings(const QString &settingsKey,
+                                        QSettings::Scope scope = QSettings::UserScope,
+                                        const Utils::FilePath &defaultPath = {});
 } // namespace Sdk
 } // namespace Internal
 } // namespace McuSupport

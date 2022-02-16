@@ -353,7 +353,7 @@ public:
           m_changeButton(createSubWidget<QPushButton>())
     {
         const CMakeTool *tool = CMakeKitAspect::cmakeTool(kit);
-        connect(this, &KitAspectWidget::labelLinkActivated, this, [=](const QString &link) {
+        connect(this, &KitAspectWidget::labelLinkActivated, this, [=](const QString &) {
             CMakeTool::openCMakeHelpUrl(tool, "%1/manual/cmake-generators.7.html");
         });
 
@@ -660,6 +660,29 @@ QStringList CMakeGeneratorKitAspect::generatorArguments(const Kit *k)
     return result;
 }
 
+CMakeConfig CMakeGeneratorKitAspect::generatorCMakeConfig(const ProjectExplorer::Kit *k)
+{
+    CMakeConfig config;
+
+    GeneratorInfo info = generatorInfo(k);
+    if (info.generator.isEmpty())
+        return config;
+
+    if (info.extraGenerator.isEmpty())
+        config << CMakeConfigItem("CMAKE_GENERATOR", info.generator.toUtf8());
+    else
+        config << CMakeConfigItem("CMAKE_GENERATOR",
+                                  (info.extraGenerator + " - " + info.generator).toUtf8());
+
+    if (!info.platform.isEmpty())
+        config << CMakeConfigItem("CMAKE_GENERATOR_PLATFORM", info.platform.toUtf8());
+
+    if (!info.toolset.isEmpty())
+        config << CMakeConfigItem("CMAKE_GENERATOR_TOOLSET", info.toolset.toUtf8());
+
+    return config;
+}
+
 bool CMakeGeneratorKitAspect::isMultiConfigGenerator(const Kit *k)
 {
     const QString generator = CMakeGeneratorKitAspect::generator(k);
@@ -949,7 +972,7 @@ private:
                                 "To set a variable, use -D&lt;variable&gt;:&lt;type&gt;=&lt;value&gt;.<br/>"
                                 "&lt;type&gt; can have one of the following values: FILEPATH, PATH, "
                                 "BOOL, INTERNAL, or STRING."));
-        connect(editorLabel, &QLabel::linkActivated, this, [=](const QString &link) {
+        connect(editorLabel, &QLabel::linkActivated, this, [=](const QString &) {
             CMakeTool::openCMakeHelpUrl(tool, "%1/manual/cmake-variables.7.html");
         });
         m_editor->setMinimumSize(800, 200);
@@ -961,7 +984,7 @@ private:
         m_additionalEditor = new QLineEdit;
         auto additionalLabel = new QLabel(m_dialog);
         additionalLabel->setText(tr("Additional CMake <a href=\"options\">options</a>:"));
-        connect(additionalLabel, &QLabel::linkActivated, this, [=](const QString &link) {
+        connect(additionalLabel, &QLabel::linkActivated, this, [=](const QString &) {
             CMakeTool::openCMakeHelpUrl(tool, "%1/manual/cmake.1.html#options");
         });
 
@@ -1109,12 +1132,12 @@ CMakeConfig CMakeConfigurationKitAspect::defaultConfiguration(const Kit *k)
     Q_UNUSED(k)
     CMakeConfig config;
     // Qt4:
-    config << CMakeConfigItem(CMAKE_QMAKE_KEY, "%{Qt:qmakeExecutable}");
+    config << CMakeConfigItem(CMAKE_QMAKE_KEY, CMakeConfigItem::FILEPATH, "%{Qt:qmakeExecutable}");
     // Qt5:
-    config << CMakeConfigItem(CMAKE_PREFIX_PATH_KEY, "%{Qt:QT_INSTALL_PREFIX}");
+    config << CMakeConfigItem(CMAKE_PREFIX_PATH_KEY, CMakeConfigItem::PATH, "%{Qt:QT_INSTALL_PREFIX}");
 
-    config << CMakeConfigItem(CMAKE_C_TOOLCHAIN_KEY, "%{Compiler:Executable:C}");
-    config << CMakeConfigItem(CMAKE_CXX_TOOLCHAIN_KEY, "%{Compiler:Executable:Cxx}");
+    config << CMakeConfigItem(CMAKE_C_TOOLCHAIN_KEY, CMakeConfigItem::FILEPATH, "%{Compiler:Executable:C}");
+    config << CMakeConfigItem(CMAKE_CXX_TOOLCHAIN_KEY, CMakeConfigItem::FILEPATH, "%{Compiler:Executable:Cxx}");
 
     return config;
 }

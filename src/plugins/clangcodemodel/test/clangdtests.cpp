@@ -675,6 +675,8 @@ void ClangdTestHighlighting::initTestCase()
 {
     ClangdTest::initTestCase();
 
+    connect(document("highlighting.cpp"), &TextDocument::ifdefedOutBlocksChanged, this,
+            [this](const QList<BlockRange> &ranges) { m_ifdefedOutBlocks = ranges; });
     QTimer timer;
     timer.setSingleShot(true);
     QEventLoop loop;
@@ -1283,6 +1285,14 @@ void ClangdTestHighlighting::test_data()
                                       << QList<int>{C_LOCAL} << 0;
     QTest::newRow("const member as function argument") << 868 << 32 << 868 << 43
                                       << QList<int>{C_FIELD} << 0;
+    QTest::newRow("lambda call without arguments (const var)") << 887 << 5 << 887 << 12
+                                      << QList<int>{C_LOCAL} << 0;
+    QTest::newRow("lambda call without arguments (non-const var)") << 889 << 5 << 889 << 12
+                                      << QList<int>{C_LOCAL} << 0;
+    QTest::newRow("non-const operator()") << 898 << 5 << 898 << 7
+                                      << QList<int>{C_LOCAL} << 0;
+    QTest::newRow("const operator()") << 903 << 5 << 903 << 7
+                                      << QList<int>{C_LOCAL} << 0;
 }
 
 void ClangdTestHighlighting::test()
@@ -1378,6 +1388,17 @@ void ClangdTestHighlighting::test()
 
     QCOMPARE(actualStyles, expectedStyles);
     QCOMPARE(result.kind, expectedKind);
+}
+
+void ClangdTestHighlighting::testIfdefedOutBlocks()
+{
+    QCOMPARE(m_ifdefedOutBlocks.size(), 3);
+    QCOMPARE(m_ifdefedOutBlocks.at(0).first(), 12033);
+    QCOMPARE(m_ifdefedOutBlocks.at(0).last(), 12050);
+    QCOMPARE(m_ifdefedOutBlocks.at(1).first(), 13351);
+    QCOMPARE(m_ifdefedOutBlocks.at(1).last(), 13364);
+    QCOMPARE(m_ifdefedOutBlocks.at(2).first(), 13390);
+    QCOMPARE(m_ifdefedOutBlocks.at(2).last(), 13402);
 }
 
 

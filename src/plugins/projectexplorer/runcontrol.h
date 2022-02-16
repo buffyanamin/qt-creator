@@ -71,7 +71,7 @@ public:
     Utils::FilePath workingDirectory;
     Utils::Environment environment;
     IDevice::ConstPtr device; // Override the kit's device. Keep unset by default.
-    QHash<Utils::Id, QVariant> extraData;
+    QVariantHash extraData;
 
     // FIXME: Not necessarily a display name
     QString displayName() const;
@@ -308,6 +308,7 @@ private:
     bool m_stopReported = false;
     bool m_useTerminal = false;
     bool m_runAsRoot = false;
+    bool m_stopForced = false;
 };
 
 class PROJECTEXPLORER_EXPORT OutputFormatterFactory

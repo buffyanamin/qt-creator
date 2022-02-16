@@ -30,6 +30,7 @@
 #include "environment.h"
 #include "commandline.h"
 #include "processutils.h"
+#include "qtcassert.h"
 
 #include <QProcess>
 
@@ -42,8 +43,7 @@ class tst_QtcProcess;
 
 namespace Utils {
 
-class CommandLine;
-class Environment;
+class ProcessInterface;
 class QtcProcess;
 
 namespace Internal { class QtcProcessPrivate; }
@@ -60,6 +60,9 @@ class QTCREATOR_UTILS_EXPORT QtcProcess : public QObject
     Q_OBJECT
 
 public:
+    QtcProcess(QObject *parent = nullptr);
+    ~QtcProcess();
+
     enum ProcessImpl {
         QProcessImpl,
         ProcessLauncherImpl,
@@ -73,24 +76,6 @@ public:
         TerminalSuspend,
         TerminalOn = TerminalRun // default mode for ON
     };
-
-    struct Setup {
-        Setup() {}
-        Setup(ProcessImpl processImpl) : processImpl(processImpl) {}
-        Setup(ProcessMode processMode) : processMode(processMode) {}
-        Setup(TerminalMode terminalMode) : terminalMode(terminalMode) {}
-
-        ProcessImpl processImpl = DefaultImpl;
-        ProcessMode processMode = ProcessMode::Reader;
-        TerminalMode terminalMode = TerminalOff;
-    };
-
-    QtcProcess(const Setup &setup = {}, QObject *parent = nullptr);
-    QtcProcess(QObject *parent);
-    ~QtcProcess();
-
-    ProcessMode processMode() const;
-    TerminalMode terminalMode() const;
 
     enum Result {
         // Finished successfully. Unless an ExitCodeInterpreter is set
@@ -108,6 +93,17 @@ public:
         // Hang, no output after time out
         Hang
     };
+
+    void setProcessInterface(ProcessInterface *interface);
+
+    void setProcessImpl(ProcessImpl processImpl);
+
+    void setTerminalMode(TerminalMode mode);
+    bool usesTerminal() const { return terminalMode() != TerminalOff; }
+    TerminalMode terminalMode() const;
+
+    void setProcessMode(ProcessMode processMode);
+    ProcessMode processMode() const;
 
     void setEnvironment(const Environment &env);
     void unsetEnvironment();
@@ -128,7 +124,7 @@ public:
 
     void setAbortOnMetaChars(bool abort);
 
-    void start();
+    virtual void start();
     virtual void terminate();
     virtual void interrupt();
 
@@ -224,6 +220,12 @@ public:
 
     QString toStandaloneCommandLine() const;
 
+    void setExtraData(const QString &key, const QVariant &value);
+    QVariant extraData(const QString &key) const;
+
+    void setExtraData(const QVariantHash &extraData);
+    QVariantHash extraData() const;
+
 signals:
     void started();
     void finished();
@@ -241,6 +243,82 @@ private:
     void feedStdOut(const QByteArray &data);
     void endFeed();
 };
+
+class QTCREATOR_UTILS_EXPORT ProcessSetupData
+{
+public:
+    QtcProcess::ProcessImpl m_processImpl = QtcProcess::DefaultImpl;
+    ProcessMode m_processMode = ProcessMode::Reader;
+    QtcProcess::TerminalMode m_terminalMode = QtcProcess::TerminalOff;
+
+    CommandLine m_commandLine;
+    FilePath m_workingDirectory;
+    Environment m_environment;
+    QByteArray m_writeData;
+    bool m_runAsRoot = false;
+    bool m_haveEnv = false;
+    bool m_useCtrlCStub = false;
+    QVariantHash m_extraData;
+
+    QString m_nativeArguments;
+    QString m_standardInputFile;
+    QString m_initialErrorString;
+    bool m_belowNormalPriority = false;
+    bool m_lowPriority = false;
+    bool m_unixTerminalDisabled = false;
+    bool m_abortOnMetaChars = true;
+    QProcess::ProcessChannelMode m_procesChannelMode = QProcess::SeparateChannels;
+};
+
+class QTCREATOR_UTILS_EXPORT ProcessInterface : public QObject
+{
+    Q_OBJECT
+
+public:
+    ProcessInterface(QObject *parent, ProcessMode processMode)
+        : QObject(parent)
+        , m_processMode(processMode) {}
+
+    virtual QByteArray readAllStandardOutput() = 0;
+    virtual QByteArray readAllStandardError() = 0;
+
+    virtual void setEnvironment(const Environment &environment) = 0;
+    virtual void start(const QString &program, const QStringList &arguments,
+                       const QByteArray &writeData) = 0;
+    virtual void customStart(const CommandLine &, const Environment &) { QTC_CHECK(false); }
+    virtual bool isCustomStart() const { return false; }
+    virtual void terminate() = 0;
+    virtual void kill() = 0;
+    virtual void close() = 0;
+    virtual qint64 write(const QByteArray &data) = 0;
+
+    virtual QProcess::ProcessError error() const = 0;
+    virtual QProcess::ProcessState state() const = 0;
+    virtual qint64 processId() const = 0;
+    virtual int exitCode() const = 0;
+    virtual QProcess::ExitStatus exitStatus() const = 0;
+    virtual QString errorString() const = 0;
+    virtual void setErrorString(const QString &str) = 0;
+
+    virtual bool waitForStarted(int msecs) = 0;
+    virtual bool waitForReadyRead(int msecs) = 0;
+    virtual bool waitForFinished(int msecs) = 0;
+
+    virtual void kickoffProcess() { QTC_CHECK(false); }
+    virtual void interruptProcess() { QTC_CHECK(false); }
+    virtual qint64 applicationMainThreadID() const { QTC_CHECK(false); return -1; }
+
+    const ProcessMode m_processMode;
+    ProcessSetupData *m_setup = nullptr;
+
+signals:
+    void started();
+    void finished(int exitCode, QProcess::ExitStatus status);
+    void errorOccurred(QProcess::ProcessError error);
+    void readyReadStandardOutput();
+    void readyReadStandardError();
+};
+
 
 using ExitCodeInterpreter = std::function<QtcProcess::Result(int /*exitCode*/)>;
 

@@ -39,18 +39,9 @@ namespace Internal {
 
 DesktopDeviceProcess::DesktopDeviceProcess(const QSharedPointer<const IDevice> &device,
                                            QObject *parent)
-    : DeviceProcess(device, ProcessMode::Writer, parent)
+    : DeviceProcess(device, parent)
 {
-}
-
-void DesktopDeviceProcess::start(const Runnable &runnable)
-{
-    QTC_ASSERT(state() == QProcess::NotRunning, return);
-    if (runnable.environment.size())
-        setEnvironment(runnable.environment);
-    setWorkingDirectory(runnable.workingDirectory);
-    setCommand(runnable.command);
-    QtcProcess::start();
+    setProcessMode(ProcessMode::Writer);
 }
 
 void DesktopDeviceProcess::interrupt()

@@ -55,8 +55,10 @@ public:
     void setProcessChannelMode(QProcess::ProcessChannelMode mode);
     void setUseTerminal(bool on);
     void setRunAsRoot(bool on);
-    void start(const Runnable &runnable);
-    void start(const Runnable &runnable, const IDevice::ConstPtr &device);
+    void setRunnable(const Runnable &runnable);
+
+    void start();
+    void start(const IDevice::ConstPtr &device);
     void stop();
     bool isRunning() const;
     Utils::ProcessHandle applicationPID() const;
@@ -67,10 +69,13 @@ public:
 
     static QString msgWinCannotRetrieveDebuggingOutput();
 
+    int exitCode() const;
+    QProcess::ExitStatus exitStatus() const;
+
 signals:
     void appendMessage(const QString &message, Utils::OutputFormat format, bool appendNewLine = true);
     void processStarted();
-    void processExited(int exitCode, QProcess::ExitStatus exitStatus);
+    void finished();
     void error(QProcess::ProcessError error);
 
 private:

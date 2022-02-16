@@ -57,11 +57,10 @@ QdbStopApplicationService::~QdbStopApplicationService()
     delete d;
 }
 
-void QdbStopApplicationService::handleProcessFinished(int exitCode, QProcess::ExitStatus exitStatus)
+void QdbStopApplicationService::handleProcessFinished()
 {
-    Q_UNUSED(exitCode)
-    const auto failureMessage = tr("Could not check and possibly stop running application.");
-    if (exitStatus == QProcess::CrashExit) {
+    const QString failureMessage = tr("Could not check and possibly stop running application.");
+    if (d->applicationLauncher.exitStatus() == QProcess::CrashExit) {
         emit errorMessage(failureMessage);
         stopDeployment();
         return;
@@ -91,7 +90,7 @@ void QdbStopApplicationService::doDeploy()
 {
     connect(&d->applicationLauncher, &ProjectExplorer::ApplicationLauncher::error,
             this, [this] { emit stdErrData(d->applicationLauncher.errorString()); });
-    connect(&d->applicationLauncher, &ProjectExplorer::ApplicationLauncher::processExited,
+    connect(&d->applicationLauncher, &ProjectExplorer::ApplicationLauncher::finished,
             this, &QdbStopApplicationService::handleProcessFinished);
     connect(&d->applicationLauncher, &ProjectExplorer::ApplicationLauncher::appendMessage,
             this, &QdbStopApplicationService::handleAppendMessage);
@@ -100,8 +99,8 @@ void QdbStopApplicationService::doDeploy()
     runnable.command = {Constants::AppcontrollerFilepath, {"--stop"}};
     runnable.workingDirectory = "/usr/bin";
 
-    d->applicationLauncher.start(runnable,
-                                 ProjectExplorer::DeviceKitAspect::device(target()->kit()));
+    d->applicationLauncher.setRunnable(runnable);
+    d->applicationLauncher.start(ProjectExplorer::DeviceKitAspect::device(target()->kit()));
 }
 
 void QdbStopApplicationService::stopDeployment()

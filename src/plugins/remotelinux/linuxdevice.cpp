@@ -329,18 +329,16 @@ LinuxDevice::LinuxDevice()
             Core::MessageManager::writeDisrupting(tr("Error starting remote shell."));
             proc->deleteLater();
         });
-        Runnable runnable;
-        runnable.device = sharedFromThis();
-        runnable.environment = env;
-        runnable.workingDirectory = workingDir;
 
         // It seems we cannot pass an environment to OpenSSH dynamically
         // without specifying an executable.
         if (env.size() > 0)
-            runnable.command.setExecutable("/bin/sh");
+            proc->setCommand({"/bin/sh", {}});
 
-        proc->setRunInTerminal(true);
-        proc->start(runnable);
+        proc->setTerminalMode(QtcProcess::TerminalOn);
+        proc->setEnvironment(env);
+        proc->setWorkingDirectory(workingDir);
+        proc->start();
     });
 
     if (Utils::HostOsInfo::isAnyUnixHost()) {
@@ -720,40 +718,6 @@ bool LinuxDevice::setPermissions(const Utils::FilePath &filePath, QFileDevice::P
     return d->runInShell({"chmod", {QString::number(flags, 16), filePath.path()}});
 }
 
-static void filterEntriesHelper(const FilePath &base,
-                                const std::function<bool(const FilePath &)> &callBack,
-                                const QStringList &entries,
-                                const FileFilter &filter)
-{
-    const QList<QRegularExpression> nameRegexps =
-        transform(filter.nameFilters, [](const QString &filter) {
-            QRegularExpression re;
-            re.setPattern(QRegularExpression::wildcardToRegularExpression(filter));
-            QTC_CHECK(re.isValid());
-            return re;
-        });
-
-    const auto nameMatches = [&nameRegexps](const QString &fileName) {
-        for (const QRegularExpression &re : nameRegexps) {
-            const QRegularExpressionMatch match = re.match(fileName);
-            if (match.hasMatch())
-                return true;
-        }
-        return nameRegexps.isEmpty();
-    };
-
-    // FIXME: Handle filters. For now bark on unsupported options.
-    QTC_CHECK(filter.fileFilters == QDir::NoFilter);
-    QTC_CHECK(filter.iteratorFlags == QDirIterator::NoIteratorFlags);
-
-    for (const QString &entry : entries) {
-        if (!nameMatches(entry))
-            continue;
-        if (!callBack(base.pathAppended(entry)))
-            break;
-    }
-}
-
 void LinuxDevice::iterateDirectory(const FilePath &filePath,
                                    const std::function<bool(const FilePath &)> &callBack,
                                    const FileFilter &filter) const
@@ -761,9 +725,8 @@ void LinuxDevice::iterateDirectory(const FilePath &filePath,
     QTC_ASSERT(handlesFile(filePath), return);
     // if we do not have find - use ls as fallback
     const QByteArray output = d->outputForRunInShell({"ls", {"-1", "-b", "--", filePath.path()}});
-    const QString out = QString::fromUtf8(output.data(), output.size());
-    const QStringList entries = out.split('\n', Qt::SkipEmptyParts);
-    filterEntriesHelper(filePath, callBack, entries, filter);
+    const QStringList entries = QString::fromUtf8(output).split('\n', Qt::SkipEmptyParts);
+    FileUtils::iterateLsOutput(filePath, entries, filter, callBack);
 }
 
 QByteArray LinuxDevice::fileContents(const FilePath &filePath, qint64 limit, qint64 offset) const

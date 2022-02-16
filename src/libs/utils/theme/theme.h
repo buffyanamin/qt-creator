@@ -310,6 +310,7 @@ public:
         DSerrorColor,
         DSwarningColor,
         DSdisabledColor,
+        DSinteractionHover,
         DScontrolBackground,
         DScontrolBackgroundInteraction,
         DScontrolBackgroundDisabled,
@@ -431,6 +432,10 @@ public:
         DSsubPanelBackground,
         DSthumbnailBackground,
         DSthumbnailLabelBackground,
+
+        DSgreenLight,
+        DSamberLight,
+        DSredLight,
     };
 
     enum Gradient {

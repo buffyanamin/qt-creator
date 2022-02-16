@@ -67,7 +67,9 @@ public:
         ProjectExplorer::Runnable r;
         r.command = {Constants::AppcontrollerFilepath, {"--stop"}};
 
-        (new ApplicationLauncher(this))->start(r, device());
+        auto launcher = new ApplicationLauncher(this);
+        launcher->setRunnable(r);
+        launcher->start(device());
     }
 };
 
@@ -81,7 +83,7 @@ public:
                 &DeviceApplicationObserver::handleAppendMessage);
         connect(&m_appRunner, &ApplicationLauncher::error, this,
                 [this] { m_error = m_appRunner.errorString(); });
-        connect(&m_appRunner, &ApplicationLauncher::processExited, this,
+        connect(&m_appRunner, &ApplicationLauncher::finished, this,
                 &DeviceApplicationObserver::handleFinished);
 
         QTC_ASSERT(device, return);
@@ -89,7 +91,8 @@ public:
 
         Runnable r;
         r.command = command;
-        m_appRunner.start(r, device);
+        m_appRunner.setRunnable(r);
+        m_appRunner.start(device);
         showMessage(QdbDevice::tr("Starting command \"%1\" on device \"%2\".")
                     .arg(command.toUserOutput(), m_deviceName));
     }
@@ -103,13 +106,15 @@ private:
             m_stderr += data;
     }
 
-    void handleFinished(int exitCode, QProcess::ExitStatus exitStatus)
+    void handleFinished()
     {
-        Q_UNUSED(exitCode)
         // FIXME: Needed in a post-adb world?
         // adb does not forward exit codes and all stderr goes to stdout.
-        const bool failure = exitStatus == QProcess::CrashExit || m_stdout.contains("fail")
-                || m_stdout.contains("error") || m_stdout.contains("not found");
+        const bool failure = m_appRunner.exitStatus() == QProcess::CrashExit
+                || m_stdout.contains("fail")
+                || m_stdout.contains("error")
+                || m_stdout.contains("not found");
+
         if (failure) {
             QString errorString;
             if (!m_error.isEmpty()) {

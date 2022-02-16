@@ -869,3 +869,36 @@ void constMemberAsFunctionArg()
         const Foo &constMember;
     };
 }
+
+# if 0
+#define FOO
+
+#endif
+
+// comment
+
+#if 0
+#define BAR
+# endif
+
+void lambdaCall()
+{
+    const auto lambda1 = [] {};
+    lambda1();
+    auto lambda2 = [] {};
+    lambda2();
+}
+
+void callOperators()
+{
+    struct Callable1 {
+        void operator()() {};
+    };
+    Callable1 c1;
+    c1();
+    struct Callable2 {
+        void operator()() const {};
+    };
+    Callable2 c2;
+    c2();
+}
