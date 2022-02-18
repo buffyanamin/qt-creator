@@ -1327,6 +1327,33 @@ private:
     }
 };
 
+static void addToCompilationDb(QJsonObject &cdb,
+                               const CppEditor::ClangDiagnosticConfig &projectWarnings,
+                               const QStringList &projectOptions,
+                               const CppEditor::ProjectPart::ConstPtr &projectPart,
+                               const Utils::FilePath &workingDir,
+                               const Utils::FilePath &sourceFile)
+{
+    // TODO: Do we really need to re-calculate the project part options per source file?
+    QStringList args = createClangOptions(*projectPart, sourceFile.toString(),
+                                          projectWarnings, projectOptions);
+
+    // TODO: clangd seems to apply some heuristics depending on what we put here.
+    //       Should we make use of them or keep using our own?
+    args.prepend("clang");
+
+    args.append(sourceFile.toUserOutput());
+    QJsonObject value;
+    value.insert("workingDirectory", workingDir.toString());
+    value.insert("compilationCommand", QJsonArray::fromStringList(args));
+    cdb.insert(sourceFile.toUserOutput(), value);
+}
+
+static void addCompilationDb(QJsonObject &parentObject, const QJsonObject &cdb)
+{
+    parentObject.insert("compilationDatabaseChanges", cdb);
+}
+
 ClangdClient::ClangdClient(Project *project, const Utils::FilePath &jsonDbDir)
     : Client(clientInterface(project, jsonDbDir)), d(new Private(this, project))
 {
@@ -1517,8 +1544,18 @@ void ClangdClient::handleDiagnostics(const PublishDiagnosticsParams &params)
         return;
     for (const Diagnostic &diagnostic : params.diagnostics()) {
         const ClangdDiagnostic clangdDiagnostic(diagnostic);
-        for (const CodeAction &action : clangdDiagnostic.codeActions().value_or(QList<CodeAction>{}))
-            LanguageClient::updateCodeActionRefactoringMarker(this, action, uri);
+        const auto codeActions = clangdDiagnostic.codeActions();
+        if (codeActions && !codeActions->isEmpty()) {
+            for (const CodeAction &action : *codeActions)
+                LanguageClient::updateCodeActionRefactoringMarker(this, action, uri);
+        } else {
+            // We know that there's only one kind of diagnostic for which clangd has
+            // a quickfix tweak, so let's not be wasteful.
+            const Diagnostic::Code code = diagnostic.code().value_or(Diagnostic::Code());
+            const QString * const codeString = Utils::get_if<QString>(&code);
+            if (codeString && *codeString == "-Wswitch")
+                requestCodeActions(uri, diagnostic);
+        }
     }
 }
 
@@ -1717,18 +1754,11 @@ void ClangdClient::updateParserConfig(const Utils::FilePath &filePath,
             ->projectPartForId(config.preferredProjectPartId);
     if (!projectPart)
         return;
-    const CppEditor::ClangDiagnosticConfig projectWarnings = warningsConfigForProject(project());
-    const QStringList projectOptions = optionsForProject(project());
     QJsonObject cdbChanges;
-    QStringList args = createClangOptions(*projectPart, filePath.toString(), projectWarnings,
-                                          projectOptions);
-    args.prepend("clang");
-    args.append(filePath.toString());
-    QJsonObject value;
-    value.insert("workingDirectory", filePath.parentDir().toString());
-    value.insert("compilationCommand", QJsonArray::fromStringList(args));
-    cdbChanges.insert(filePath.toUserOutput(), value);
-    const QJsonObject settings({qMakePair(QString("compilationDatabaseChanges"), cdbChanges)});
+    addToCompilationDb(cdbChanges, warningsConfigForProject(project()),
+                       optionsForProject(project()), projectPart, filePath.parentDir(), filePath);
+    QJsonObject settings;
+    addCompilationDb(settings, cdbChanges);
     DidChangeConfigurationParams configChangeParams;
     configChangeParams.setSettings(settings);
     sendContent(DidChangeConfigurationNotification(configChangeParams));
@@ -1782,8 +1812,7 @@ void ClangdClient::Private::handleFindUsagesResult(quint64 key, const QList<Loca
     }
 
     qCDebug(clangdLog) << "document count is" << refData->fileData.size();
-    if (refData->replacementData || q->versionNumber() < QVersionNumber(13)
-            || !refData->categorize) {
+    if (refData->replacementData || !refData->categorize) {
         qCDebug(clangdLog) << "skipping AST retrieval";
         reportAllSearchResultsAndFinish(*refData);
         return;
@@ -1952,11 +1981,6 @@ void ClangdClient::followSymbol(TextDocument *document,
             d->handleGotoDefinitionResult();
     };
     symbolSupport().findLinkAt(document, adjustedCursor, std::move(gotoDefCallback), true);
-
-    if (versionNumber() < QVersionNumber(12)) {
-        d->followSymbolData->cursorNode.emplace(AstNode());
-        return;
-    }
 
     const auto astHandler = [this, id = d->followSymbolData->id]
             (const AstNode &ast, const MessageId &) {
@@ -2747,6 +2771,11 @@ static void semanticHighlighter(QFutureInterface<HighlightingResult> &future,
         const QList<AstNode> path = getAstPath(ast, range);
         if (path.size() < 2)
             return false;
+        if (token.type == "property"
+                && (path.rbegin()->kind() == "MemberInitializer"
+                    || path.rbegin()->kind() == "CXXConstruct")) {
+            return false;
+        }
         for (auto it = path.rbegin() + 1; it != path.rend(); ++it) {
             if (it->kind() == "Call" || it->kind() == "CXXConstruct"
                     || it->kind() == "MemberInitializer") {
@@ -2859,7 +2888,6 @@ static void semanticHighlighter(QFutureInterface<HighlightingResult> &future,
             styles.mainStyle = C_FIELD;
         } else if (token.type == "enum") {
             styles.mainStyle = C_TYPE;
-            styles.mixinStyles.push_back(C_ENUMERATION);
         } else if (token.type == "enumMember") {
             styles.mainStyle = C_ENUMERATION;
         } else if (token.type == "parameter") {
@@ -3640,9 +3668,11 @@ void ExtraHighlightingResultsCollector::collectFromNode(const AstNode &node)
     if (node.kind().endsWith("Literal")) {
         HighlightingResult result;
         result.useTextSyles = true;
-        const bool isStringLike = node.kind().startsWith("String")
-                || node.kind().startsWith("Character");
-        result.textStyles.mainStyle = isStringLike ? C_STRING : C_NUMBER;
+        const bool isKeyword = node.kind() == "CXXBoolLiteral"
+                || node.kind() == "CXXNullPtrLiteral";
+        const bool isStringLike = !isKeyword && (node.kind().startsWith("String")
+                || node.kind().startsWith("Character"));
+        result.textStyles.mainStyle = isKeyword ? C_KEYWORD : isStringLike ? C_STRING : C_NUMBER;
         setResultPosFromRange(result, node.range());
         insertResult(result);
         return;

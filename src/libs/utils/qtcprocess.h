@@ -262,12 +262,12 @@ public:
 
     QString m_nativeArguments;
     QString m_standardInputFile;
-    QString m_initialErrorString;
+    QString m_errorString;
     bool m_belowNormalPriority = false;
     bool m_lowPriority = false;
     bool m_unixTerminalDisabled = false;
     bool m_abortOnMetaChars = true;
-    QProcess::ProcessChannelMode m_procesChannelMode = QProcess::SeparateChannels;
+    QProcess::ProcessChannelMode m_processChannelMode = QProcess::SeparateChannels;
 };
 
 class QTCREATOR_UTILS_EXPORT ProcessInterface : public QObject
@@ -282,11 +282,7 @@ public:
     virtual QByteArray readAllStandardOutput() = 0;
     virtual QByteArray readAllStandardError() = 0;
 
-    virtual void setEnvironment(const Environment &environment) = 0;
-    virtual void start(const QString &program, const QStringList &arguments,
-                       const QByteArray &writeData) = 0;
-    virtual void customStart(const CommandLine &, const Environment &) { QTC_CHECK(false); }
-    virtual bool isCustomStart() const { return false; }
+    virtual void start() { defaultStart(); }
     virtual void terminate() = 0;
     virtual void kill() = 0;
     virtual void close() = 0;
@@ -309,14 +305,23 @@ public:
     virtual qint64 applicationMainThreadID() const { QTC_CHECK(false); return -1; }
 
     const ProcessMode m_processMode;
-    ProcessSetupData *m_setup = nullptr;
+    ProcessSetupData m_setup;
 
 signals:
     void started();
-    void finished(int exitCode, QProcess::ExitStatus status);
+    void finished();
     void errorOccurred(QProcess::ProcessError error);
     void readyReadStandardOutput();
     void readyReadStandardError();
+
+protected:
+    void defaultStart();
+
+private:
+    virtual void doDefaultStart(const QString &program, const QStringList &arguments)
+    { Q_UNUSED(program) Q_UNUSED(arguments) QTC_CHECK(false); }
+    bool dissolveCommand(QString *program, QStringList *arguments);
+    bool ensureProgramExists(const QString &program);
 };
 
 

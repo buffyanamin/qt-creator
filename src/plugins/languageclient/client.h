@@ -169,6 +169,8 @@ public:
 
     // commands
     void requestCodeActions(const LanguageServerProtocol::DocumentUri &uri,
+                            const LanguageServerProtocol::Diagnostic &diagnostic);
+    void requestCodeActions(const LanguageServerProtocol::DocumentUri &uri,
                             const QList<LanguageServerProtocol::Diagnostic> &diagnostics);
     void requestCodeActions(const LanguageServerProtocol::CodeActionRequest &request);
     void handleCodeActionResponse(const LanguageServerProtocol::CodeActionRequest::Response &response,
@@ -227,6 +229,7 @@ protected:
     virtual void handleDiagnostics(const LanguageServerProtocol::PublishDiagnosticsParams &params);
 
 private:
+    void sendMessage(const LanguageServerProtocol::BaseMessage &message);
     void handleResponse(const LanguageServerProtocol::MessageId &id, const QByteArray &content,
                         QTextCodec *codec);
     void handleMethod(const QString &method, const LanguageServerProtocol::MessageId &id,
@@ -252,6 +255,10 @@ private:
     void requestDocumentHighlightsNow(TextEditor::TextEditorWidget *widget);
     LanguageServerProtocol::SemanticRequestTypes supportedSemanticRequests(TextEditor::TextDocument *document) const;
     void handleSemanticTokens(const LanguageServerProtocol::SemanticTokens &tokens);
+    void requestCodeActions(const LanguageServerProtocol::DocumentUri &uri,
+                            const LanguageServerProtocol::Range &range,
+                            const QList<LanguageServerProtocol::Diagnostic> &diagnostics);
+    void documentClosed(Core::IDocument *document);
 
     virtual void handleDocumentClosed(TextEditor::TextDocument *) {}
     virtual void handleDocumentOpened(TextEditor::TextDocument *) {}
