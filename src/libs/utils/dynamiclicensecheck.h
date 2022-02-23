@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2018 The Qt Company Ltd.
+** Copyright (C) 2022 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of Qt Creator.
@@ -23,30 +23,46 @@
 **
 ****************************************************************************/
 
-#include "sshprocess.h"
+#pragma once
 
-#include "sshsettings.h"
+#include <extensionsystem/pluginmanager.h>
+#include <extensionsystem/pluginspec.h>
+#include <extensionsystem/iplugin.h>
 
-#include <utils/environment.h>
+#include <utils/predicates.h>
+#include <utils/algorithm.h>
 
-namespace QSsh {
+#include <QMetaObject>
 
-SshProcess::SshProcess(Utils::ProcessMode processMode)
-{
-    setProcessMode(processMode);
+namespace Utils {
 
-    Utils::Environment env = Utils::Environment::systemEnvironment();
-    if (SshSettings::askpassFilePath().exists()) {
-        env.set("SSH_ASKPASS", SshSettings::askpassFilePath().toUserOutput());
+enum FoundLicense {
+    community,
+    professional,
+    enterprise
+};
 
-        // OpenSSH only uses the askpass program if DISPLAY is set, regardless of the platform.
-        if (!env.hasKey("DISPLAY"))
-            env.set("DISPLAY", ":0");
-    }
-    setEnvironment(env);
+FoundLicense checkLicense() {
+    const ExtensionSystem::PluginSpec *pluginSpec = Utils::findOrDefault(
+        ExtensionSystem::PluginManager::plugins(),
+        Utils::equal(&ExtensionSystem::PluginSpec::name, QString("LicenseChecker")));
 
-    // Otherwise, ssh will ignore SSH_ASKPASS and read from /dev/tty directly.
-    setDisableUnixTerminal();
+    if (!pluginSpec)
+        return community;
+
+    ExtensionSystem::IPlugin *plugin = pluginSpec->plugin();
+
+    if (!plugin)
+        return community;
+
+    bool retVal = false;
+    bool success = QMetaObject::invokeMethod(plugin,
+                                             "qdsEnterpriseLicense",
+                                             Qt::DirectConnection,
+                                             Q_RETURN_ARG(bool, retVal));
+    if (success && retVal)
+        return enterprise;
+
+    return professional;
 }
-
-} // namespace QSsh
+} // namespace Utils

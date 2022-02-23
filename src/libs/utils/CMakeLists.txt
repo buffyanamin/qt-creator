@@ -34,6 +34,7 @@ add_qtc_library(Utils
     differ.cpp differ.h
     displayname.cpp displayname.h
     dropsupport.cpp dropsupport.h
+    dynamiclicensecheck.h
     elfreader.cpp elfreader.h
     elidinglabel.cpp elidinglabel.h
     environment.cpp environment.h
@@ -121,7 +122,9 @@ add_qtc_library(Utils
     porting.h
     portlist.cpp portlist.h
     predicates.h
+    processenums.h
     processhandle.cpp processhandle.h
+    processinterface.h
     processreaper.cpp processreaper.h
     processutils.cpp processutils.h
     progressindicator.cpp progressindicator.h

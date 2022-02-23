@@ -32,6 +32,7 @@
 #include "launcherpackets.h"
 #include "launchersocket.h"
 #include "processreaper.h"
+#include "processutils.h"
 #include "stringutils.h"
 #include "terminalprocess_p.h"
 
@@ -53,6 +54,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <chrono>
 #include <functional>
 #include <limits>
 #include <memory>
@@ -71,6 +73,7 @@ namespace Internal {
 
 const char QTC_PROCESS_BLOCKING_TYPE[] = "__BLOCKING_TYPE__";
 const char QTC_PROCESS_NUMBER[] = "__NUMBER__";
+const char QTC_PROCESS_STARTTIME[] = "__STARTTIME__";
 
 class MeasureAndRun
 {
@@ -192,6 +195,8 @@ enum { syncDebug = 0 };
 enum { defaultMaxHangTimerCount = 10 };
 
 static Q_LOGGING_CATEGORY(processLog, "qtc.utils.qtcprocess", QtWarningMsg)
+static Q_LOGGING_CATEGORY(processStdoutLog, "qtc.utils.qtcprocess.stdout", QtWarningMsg)
+static Q_LOGGING_CATEGORY(processStderrLog, "qtc.utils.qtcprocess.stderr", QtWarningMsg)
 
 static DeviceProcessHooks s_deviceHooks;
 
@@ -217,10 +222,7 @@ public:
 class TerminalImpl : public ProcessInterface
 {
 public:
-    TerminalImpl(QObject *parent, QtcProcess::ProcessImpl processImpl,
-                 QtcProcess::TerminalMode terminalMode)
-        : ProcessInterface(parent, ProcessMode::Reader)
-        , m_terminal(this, processImpl, terminalMode)
+    TerminalImpl() : m_terminal(this)
     {
         connect(&m_terminal, &Internal::TerminalProcess::started,
                 this, &ProcessInterface::started);
@@ -238,6 +240,8 @@ public:
 
     void start() override
     {
+        m_terminal.setProcessImpl(m_setup.m_processImpl);
+        m_terminal.setTerminalMode(m_setup.m_terminalMode);
         m_terminal.setAbortOnMetaChars(m_setup.m_abortOnMetaChars);
         m_terminal.setCommand(m_setup.m_commandLine);
         m_terminal.setWorkingDirectory(m_setup.m_workingDirectory);
@@ -274,9 +278,7 @@ private:
 class QProcessImpl : public ProcessInterface
 {
 public:
-    QProcessImpl(QObject *parent, ProcessMode processMode)
-        : ProcessInterface(parent, processMode)
-        , m_process(new ProcessHelper(parent))
+    QProcessImpl() : m_process(new ProcessHelper(this))
     {
         connect(m_process, &QProcess::started,
                 this, &QProcessImpl::handleStarted);
@@ -332,7 +334,7 @@ private:
     void doDefaultStart(const QString &program, const QStringList &arguments) override
     {
         ProcessStartHandler *handler = m_process->processStartHandler();
-        handler->setProcessMode(m_processMode);
+        handler->setProcessMode(m_setup.m_processMode);
         handler->setWriteData(m_setup.m_writeData);
         if (m_setup.m_belowNormalPriority)
             handler->setBelowNormalPriority();
@@ -368,10 +370,9 @@ class ProcessLauncherImpl : public ProcessInterface
 {
     Q_OBJECT
 public:
-    ProcessLauncherImpl(QObject *parent, ProcessMode processMode)
-        : ProcessInterface(parent, processMode), m_token(uniqueToken())
+    ProcessLauncherImpl() : m_token(uniqueToken())
     {
-        m_handle = LauncherInterface::registerHandle(parent, token(), processMode);
+        m_handle = LauncherInterface::registerHandle(this, token());
         connect(m_handle, &CallerHandle::errorOccurred,
                 this, &ProcessInterface::errorOccurred);
         connect(m_handle, &CallerHandle::started,
@@ -431,11 +432,11 @@ void ProcessLauncherImpl::cancel()
     m_handle->cancel();
 }
 
-static QtcProcess::ProcessImpl defaultProcessImpl()
+static ProcessImpl defaultProcessImpl()
 {
     if (qEnvironmentVariableIsSet("QTC_USE_QPROCESS"))
-        return QtcProcess::QProcessImpl;
-    return QtcProcess::ProcessLauncherImpl;
+        return ProcessImpl::QProcess;
+    return ProcessImpl::ProcessLauncher;
 }
 
 class QtcProcessPrivate : public QObject
@@ -447,27 +448,27 @@ public:
         OtherFailure
     };
 
-    explicit QtcProcessPrivate(QtcProcess *parent)
+    explicit QtcProcessPrivate(QtcProcess *parent, ProcessSetupData &setup)
         : QObject(parent)
         , q(parent)
+        , m_setup(setup)
     {}
 
     ProcessInterface *createProcessInterface()
     {
-        const QtcProcess::ProcessImpl impl = m_setup.m_processImpl == QtcProcess::DefaultImpl
-                    ? defaultProcessImpl() : m_setup.m_processImpl;
+        if (m_setup.m_terminalMode != TerminalMode::Off)
+            return new TerminalImpl();
 
-        if (m_setup.m_terminalMode != QtcProcess::TerminalOff)
-            return new TerminalImpl(parent(), impl, m_setup.m_terminalMode);
-        else if (impl == QtcProcess::QProcessImpl)
-            return new QProcessImpl(parent(), m_setup.m_processMode);
-        return new ProcessLauncherImpl(parent(), m_setup.m_processMode);
+        const ProcessImpl impl = m_setup.m_processImpl == ProcessImpl::Default
+                               ? defaultProcessImpl() : m_setup.m_processImpl;
+        if (impl == ProcessImpl::QProcess)
+            return new QProcessImpl();
+        return new ProcessLauncherImpl();
     }
 
     void setProcessInterface(ProcessInterface *process)
     {
         m_process.reset(process);
-        m_process->m_setup = m_setup;
         m_setup.m_errorString.clear();
         m_process->setParent(this);
 
@@ -526,7 +527,7 @@ public:
 
     QtcProcess *q;
     std::unique_ptr<ProcessInterface> m_process;
-    ProcessSetupData m_setup;
+    ProcessSetupData &m_setup;
 
     void slotTimeout();
     void slotFinished();
@@ -574,20 +575,42 @@ QtcProcess::Result QtcProcessPrivate::interpretExitCode(int exitCode)
 static QString blockingMessage(const QVariant &variant)
 {
     if (!variant.isValid())
-        return "(non blocking):";
+        return "non blocking";
     if (variant.toInt() == int(QtcProcess::WithEventLoop))
-        return "(blocking with event loop):";
-    return "(blocking without event loop):";
+        return "blocking with event loop";
+    return "blocking without event loop";
+}
+
+void ProcessInterface::kickoffProcess()
+{
+    QTC_CHECK(false);
+}
+
+void ProcessInterface::interruptProcess()
+{
+    QTC_CHECK(false);
+}
+
+qint64 ProcessInterface::applicationMainThreadID() const
+{
+    QTC_CHECK(false); return -1;
 }
 
 void ProcessInterface::defaultStart()
 {
     if (processLog().isDebugEnabled()) {
+        using namespace std::chrono;
+        const quint64 msSinceEpoc =
+                duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
+        setProperty(QTC_PROCESS_STARTTIME, msSinceEpoc);
+
         static std::atomic_int startCounter = 0;
         const int currentNumber = startCounter.fetch_add(1);
-        qCDebug(processLog) << "Starting process no." << currentNumber
-                            << qPrintable(blockingMessage(property(QTC_PROCESS_BLOCKING_TYPE)))
-                            << m_setup.m_commandLine.toUserOutput();
+        qCDebug(processLog).nospace().noquote()
+                << "Process " << currentNumber << " starting ("
+                << qPrintable(blockingMessage(property(QTC_PROCESS_BLOCKING_TYPE)))
+                << "): "
+                << m_setup.m_commandLine.toUserOutput();
         setProperty(QTC_PROCESS_NUMBER, currentNumber);
     }
 
@@ -598,6 +621,13 @@ void ProcessInterface::defaultStart()
     if (!ensureProgramExists(program))
         return;
     s_start.measureAndRun(&ProcessInterface::doDefaultStart, this, program, arguments);
+}
+
+void ProcessInterface::doDefaultStart(const QString &program, const QStringList &arguments)
+{
+    Q_UNUSED(program)
+    Q_UNUSED(arguments)
+    QTC_CHECK(false);
 }
 
 bool ProcessInterface::dissolveCommand(QString *program, QStringList *arguments)
@@ -671,8 +701,8 @@ bool ProcessInterface::ensureProgramExists(const QString &program)
 */
 
 QtcProcess::QtcProcess(QObject *parent)
-    : QObject(parent),
-    d(new QtcProcessPrivate(this))
+    : ProcessInterface(parent),
+    d(new QtcProcessPrivate(this, m_setup))
 {
     static int qProcessExitStatusMeta = qRegisterMetaType<QProcess::ExitStatus>();
     static int qProcessProcessErrorMeta = qRegisterMetaType<QProcess::ProcessError>();
@@ -682,11 +712,26 @@ QtcProcess::QtcProcess(QObject *parent)
     if (processLog().isDebugEnabled()) {
         connect(this, &QtcProcess::finished, [this] {
             if (const QVariant n = d->m_process.get()->property(QTC_PROCESS_NUMBER); n.isValid()) {
-                qCDebug(processLog).nospace() << "Process no. " << n.toInt() << " finished: "
+                using namespace std::chrono;
+                const quint64 msSinceEpoc =
+                        duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
+                const quint64 msStarted =
+                        d->m_process.get()->property(QTC_PROCESS_STARTTIME).toULongLong();
+                const quint64 msElapsed = msSinceEpoc - msStarted;
+
+                const int number = n.toInt();
+                qCDebug(processLog).nospace() << "Process " << number << " finished: "
                                               << "result=" << result()
                                               << ", ex=" << exitCode()
                                               << ", " << stdOut().size() << " bytes stdout"
-                                                 ", stderr=" << stdErr();
+                                              << ", " << stdErr().size() << " bytes stderr"
+                                              << ", " << msElapsed << " ms elapsed";
+                if (processStdoutLog().isDebugEnabled() && !stdOut().isEmpty())
+                    qCDebug(processStdoutLog).nospace()
+                            << "Process " << number << " sdout: " << stdOut();
+                if (processStderrLog().isDebugEnabled() && !stdErr().isEmpty())
+                    qCDebug(processStderrLog).nospace()
+                            << "Process " << number << " stderr: " << stdErr();
             }
         });
     }
@@ -700,6 +745,7 @@ QtcProcess::~QtcProcess()
 void QtcProcess::setProcessInterface(ProcessInterface *interface)
 {
     d->setProcessInterface(interface);
+    d->m_process->m_setup = d->m_setup;
 }
 
 void QtcProcess::setProcessImpl(ProcessImpl processImpl)
@@ -717,7 +763,7 @@ void QtcProcess::setTerminalMode(TerminalMode mode)
     d->m_setup.m_terminalMode = mode;
 }
 
-QtcProcess::TerminalMode QtcProcess::terminalMode() const
+TerminalMode QtcProcess::terminalMode() const
 {
     return d->m_setup.m_terminalMode;
 }
@@ -747,6 +793,16 @@ const Environment &QtcProcess::environment() const
 bool QtcProcess::hasEnvironment() const
 {
     return d->m_setup.m_haveEnv;
+}
+
+void QtcProcess::setRemoteEnvironment(const Environment &environment)
+{
+    d->m_setup.m_remoteEnvironment = environment;
+}
+
+Environment QtcProcess::remoteEnvironment() const
+{
+    return d->m_setup.m_remoteEnvironment;
 }
 
 void QtcProcess::setCommand(const CommandLine &cmdLine)
@@ -792,12 +848,21 @@ void QtcProcess::start()
 // TODO: Uncomment when we de-virtualize start()
 //    QTC_ASSERT(state() == QProcess::NotRunning, return);
 
+    ProcessInterface *processImpl = nullptr;
     if (d->m_setup.m_commandLine.executable().needsDevice()) {
-        QTC_ASSERT(s_deviceHooks.startProcessHook, return);
-        s_deviceHooks.startProcessHook(*this);
-        return;
+        if (s_deviceHooks.processImplHook) { // TODO: replace "if" with an assert for the hook
+            processImpl = s_deviceHooks.processImplHook(commandLine().executable());
+        }
+        if (!processImpl) { // TODO: remove this branch when docker is adapted accordingly
+            QTC_ASSERT(s_deviceHooks.startProcessHook, return);
+            s_deviceHooks.startProcessHook(*this);
+            return;
+        }
+    } else {
+        processImpl = d->createProcessInterface();
     }
-    setProcessInterface(d->createProcessInterface());
+    QTC_ASSERT(processImpl, return);
+    setProcessInterface(processImpl);
     d->clearForRun();
     d->m_process->m_setup.m_commandLine = d->fullCommandLine();
     d->m_process->m_setup.m_environment = d->fullEnvironment();
@@ -950,12 +1015,12 @@ static bool askToKill(const QString &command)
 #ifdef QT_GUI_LIB
     if (QThread::currentThread() != QCoreApplication::instance()->thread())
         return true;
-    const QString title = QtcProcess::tr("Process not Responding");
+    const QString title = QtcProcess::tr("Process Not Responding");
     QString msg = command.isEmpty() ?
                 QtcProcess::tr("The process is not responding.") :
                 QtcProcess::tr("The process \"%1\" is not responding.").arg(command);
     msg += ' ';
-    msg += QtcProcess::tr("Would you like to terminate it?");
+    msg += QtcProcess::tr("Terminate the process?");
     // Restore the cursor that is set to wait while running.
     const bool hasOverrideCursor = QApplication::overrideCursor() != nullptr;
     if (hasOverrideCursor)

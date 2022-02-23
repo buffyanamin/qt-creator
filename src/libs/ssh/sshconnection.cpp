@@ -28,7 +28,6 @@
 #include "sftpsession.h"
 #include "sftptransfer.h"
 #include "sshlogging_p.h"
-#include "sshprocess.h"
 #include "sshremoteprocess.h"
 #include "sshsettings.h"
 
@@ -129,7 +128,10 @@ bool operator!=(const SshConnectionParameters &p1, const SshConnectionParameters
 struct SshConnection::SshConnectionPrivate
 {
     SshConnectionPrivate(const SshConnectionParameters &sshParameters)
-        : connParams(sshParameters) {}
+        : connParams(sshParameters)
+    {
+        SshRemoteProcess::setupSshEnvironment(&masterProcess);
+    }
 
     QString fullProcessError()
     {
@@ -166,7 +168,7 @@ struct SshConnection::SshConnectionPrivate
 
     const SshConnectionParameters connParams;
     SshConnectionInfo connInfo;
-    SshProcess masterProcess;
+    QtcProcess masterProcess;
     QString errorString;
     std::unique_ptr<QTemporaryDir> masterSocketDir;
     State state = Unconnected;
@@ -307,17 +309,16 @@ SshConnection::~SshConnection()
     delete d;
 }
 
-SshRemoteProcessPtr SshConnection::createRemoteProcess(const QString &command, ProcessMode processMode)
+SshRemoteProcessPtr SshConnection::createRemoteProcess(const QString &command)
 {
     QTC_ASSERT(state() == Connected, return SshRemoteProcessPtr());
     return SshRemoteProcessPtr(new SshRemoteProcess(command,
-                                                    d->connectionArgs(SshSettings::sshFilePath()),
-                                                    processMode));
+                                                    d->connectionArgs(SshSettings::sshFilePath())));
 }
 
-SshRemoteProcessPtr SshConnection::createRemoteShell(ProcessMode processMode)
+SshRemoteProcessPtr SshConnection::createRemoteShell()
 {
-    return createRemoteProcess({}, processMode);
+    return createRemoteProcess({});
 }
 
 SftpTransferPtr SshConnection::createUpload(const FilesToTransfer &files,

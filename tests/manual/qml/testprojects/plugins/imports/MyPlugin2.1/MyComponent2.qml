@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2018 The Qt Company Ltd.
+** Copyright (C) 2022 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of Qt Creator.
@@ -23,18 +23,21 @@
 **
 ****************************************************************************/
 
-#pragma once
+import QtQuick 2.0
 
-#include "ssh_global.h"
+Item {
+    property alias text: textItem.text
+    property alias color: rect.color
+    property alias radius: rect.radius
 
-#include <utils/qtcprocess.h>
+    Rectangle {
+        id: rect
+        anchors.fill: parent
+        color: "green"
 
-namespace QSsh {
-
-class QSSH_EXPORT SshProcess : public Utils::QtcProcess
-{
-public:
-    SshProcess(Utils::ProcessMode processMode = Utils::ProcessMode::Reader);
-};
-
-} // namespace QSsh
+        Text {
+            id: textItem
+            anchors.centerIn: parent
+        }
+    }
+}

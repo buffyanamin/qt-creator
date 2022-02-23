@@ -26,24 +26,26 @@
 #pragma once
 
 #include "ssh_global.h"
-#include "sshprocess.h"
+
+#include <utils/qtcprocess.h>
 
 namespace Utils { class CommandLine; }
 
 namespace QSsh {
 
-class QSSH_EXPORT SshRemoteProcess : public SshProcess
+class QSSH_EXPORT SshRemoteProcess : public Utils::QtcProcess
 {
     Q_OBJECT
 
 public:
-    SshRemoteProcess(const QString &command, const QStringList &connectionArgs,
-                     Utils::ProcessMode processMode = Utils::ProcessMode::Reader);
+    SshRemoteProcess(const QString &command, const QStringList &connectionArgs);
 
     void requestX11Forwarding(const QString &displayName);
     void start();
 
     Utils::CommandLine fullLocalCommandLine(bool inTerminal = false) const;
+
+    static bool setupSshEnvironment(Utils::QtcProcess *process);
 
 signals:
     void done(const QString &error);

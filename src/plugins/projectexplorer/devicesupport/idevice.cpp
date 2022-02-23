@@ -45,6 +45,7 @@
 #include <QStandardPaths>
 
 #include <QDateTime>
+#include <QReadWriteLock>
 #include <QString>
 #include <QUuid>
 
@@ -151,6 +152,7 @@ public:
     OsType osType = OsTypeOther;
     int version = 0; // This is used by devices that have been added by the SDK.
 
+    QReadWriteLock lock; // Currently used to protect sshParameters only
     QSsh::SshConnectionParameters sshParameters;
     PortList freePorts;
     FilePath debugServerPath;
@@ -422,6 +424,13 @@ bool IDevice::setPermissions(const FilePath &filePath, QFile::Permissions) const
     return false;
 }
 
+ProcessInterface *IDevice::createProcessInterface() const
+{
+// TODO: uncomment below assert when docker device implements this method
+//    QTC_ASSERT(false, return nullptr);
+    return nullptr;
+}
+
 void IDevice::runProcess(QtcProcess &process) const
 {
     Q_UNUSED(process);
@@ -629,6 +638,7 @@ void IDevice::fromMap(const QVariantMap &map)
         d->id = newId();
     d->origin = static_cast<Origin>(map.value(QLatin1String(OriginKey), ManuallyAdded).toInt());
 
+    QWriteLocker locker(&d->lock);
     d->sshParameters.setHost(map.value(QLatin1String(HostKey)).toString());
     d->sshParameters.setPort(map.value(QLatin1String(SshPortKey), 22).toInt());
     d->sshParameters.setUserName(map.value(QLatin1String(UserNameKey)).toString());
@@ -673,6 +683,7 @@ QVariantMap IDevice::toMap() const
     map.insert(QLatin1String(IdKey), d->id.toSetting());
     map.insert(QLatin1String(OriginKey), d->origin);
 
+    QReadLocker locker(&d->lock);
     map.insert(QLatin1String(MachineTypeKey), d->machineType);
     map.insert(QLatin1String(HostKey), d->sshParameters.host());
     map.insert(QLatin1String(SshPortKey), d->sshParameters.port());
@@ -723,11 +734,13 @@ QString IDevice::deviceStateToString() const
 
 QSsh::SshConnectionParameters IDevice::sshParameters() const
 {
+    QReadLocker locker(&d->lock);
     return d->sshParameters;
 }
 
 void IDevice::setSshParameters(const QSsh::SshConnectionParameters &sshParameters)
 {
+    QWriteLocker locker(&d->lock);
     d->sshParameters = sshParameters;
 }
 
@@ -735,6 +748,7 @@ QUrl IDevice::toolControlChannel(const ControlChannelHint &) const
 {
     QUrl url;
     url.setScheme(Utils::urlTcpScheme());
+    QReadLocker locker(&d->lock);
     url.setHost(d->sshParameters.host());
     return url;
 }

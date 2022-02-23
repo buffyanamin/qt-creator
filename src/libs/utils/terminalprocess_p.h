@@ -25,7 +25,9 @@
 
 #pragma once
 
-#include "qtcprocess.h"
+#include "processenums.h"
+
+#include <QProcess>
 
 namespace Utils {
 
@@ -39,9 +41,11 @@ class TerminalProcess : public QObject
 {
     Q_OBJECT
 public:
-    explicit TerminalProcess(QObject *parent, QtcProcess::ProcessImpl processImpl,
-                             QtcProcess::TerminalMode terminalMode);
+    explicit TerminalProcess(QObject *parent);
     ~TerminalProcess() override;
+
+    void setProcessImpl(ProcessImpl processImpl);
+    void setTerminalMode(TerminalMode mode);
 
     void setCommand(const CommandLine &command);
     const CommandLine &commandLine() const;

@@ -39,7 +39,9 @@
 #include <utils/treeviewcombobox.h>
 #include <utils/utilsicons.h>
 
+#include <QAction>
 #include <QBoxLayout>
+#include <QSortFilterProxyModel>
 
 using namespace LanguageServerProtocol;
 
@@ -128,6 +130,10 @@ public:
 public:
     QList<QAction *> filterMenuActions() const override;
     void setCursorSynchronization(bool syncWithCursor) override;
+    void setSorted(bool) override;
+    bool isSorted() const override;
+    void restoreSettings(const QVariantMap &map) override;
+    QVariantMap settings() const override;
 
 private:
     void handleResponse(const DocumentUri &uri, const DocumentSymbolsResult &response);
@@ -138,9 +144,11 @@ private:
     QPointer<Client> m_client;
     QPointer<TextEditor::BaseTextEditor> m_editor;
     LanguageClientOutlineModel m_model;
+    QSortFilterProxyModel m_proxyModel;
     Utils::TreeView m_view;
     DocumentUri m_uri;
     bool m_sync = false;
+    bool m_sorted = false;
 };
 
 LanguageClientOutlineWidget::LanguageClientOutlineWidget(Client *client,
@@ -167,7 +175,8 @@ LanguageClientOutlineWidget::LanguageClientOutlineWidget(Client *client,
     layout->addWidget(Core::ItemViewFind::createSearchableWrapper(&m_view));
     setLayout(layout);
     m_model.setSymbolStringifier(m_client->symbolStringifier());
-    m_view.setModel(&m_model);
+    m_proxyModel.setSourceModel(&m_model);
+    m_view.setModel(&m_proxyModel);
     m_view.setHeaderHidden(true);
     m_view.setExpandsOnDoubleClick(false);
     m_view.setFrameStyle(QFrame::NoFrame);
@@ -192,6 +201,27 @@ void LanguageClientOutlineWidget::setCursorSynchronization(bool syncWithCursor)
         updateSelectionInTree(m_editor->textCursor());
 }
 
+void LanguageClientOutlineWidget::setSorted(bool sorted)
+{
+    m_sorted = sorted;
+    m_proxyModel.sort(sorted ? 0 : -1);
+}
+
+bool LanguageClientOutlineWidget::isSorted() const
+{
+    return m_sorted;
+}
+
+void LanguageClientOutlineWidget::restoreSettings(const QVariantMap &map)
+{
+    setSorted(map.value(QString("LspOutline.Sort"), false).toBool());
+}
+
+QVariantMap LanguageClientOutlineWidget::settings() const
+{
+    return {{QString("LspOutline.Sort"), m_sorted}};
+}
+
 void LanguageClientOutlineWidget::handleResponse(const DocumentUri &uri,
                                                  const DocumentSymbolsResult &result)
 {
@@ -210,23 +240,36 @@ void LanguageClientOutlineWidget::handleResponse(const DocumentUri &uri,
 
 void LanguageClientOutlineWidget::updateTextCursor(const QModelIndex &proxyIndex)
 {
-    LanguageClientOutlineItem *item = m_model.itemForIndex(proxyIndex);
+    LanguageClientOutlineItem *item = m_model.itemForIndex(m_proxyModel.mapToSource(proxyIndex));
     const Position &pos = item->pos();
     // line has to be 1 based, column 0 based!
     m_editor->editorWidget()->gotoLine(pos.line() + 1, pos.character(), true, true);
 }
 
+static LanguageClientOutlineItem *itemForCursor(const LanguageClientOutlineModel &m_model,
+                                                const QTextCursor &cursor)
+{
+    const Position pos(cursor);
+    LanguageClientOutlineItem *result = nullptr;
+    m_model.forAllItems([&](LanguageClientOutlineItem *candidate){
+        if (!candidate->contains(pos))
+            return;
+        if (result && candidate->range().contains(result->range()))
+            return; // skip item if the range is equal or bigger than the previous found range
+        result = candidate;
+    });
+    return result;
+}
+
 void LanguageClientOutlineWidget::updateSelectionInTree(const QTextCursor &currentCursor)
 {
-    QItemSelection selection;
-    const Position pos(currentCursor);
-    m_model.forAllItems([&](const LanguageClientOutlineItem *item) {
-        if (item->contains(pos))
-            selection.select(m_model.indexForItem(item), m_model.indexForItem(item));
-    });
-    m_view.selectionModel()->select(selection, QItemSelectionModel::ClearAndSelect);
-    if (!selection.isEmpty())
-        m_view.scrollTo(selection.indexes().first());
+    if (LanguageClientOutlineItem *item = itemForCursor(m_model, currentCursor)) {
+        const QModelIndex index = m_proxyModel.mapFromSource(m_model.indexForItem(item));
+        m_view.selectionModel()->select(index, QItemSelectionModel::ClearAndSelect);
+        m_view.scrollTo(index);
+    } else {
+        m_view.clearSelection();
+    }
 }
 
 void LanguageClientOutlineWidget::onItemActivated(const QModelIndex &index)
@@ -260,6 +303,7 @@ TextEditor::IOutlineWidget *LanguageClientOutlineWidgetFactory::createWidget(Cor
 
 class OutlineComboBox : public Utils::TreeViewComboBox
 {
+    Q_DECLARE_TR_FUNCTIONS(LanguageClient::OutlineComboBox)
 public:
     OutlineComboBox(Client *client, TextEditor::BaseTextEditor *editor);
 
@@ -268,8 +312,10 @@ private:
     void updateEntry();
     void activateEntry();
     void documentUpdated(TextEditor::TextDocument *document);
+    void setSorted(bool sorted);
 
     LanguageClientOutlineModel m_model;
+    QSortFilterProxyModel m_proxyModel;
     QPointer<Client> m_client;
     TextEditor::TextEditorWidget *m_editorWidget;
     const DocumentUri m_uri;
@@ -289,12 +335,21 @@ OutlineComboBox::OutlineComboBox(Client *client, TextEditor::BaseTextEditor *edi
     , m_uri(DocumentUri::fromFilePath(editor->document()->filePath()))
 {
     m_model.setSymbolStringifier(client->symbolStringifier());
-    setModel(&m_model);
+    m_proxyModel.setSourceModel(&m_model);
+    const bool sorted = LanguageClientSettings::outlineComboBoxIsSorted();
+    m_proxyModel.sort(sorted ? 0 : -1);
+    setModel(&m_proxyModel);
     setMinimumContentsLength(13);
     QSizePolicy policy = sizePolicy();
     policy.setHorizontalPolicy(QSizePolicy::Expanding);
     setSizePolicy(policy);
     setMaxVisibleItems(40);
+
+    setContextMenuPolicy(Qt::ActionsContextMenu);
+    auto sortAction = new QAction(tr("Sort Alphabetically"), this);
+    sortAction->setCheckable(true);
+    sortAction->setChecked(sorted);
+    addAction(sortAction);
 
     connect(client->documentSymbolCache(), &DocumentSymbolCache::gotSymbols,
             this, &OutlineComboBox::updateModel);
@@ -302,6 +357,7 @@ OutlineComboBox::OutlineComboBox(Client *client, TextEditor::BaseTextEditor *edi
     connect(m_editorWidget, &TextEditor::TextEditorWidget::cursorPositionChanged,
             this, &OutlineComboBox::updateEntry);
     connect(this, QOverload<int>::of(&QComboBox::activated), this, &OutlineComboBox::activateEntry);
+    connect(sortAction, &QAction::toggled, this, &OutlineComboBox::setSorted);
 
     documentUpdated(editor->textDocument());
 }
@@ -324,22 +380,13 @@ void OutlineComboBox::updateModel(const DocumentUri &resultUri, const DocumentSy
 
 void OutlineComboBox::updateEntry()
 {
-    const Position pos(m_editorWidget->textCursor());
-    LanguageClientOutlineItem *itemForCursor = nullptr;
-    m_model.forAllItems([&](LanguageClientOutlineItem *candidate){
-        if (!candidate->contains(pos))
-            return;
-        if (itemForCursor && candidate->range().contains(itemForCursor->range()))
-            return; // skip item if the range is equal or bigger than the previous found range
-        itemForCursor = candidate;
-    });
-    if (itemForCursor)
-        setCurrentIndex(m_model.indexForItem(itemForCursor));
+    if (LanguageClientOutlineItem *item = itemForCursor(m_model, m_editorWidget->textCursor()))
+        setCurrentIndex(m_proxyModel.mapFromSource(m_model.indexForItem(item)));
 }
 
 void OutlineComboBox::activateEntry()
 {
-    const QModelIndex modelIndex = view()->currentIndex();
+    const QModelIndex modelIndex = m_proxyModel.mapToSource(view()->currentIndex());
     if (modelIndex.isValid()) {
         const Position &pos = m_model.itemForIndex(modelIndex)->pos();
         Core::EditorManager::cutForwardNavigationHistory();
@@ -354,6 +401,12 @@ void OutlineComboBox::documentUpdated(TextEditor::TextDocument *document)
 {
     if (document == m_editorWidget->textDocument())
         m_client->documentSymbolCache()->requestSymbols(m_uri, Schedule::Delayed);
+}
+
+void OutlineComboBox::setSorted(bool sorted)
+{
+    LanguageClientSettings::setOutlineComboBoxSorted(sorted);
+    m_proxyModel.sort(sorted ? 0 : -1);
 }
 
 } // namespace LanguageClient
