@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2022 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of Qt Creator.
@@ -23,25 +23,25 @@
 **
 ****************************************************************************/
 
-#include "deviceprocess.h"
+#pragma once
 
-#include "idevice.h"
+#include "utils_global.h"
 
-#include <utils/qtcassert.h>
-#include <utils/fileutils.h>
+#include <QList>
+#include <QString>
 
-using namespace Utils;
+namespace Utils {
 
-namespace ProjectExplorer {
-
-DeviceProcess::DeviceProcess(const IDevice::ConstPtr &device, QObject *parent)
-    : QtcProcess(parent), m_device(device)
+class QTCREATOR_UTILS_EXPORT ProcessInfo
 {
-}
+public:
+    qint64 processId = 0;
+    QString executable;
+    QString commandLine;
 
-IDevice::ConstPtr DeviceProcess::device() const
-{
-    return m_device;
-}
+    bool operator<(const ProcessInfo &other) const;
 
-} // namespace ProjectExplorer
+    static QList<ProcessInfo> processInfoList();
+};
+
+} // namespace Utils

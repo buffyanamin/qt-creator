@@ -41,14 +41,15 @@ public:
     SshRemoteProcess(const QString &command, const QStringList &connectionArgs);
 
     void requestX11Forwarding(const QString &displayName);
-    void start();
+    void start() override;
 
     Utils::CommandLine fullLocalCommandLine(bool inTerminal = false) const;
 
     static bool setupSshEnvironment(Utils::QtcProcess *process);
 
-signals:
-    void done(const QString &error);
+protected:
+    void emitFinished() override;
+    void emitErrorOccurred(QProcess::ProcessError error) override;
 
 private:
     QString m_remoteCommand;

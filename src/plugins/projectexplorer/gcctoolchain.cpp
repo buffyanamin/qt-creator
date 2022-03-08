@@ -146,7 +146,7 @@ static QByteArray runGcc(const FilePath &gcc, const QStringList &arguments, cons
     cpp.setTimeoutS(10);
     cpp.setCommand({gcc, arguments});
     cpp.runBlocking();
-    if (cpp.result() != QtcProcess::FinishedWithSuccess || cpp.exitCode() != 0) {
+    if (cpp.result() != ProcessResult::FinishedWithSuccess || cpp.exitCode() != 0) {
         Core::MessageManager::writeFlashing({"Compiler feature detection failure!",
                                              cpp.exitMessage(),
                                              QString::fromUtf8(cpp.allRawOutput())});
@@ -697,7 +697,7 @@ void GccToolChain::addToEnvironment(Environment &env) const
 {
     // On Windows gcc invokes cc1plus which is in libexec directory.
     // cc1plus depends on libwinpthread-1.dll which is in bin, so bin must be in the PATH.
-    if (HostOsInfo::isWindowsHost())
+    if (compilerCommand().osType() == OsTypeWindows)
         addCommandPathToEnvironment(compilerCommand(), env);
 }
 
@@ -1194,10 +1194,16 @@ Toolchains GccToolChainFactory::autoDetectToolchains(
                     || compilerPath.toString().contains("ccache")) {
                 existingTcMatches = existingCommand == compilerPath;
             } else {
-                existingTcMatches = Environment::systemEnvironment().isSameExecutable(
-                            existingCommand.toString(), compilerPath.toString())
-                        || (HostOsInfo::isWindowsHost() && existingCommand.toFileInfo().size()
-                            == compilerPath.toFileInfo().size());
+                existingTcMatches = Environment::systemEnvironment()
+                                        .isSameExecutable(existingCommand.toString(),
+                                                          compilerPath.toString());
+                if (!existingTcMatches
+                        && HostOsInfo::isWindowsHost()
+                        && !existingCommand.needsDevice()
+                        && !compilerPath.needsDevice()) {
+                    existingTcMatches = existingCommand.toFileInfo().size()
+                                        == compilerPath.toFileInfo().size();
+                }
             }
             if (existingTcMatches) {
                 if (existingTc->typeId() == requiredTypeId && (!checker || checker(existingTc))
@@ -1223,7 +1229,7 @@ Toolchains GccToolChainFactory::autoDetectToolChain(const ToolChainDescription &
 {
     Toolchains result;
 
-    Environment systemEnvironment = Environment::systemEnvironment();
+    Environment systemEnvironment = tcd.compilerPath.deviceEnvironment();
     GccToolChain::addCommandPathToEnvironment(tcd.compilerPath, systemEnvironment);
     const FilePath localCompilerPath = findLocalCompiler(tcd.compilerPath, systemEnvironment);
     if (ToolChainManager::isBadToolchain(localCompilerPath))
@@ -1430,7 +1436,7 @@ void GccToolChainConfigWidget::handleCompilerCommandChange()
         haveCompiler = fi.isExecutable() && fi.isFile();
     }
     if (haveCompiler) {
-        Environment env = Environment::systemEnvironment();
+        Environment env = path.deviceEnvironment();
         GccToolChain::addCommandPathToEnvironment(path, env);
         QStringList args = gccPredefinedMacrosOptions(Constants::CXX_LANGUAGE_ID)
                 + splitString(m_platformCodeGenFlagsLineEdit->text());

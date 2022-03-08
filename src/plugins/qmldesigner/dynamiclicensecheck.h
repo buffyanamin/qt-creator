@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2022 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of Qt Creator.
@@ -25,28 +25,44 @@
 
 #pragma once
 
-#include "../projectexplorer_export.h"
+#include <extensionsystem/pluginmanager.h>
+#include <extensionsystem/pluginspec.h>
+#include <extensionsystem/iplugin.h>
 
-#include <utils/qtcprocess.h>
+#include <utils/predicates.h>
+#include <utils/algorithm.h>
 
-#include <QSharedPointer>
+#include <QMetaObject>
 
-namespace ProjectExplorer {
+namespace QmlDesigner {
 
-class IDevice;
-
-class PROJECTEXPLORER_EXPORT DeviceProcess : public Utils::QtcProcess
-{
-    Q_OBJECT
-
-protected:
-    explicit DeviceProcess(const QSharedPointer<const IDevice> &device,
-                           QObject *parent = nullptr);
-
-    QSharedPointer<const IDevice> device() const;
-
-private:
-    const QSharedPointer<const IDevice> m_device;
+enum FoundLicense {
+    community,
+    professional,
+    enterprise
 };
 
-} // namespace ProjectExplorer
+FoundLicense checkLicense() {
+    const ExtensionSystem::PluginSpec *pluginSpec = Utils::findOrDefault(
+        ExtensionSystem::PluginManager::plugins(),
+        Utils::equal(&ExtensionSystem::PluginSpec::name, QString("LicenseChecker")));
+
+    if (!pluginSpec)
+        return community;
+
+    ExtensionSystem::IPlugin *plugin = pluginSpec->plugin();
+
+    if (!plugin)
+        return community;
+
+    bool retVal = false;
+    bool success = QMetaObject::invokeMethod(plugin,
+                                             "qdsEnterpriseLicense",
+                                             Qt::DirectConnection,
+                                             Q_RETURN_ARG(bool, retVal));
+    if (success && retVal)
+        return enterprise;
+
+    return professional;
+}
+} // namespace Utils

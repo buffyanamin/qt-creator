@@ -40,33 +40,30 @@ public:
     ~SshRemoteProcessRunner();
 
     void run(const QString &command, const SshConnectionParameters &sshParams);
-    void runInTerminal(const QString &command, const SshConnectionParameters &sshParams);
 
     QString lastConnectionErrorString() const;
 
-    bool isProcessRunning() const;
+    bool isRunning() const;
     void cancel();
-    QProcess::ExitStatus processExitStatus() const;
-    int processExitCode() const;
-    QString processErrorString() const;
+    QProcess::ExitStatus exitStatus() const;
+    int exitCode() const;
+    QString errorString() const;
     QByteArray readAllStandardOutput();
     QByteArray readAllStandardError();
 
 signals:
     void connectionError();
-    void processStarted();
+    void started();
+    void finished();
     void readyReadStandardOutput();
     void readyReadStandardError();
-    void processClosed(const QString &error);
 
 private:
     void handleConnected();
     void handleConnectionError();
     void handleDisconnected();
     void handleProcessStarted();
-    void handleProcessFinished(const QString &error);
-    void handleStdout();
-    void handleStderr();
+    void handleProcessFinished();
     void runInternal(const QString &command, const QSsh::SshConnectionParameters &sshParams);
     void setState(int newState);
 

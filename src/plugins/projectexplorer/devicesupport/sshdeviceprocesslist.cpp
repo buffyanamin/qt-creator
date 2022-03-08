@@ -28,10 +28,12 @@
 #include "idevice.h"
 
 #include <ssh/sshremoteprocessrunner.h>
-#include <utils/qtcassert.h>
 #include <utils/fileutils.h>
+#include <utils/processinfo.h>
+#include <utils/qtcassert.h>
 
 using namespace QSsh;
+using namespace Utils;
 
 namespace ProjectExplorer {
 
@@ -53,18 +55,18 @@ void SshDeviceProcessList::doUpdate()
 {
     connect(&d->process, &SshRemoteProcessRunner::connectionError,
             this, &SshDeviceProcessList::handleConnectionError);
-    connect(&d->process, &SshRemoteProcessRunner::processClosed,
+    connect(&d->process, &SshRemoteProcessRunner::finished,
             this, &SshDeviceProcessList::handleListProcessFinished);
     d->process.run(listProcessesCommandLine(), device()->sshParameters());
 }
 
-void SshDeviceProcessList::doKillProcess(const DeviceProcessItem &process)
+void SshDeviceProcessList::doKillProcess(const ProcessInfo &process)
 {
     d->signalOperation = device()->signalOperation();
     QTC_ASSERT(d->signalOperation, return);
     connect(d->signalOperation.data(), &DeviceProcessSignalOperation::finished,
             this, &SshDeviceProcessList::handleKillProcessFinished);
-    d->signalOperation->killProcess(process.pid);
+    d->signalOperation->killProcess(process.processId);
 }
 
 void SshDeviceProcessList::handleConnectionError()
@@ -73,21 +75,22 @@ void SshDeviceProcessList::handleConnectionError()
     reportError(tr("Connection failure: %1").arg(d->process.lastConnectionErrorString()));
 }
 
-void SshDeviceProcessList::handleListProcessFinished(const QString &error)
+void SshDeviceProcessList::handleListProcessFinished()
 {
+    const QString error = d->process.errorString();
     setFinished();
     if (!error.isEmpty()) {
         handleProcessError(error);
         return;
     }
-    if (d->process.processExitCode() == 0) {
+    if (d->process.exitCode() == 0) {
         const QByteArray remoteStdout = d->process.readAllStandardOutput();
         const QString stdoutString
                 = QString::fromUtf8(remoteStdout.data(), remoteStdout.count());
         reportProcessListUpdated(buildProcessList(stdoutString));
     } else {
         handleProcessError(tr("Process listing command failed with exit code %1.")
-                           .arg(d->process.processExitCode()));
+                           .arg(d->process.exitCode()));
     }
 }
 

@@ -58,14 +58,13 @@ public:
     void setRunnable(const Runnable &runnable);
 
     void start();
-    void start(const IDevice::ConstPtr &device);
     void stop();
     bool isRunning() const;
     Utils::ProcessHandle applicationPID() const;
     bool isLocal() const;
 
     QString errorString() const;
-    QProcess::ProcessError processError() const;
+    QProcess::ProcessError error() const;
 
     static QString msgWinCannotRetrieveDebuggingOutput();
 
@@ -74,9 +73,9 @@ public:
 
 signals:
     void appendMessage(const QString &message, Utils::OutputFormat format, bool appendNewLine = true);
-    void processStarted();
+    void started();
     void finished();
-    void error(QProcess::ProcessError error);
+    void errorOccurred(QProcess::ProcessError error);
 
 private:
     std::unique_ptr<Internal::ApplicationLauncherPrivate> d;

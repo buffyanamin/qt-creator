@@ -64,6 +64,7 @@
 #include <utils/algorithm.h>
 #include <utils/categorysortfiltermodel.h>
 #include <utils/checkablemessagebox.h>
+#include <utils/commandline.h>
 #include <utils/detailswidget.h>
 #include <utils/headerviewstretcher.h>
 #include <utils/infolabel.h>
@@ -1739,8 +1740,22 @@ void InitialCMakeArgumentsAspect::setAllValues(const QString &values, QStringLis
 {
     QStringList arguments = values.split('\n', Qt::SkipEmptyParts);
     for (QString &arg: arguments) {
-        if (arg.startsWith("-G"))
-            arg.replace("-G", "-DCMAKE_GENERATOR:STRING=");
+        if (arg.startsWith("-G")) {
+            const QString strDash(" - ");
+            const int idxDash = arg.indexOf(strDash);
+            if (idxDash > 0) {
+                // -GCodeBlocks - Ninja
+                QString generator = "-DCMAKE_GENERATOR:STRING=" + arg.mid(idxDash + strDash.length());
+                arguments.append(generator);
+
+                arg = arg.left(idxDash);
+                arg.replace("-G", "-DCMAKE_EXTRA_GENERATOR:STRING=");
+
+            } else {
+                // -GNinja
+                arg.replace("-G", "-DCMAKE_GENERATOR:STRING=");
+            }
+        }
         if (arg.startsWith("-A"))
             arg.replace("-A", "-DCMAKE_GENERATOR_PLATFORM:STRING=");
         if (arg.startsWith("-T"))

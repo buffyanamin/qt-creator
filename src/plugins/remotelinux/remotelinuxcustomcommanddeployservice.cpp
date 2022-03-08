@@ -87,7 +87,7 @@ void RemoteLinuxCustomCommandDeployService::doDeploy()
             this, &RemoteLinuxCustomCommandDeployService::handleStdout);
     connect(d->runner, &SshRemoteProcessRunner::readyReadStandardError,
             this, &RemoteLinuxCustomCommandDeployService::handleStderr);
-    connect(d->runner, &SshRemoteProcessRunner::processClosed,
+    connect(d->runner, &SshRemoteProcessRunner::finished,
             this, &RemoteLinuxCustomCommandDeployService::handleProcessClosed);
 
     emit progressMessage(tr("Starting remote command \"%1\"...").arg(d->commandLine));
@@ -115,15 +115,16 @@ void RemoteLinuxCustomCommandDeployService::handleStderr()
     emit stdErrData(QString::fromUtf8(d->runner->readAllStandardError()));
 }
 
-void RemoteLinuxCustomCommandDeployService::handleProcessClosed(const QString &error)
+void RemoteLinuxCustomCommandDeployService::handleProcessClosed()
 {
+    const QString error = d->runner->errorString();
     QTC_ASSERT(d->state == Running, return);
 
     if (!error.isEmpty()) {
         emit errorMessage(tr("Remote process failed: %1").arg(error));
-    } else if (d->runner->processExitCode() != 0) {
+    } else if (d->runner->exitCode() != 0) {
         emit errorMessage(tr("Remote process finished with exit code %1.")
-            .arg(d->runner->processExitCode()));
+            .arg(d->runner->exitCode()));
     } else {
         emit progressMessage(tr("Remote command finished successfully."));
     }

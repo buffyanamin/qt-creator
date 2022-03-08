@@ -27,10 +27,7 @@
 #include "mcusupportconstants.h"
 
 #include <projectexplorer/buildconfiguration.h>
-#include <projectexplorer/devicesupport/devicemanager.h>
-#include <projectexplorer/devicesupport/deviceusedportsgatherer.h>
 #include <projectexplorer/project.h>
-#include <projectexplorer/runcontrol.h>
 #include <projectexplorer/target.h>
 
 #include <cmakeprojectmanager/cmakekitinformation.h>
@@ -99,7 +96,7 @@ public:
                          CommandLine::Raw};
             r.workingDirectory = target->activeBuildConfiguration()->buildDirectory();
             r.environment = target->activeBuildConfiguration()->environment();
-            SimpleTargetRunner::doStart(r, {});
+            SimpleTargetRunner::doStart(r);
         });
     }
 };

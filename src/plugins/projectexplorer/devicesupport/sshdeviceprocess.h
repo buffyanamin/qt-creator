@@ -25,13 +25,17 @@
 
 #pragma once
 
-#include "deviceprocess.h"
+#include "../projectexplorer_export.h"
+
+#include <utils/qtcprocess.h>
 
 #include <memory>
 
 namespace ProjectExplorer {
 
-class PROJECTEXPLORER_EXPORT SshDeviceProcess : public DeviceProcess
+class IDevice;
+
+class PROJECTEXPLORER_EXPORT SshDeviceProcess : public Utils::QtcProcess
 {
     Q_OBJECT
 public:
@@ -52,6 +56,12 @@ public:
     QByteArray readAllStandardError() override;
 
     qint64 write(const QByteArray &data) override;
+
+protected:
+    void emitStarted() override;
+    void emitFinished() override;
+
+    const QSharedPointer<const IDevice> &device() const;
 
 private:
     void handleConnected();

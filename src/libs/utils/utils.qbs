@@ -5,7 +5,7 @@ Project {
     name: "Utils"
 
     QtcLibrary {
-
+        cpp.includePaths: base.concat("mimetypes", ".")
         cpp.defines: base.concat([
             "UTILS_LIBRARY"
         ])
@@ -179,6 +179,7 @@ Project {
             "macroexpander.cpp",
             "macroexpander.h",
             "mapreduce.h",
+            "mimeutils.h",
             "multitextcursor.cpp",
             "multitextcursor.h",
             "namevaluedictionary.cpp",
@@ -223,6 +224,8 @@ Project {
             "processenums.h",
             "processhandle.cpp",
             "processhandle.h",
+            "processinfo.cpp",
+            "processinfo.h",
             "processinterface.h",
             "processreaper.cpp",
             "processreaper.h",
@@ -404,6 +407,7 @@ Project {
                 "mimetype_p.h",
                 "mimetypeparser.cpp",
                 "mimetypeparser_p.h",
+                "mimeutils.cpp"
             ]
         }
 
@@ -430,6 +434,7 @@ Project {
 
         Export {
             Depends { name: "Qt"; submodules: ["concurrent", "widgets" ] }
+            cpp.includePaths: base.concat("mimetypes")
         }
     }
 }

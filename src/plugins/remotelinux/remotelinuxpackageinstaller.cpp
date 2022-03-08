@@ -71,7 +71,7 @@ void AbstractRemoteLinuxPackageInstaller::installPackage(const IDevice::ConstPtr
             this, &AbstractRemoteLinuxPackageInstaller::handleInstallerOutput);
     connect(d->installer, &SshRemoteProcessRunner::readyReadStandardError,
             this, &AbstractRemoteLinuxPackageInstaller::handleInstallerErrorOutput);
-    connect(d->installer, &SshRemoteProcessRunner::processClosed,
+    connect(d->installer, &SshRemoteProcessRunner::finished,
             this, &AbstractRemoteLinuxPackageInstaller::handleInstallationFinished);
 
     QString cmdLine = installCommandLine(packageFilePath);
@@ -99,12 +99,13 @@ void AbstractRemoteLinuxPackageInstaller::handleConnectionError()
     setFinished();
 }
 
-void AbstractRemoteLinuxPackageInstaller::handleInstallationFinished(const QString &error)
+void AbstractRemoteLinuxPackageInstaller::handleInstallationFinished()
 {
+    const QString error = d->installer->errorString();
     if (!d->isRunning)
         return;
 
-    if (!error.isEmpty() || d->installer->processExitCode() != 0)
+    if (!error.isEmpty() || d->installer->exitCode() != 0)
         emit finished(tr("Installing package failed."));
     else if (!errorString().isEmpty())
         emit finished(errorString());

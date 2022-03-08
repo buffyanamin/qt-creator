@@ -35,9 +35,8 @@
 #include <projectexplorer/target.h>
 
 #include <utils/qtcassert.h>
+#include <utils/qtcprocess.h>
 
-#include <QVBoxLayout>
-#include <QHBoxLayout>
 #include <QPushButton>
 #include <QTimer>
 
@@ -84,8 +83,8 @@ PerfTracePointDialog::PerfTracePointDialog() :
 PerfTracePointDialog::~PerfTracePointDialog()
 {
     if (m_process && m_process->state() != QProcess::NotRunning) {
-        DeviceProcess *process = m_process.release();
-        connect(process, &DeviceProcess::finished, process, &QObject::deleteLater);
+        QtcProcess *process = m_process.release();
+        connect(process, &QtcProcess::finished, process, &QObject::deleteLater);
         process->kill();
         QTimer::singleShot(10000, process, &QObject::deleteLater);
     }
@@ -99,6 +98,8 @@ void PerfTracePointDialog::runScript()
     m_ui->buttonBox->button(QDialogButtonBox::Ok)->setEnabled(false);
 
     m_process.reset(m_device->createProcess(this));
+    m_process->setWriteData(m_ui->textEdit->toPlainText().toUtf8());
+    m_ui->textEdit->clear();
 
     const QString elevate = m_ui->privilegesChooser->currentText();
     if (elevate != QLatin1String("n.a."))
@@ -106,22 +107,13 @@ void PerfTracePointDialog::runScript()
     else
         m_process->setCommand({"sh", {}});
 
-    connect(m_process.get(), &DeviceProcess::started,
-            this, &PerfTracePointDialog::feedScriptToProcess);
-
-    connect(m_process.get(), &DeviceProcess::finished,
+    connect(m_process.get(), &QtcProcess::finished,
             this, &PerfTracePointDialog::handleProcessFinished);
 
-    connect(m_process.get(), &DeviceProcess::errorOccurred,
+    connect(m_process.get(), &QtcProcess::errorOccurred,
             this, &PerfTracePointDialog::handleProcessError);
 
     m_process->start();
-}
-
-void PerfTracePointDialog::feedScriptToProcess()
-{
-    m_process->write(m_ui->textEdit->toPlainText().toUtf8());
-    m_ui->textEdit->clear();
 }
 
 void PerfTracePointDialog::handleProcessFinished()

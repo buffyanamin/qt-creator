@@ -55,7 +55,7 @@ public:
     {
         setId("QdbDebuggeeRunner");
 
-        connect(&m_launcher, &ApplicationLauncher::processStarted,
+        connect(&m_launcher, &ApplicationLauncher::started,
                 this, &RunWorker::reportStarted);
         connect(&m_launcher, &ApplicationLauncher::finished,
                 this, &RunWorker::reportStopped);
@@ -117,9 +117,10 @@ public:
 
         r.command.setArguments(args);
         r.command.setExecutable(FilePath::fromString(Constants::AppcontrollerFilepath));
+        r.device = device();
 
         m_launcher.setRunnable(r);
-        m_launcher.start(device());
+        m_launcher.start();
     }
 
     void stop() override { m_launcher.stop(); }

@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2021 The Qt Company Ltd.
+** Copyright (C) 2022 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the Qt Creator documentation.
@@ -114,7 +114,7 @@
             \c {share/qtcreator/templates/wizards/classes/mycpp}
 
         \li Use the \uicontrol {Factory.Reset} action to make the wizard appear
-            in \uicontrol File > \uicontrol {New File or Project} without
+            in \uicontrol File > \uicontrol {New File} without
             restarting \QC.
 
         \li Open the wizard configuration file, \c {wizard.json} for editing:
@@ -122,7 +122,7 @@
             \list
 
                 \li The following settings determine the type of the wizard and
-                    its place in the \uicontrol {New File or Project} dialog:
+                    its place in the \uicontrol {New File} dialog:
 
                     \code
                     "version": 1,
@@ -163,20 +163,20 @@
                     \li \c category is the category in which to place the wizard
                         in the list. You can use a leading letter to specify the
                         position of the category in the list in the
-                        \uicontrol {New File or Project} dialog.
+                        \uicontrol {New File} dialog.
 
                         This information is available in the wizard as
                         \c {%\{category\}}.
                 \endlist
 
             \li The following settings specify the icon and text that appear in
-               the  \uicontrol {New File or Project} dialog:
+                the \uicontrol {New File} dialog:
 
                 \code
                 "trDescription": "Creates a C++ header and a source file for a new class that you can add to a C++ project.",
                 "trDisplayName": "C++ Class",
                 "trDisplayCategory": "C++",
-                "icon": "../../global/genericfilewizard.png",
+                "iconText": "h/cpp",
                 "enabled": "%{JS: value('Plugins').indexOf('CppEditor') >= 0}",
                 \endcode
 
@@ -194,9 +194,8 @@
                     This information is available in the wizard as
                     \c {%\{trDisplayName\}}.
 
-                \li \c trDisplayCategory appears in the
-                    \uicontrol {New File or Project} dialog, under
-                    \uicontrol Projects.
+                \li \c trDisplayCategory appears in the \uicontrol {New File}
+                    dialog, under \uicontrol {Files and Classes}.
 
                     This information is available in the wizard as
                     \c {%\{trDisplayCategory\}}.
@@ -204,7 +203,13 @@
                 \li \c icon appears next to the \c trDisplayName in the middle
                     panel when \c trDisplayCategory is selected. We recommend
                     that you specify the path relative to the wizard.json file,
-                    but you can also use an absolute path.
+                    but you can also use an absolute path. Omit this value to
+                    use the default icon for the wizard type.
+
+                \li \c iconText determines the text overlay for the default
+                    file icon.
+
+               \li \c iconKind determines whether the icon is themed.
 
                 \li \c image specifies a path to an image (for example a
                     screenshot) that appears below the \c trDescription.
@@ -231,9 +236,9 @@
                     \c{false}.
 
                 \li \c enabled is evaluated to determine whether a wizard is
-                    listed in \uicontrol Files >
-                    \uicontrol {New File or Project}, after \c featuresRequired
-                    has been checked.
+                    listed in \uicontrol File > \uicontrol {New Project} or
+                    \uicontrol {New File}, after \c featuresRequired has been
+                    checked.
 
                     The default value is \c true.
 
@@ -282,8 +287,12 @@
                                 "trDisplayName": "Class name:",
                                 "mandatory": true,
                                 "type": "LineEdit",
-                                "data": { "validator": "(?:(?:[a-zA-Z_][a-zA-Z_0-9]*::)+[a-zA-Z_][a-zA-Z_0-9]*|)" }
-                            },
+                                "data": {
+                                    "trPlaceholder": "Fully qualified name, including namespaces",
+                                    "validator": "(?:(?:[a-zA-Z_][a-zA-Z_0-9]*::)*[a-zA-Z_][a-zA-Z_0-9]*|)",
+                                    "completion": "namespaces"
+                                    }
+                    },
                             ...
                 ]
                 \endcode
@@ -336,11 +345,19 @@
                                 "source": "file.h",
                                 "target": "%{HdrPath}",
                                 "openInEditor": true
+                                "options": [
+                                    { "key": "Cpp:License:FileName", "value": "%{HdrFileName}" },
+                                    { "key": "Cpp:License:ClassName", "value": "%{CN}" }
+                                ]
                             },
                             {
                                 "source": "file.cpp",
                                 "target": "%{SrcPath}",
                                 "openInEditor": true
+                                "options": [
+                                    { "key": "Cpp:License:FileName", "value": "%{SrcFileName}" },
+                                    { "key": "Cpp:License:ClassName", "value": "%{CN}" }
+                                ]
                             }
                 ]
                 \endcode
@@ -373,7 +390,8 @@
             instance of \QC.
 
         \li \c Platform contains the platform selected in the \uicontrol File >
-            \uicontrol {New File or Project} dialog. This value may be empty.
+            \uicontrol {New Project} or \uicontrol {New File} dialog. This value
+            may be empty.
     \endlist
 
     The following information is only available when the wizard was triggered
@@ -410,7 +428,11 @@
                     "trDisplayName": "Class name:",
                     "mandatory": true,
                     "type": "LineEdit",
-                    "data": { "validator": "(?:(?:[a-zA-Z_][a-zA-Z_0-9]*::)+[a-zA-Z_][a-zA-Z_0-9]*|)" }
+                    "data": {
+                        "trPlaceholder": "Fully qualified name, including namespaces",
+                        "validator": "(?:(?:[a-zA-Z_][a-zA-Z_0-9]*::)*[a-zA-Z_][a-zA-Z_0-9]*|)",
+                        "completion": "namespaces"
+                        }
                 },
                 ...
     ],
@@ -487,7 +509,7 @@
     \endcode
 
     The page evaluates \c {%\{Platform\}} to set the platform selected in
-    \uicontrol File > \uicontrol {New File or Project}.
+    \uicontrol File > \uicontrol {New Project} or \uicontrol {New File}.
 
 
 
@@ -776,7 +798,11 @@
         "trDisplayName": "Class name:",
         "mandatory": true,
         "type": "LineEdit",
-        "data": { "validator": "(?:(?:[a-zA-Z_][a-zA-Z_0-9]*::)+[a-zA-Z_][a-zA-Z_0-9]*|)" }
+        "data": {
+            "trPlaceholder": "Fully qualified name, including namespaces",
+            "validator": "(?:(?:[a-zA-Z_][a-zA-Z_0-9]*::)*[a-zA-Z_][a-zA-Z_0-9]*|)",
+            "completion": "namespaces"
+        }
     },
     {
         "name": "BaseEdit",
@@ -787,8 +813,7 @@
         {
             "trText": "%{BaseCB}",
             "trDisabledText": "%{BaseCB}",
-            "historyId": "EditValues",
-            "restoreLastHistoryItem": false
+            "completion": "classes"
         }
     },
     \endcode
@@ -798,6 +823,11 @@
         \li \c trText specifies the default text to display.
 
         \li \c trDisabledText specifies the text to display in a disabled field.
+
+        \li \c completion lists existing \c namespaces for the class name line
+            edit and existing \c classes for the base class line edit. This
+            value replaces the history completer that is usually available for
+            such fields.
 
         \li \c trPlaceholder specifies the placeholder text.
 
@@ -812,7 +842,8 @@
             contains a password, which will be masked.
 
         \li \c historyId is a key that specifies the name for a list of items
-            for the history completer.
+            for the history completer. This value and \c completion are
+            mutually exclusive, so do not set both of them at the same time.
 
         \li \c restoreLastHistoryItem is a boolean that specifies that the
             last history item is automatically set as the default text in

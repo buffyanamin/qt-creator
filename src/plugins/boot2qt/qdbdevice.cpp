@@ -66,10 +66,11 @@ public:
     {
         ProjectExplorer::Runnable r;
         r.command = {Constants::AppcontrollerFilepath, {"--stop"}};
+        r.device = device();
 
         auto launcher = new ApplicationLauncher(this);
         launcher->setRunnable(r);
-        launcher->start(device());
+        launcher->start();
     }
 };
 
@@ -81,7 +82,7 @@ public:
     {
         connect(&m_appRunner, &ApplicationLauncher::appendMessage, this,
                 &DeviceApplicationObserver::handleAppendMessage);
-        connect(&m_appRunner, &ApplicationLauncher::error, this,
+        connect(&m_appRunner, &ApplicationLauncher::errorOccurred, this,
                 [this] { m_error = m_appRunner.errorString(); });
         connect(&m_appRunner, &ApplicationLauncher::finished, this,
                 &DeviceApplicationObserver::handleFinished);
@@ -91,8 +92,9 @@ public:
 
         Runnable r;
         r.command = command;
+        r.device = device;
         m_appRunner.setRunnable(r);
-        m_appRunner.start(device);
+        m_appRunner.start();
         showMessage(QdbDevice::tr("Starting command \"%1\" on device \"%2\".")
                     .arg(command.toUserOutput(), m_deviceName));
     }
@@ -165,7 +167,7 @@ ProjectExplorer::IDeviceWidget *QdbDevice::createWidget()
     return w;
 }
 
-ProjectExplorer::DeviceProcess *QdbDevice::createProcess(QObject *parent) const
+QtcProcess *QdbDevice::createProcess(QObject *parent) const
 {
     return new QdbDeviceProcess(sharedFromThis(), parent);
 }

@@ -53,7 +53,7 @@
 #include <utils/executeondestruction.h>
 #include <utils/fileutils.h>
 #include <utils/hostosinfo.h>
-#include <utils/mimetypes/mimedatabase.h>
+#include <utils/mimeutils.h>
 #include <utils/qtcassert.h>
 #include <utils/qtcprocess.h>
 #include <utils/qtcsettings.h>
@@ -422,7 +422,7 @@ QString PluginManager::systemInformation()
     QtcProcess qtDiagProc;
     qtDiagProc.setCommand(qtDiag);
     qtDiagProc.runBlocking();
-    if (qtDiagProc.result() == QtcProcess::FinishedWithSuccess)
+    if (qtDiagProc.result() == ProcessResult::FinishedWithSuccess)
         result += qtDiagProc.allOutput() + "\n";
     result += "Plugin information:\n\n";
     auto longestSpec = std::max_element(d->pluginSpecs.cbegin(), d->pluginSpecs.cend(),

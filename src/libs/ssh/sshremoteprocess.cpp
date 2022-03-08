@@ -56,17 +56,20 @@ SshRemoteProcess::SshRemoteProcess(const QString &command, const QStringList &co
     setupSshEnvironment(this);
     m_remoteCommand = command;
     m_connectionArgs = connectionArgs;
+}
 
-    connect(this, &QtcProcess::finished, this, [this] {
-        QString error;
-        if (exitStatus() == QProcess::CrashExit)
-            error = tr("The ssh process crashed: %1").arg(errorString());
-        emit done(error);
-    });
-    connect(this, &QtcProcess::errorOccurred, [this](QProcess::ProcessError error) {
-        if (error == QProcess::FailedToStart)
-            emit done(errorString());
-    });
+void SshRemoteProcess::emitFinished()
+{
+    if (exitStatus() == QProcess::CrashExit)
+        setErrorString(tr("The ssh process crashed: %1").arg(errorString()));
+    emit finished();
+}
+
+void SshRemoteProcess::emitErrorOccurred(QProcess::ProcessError error)
+{
+    if (error == QProcess::FailedToStart)
+        emit finished();
+    emit errorOccurred(error);
 }
 
 void SshRemoteProcess::start()

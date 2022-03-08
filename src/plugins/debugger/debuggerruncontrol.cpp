@@ -42,7 +42,6 @@
 
 #include <projectexplorer/buildconfiguration.h>
 #include <projectexplorer/devicesupport/deviceprocessesdialog.h>
-#include <projectexplorer/devicesupport/deviceprocesslist.h>
 #include <projectexplorer/environmentaspect.h> // For the environment
 #include <projectexplorer/project.h>
 #include <projectexplorer/projectexplorer.h>
@@ -1085,8 +1084,8 @@ DebugServerRunner::DebugServerRunner(RunControl *runControl, DebugServerPortsGat
             }
         }
         debugServer.command.setArguments(ProcessArgs::joinArgs(args, OsTypeLinux));
-
-        doStart(debugServer, runControl->device());
+        debugServer.device = runControl->device();
+        doStart(debugServer);
     });
 }
 

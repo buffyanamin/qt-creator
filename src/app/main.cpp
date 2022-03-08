@@ -56,6 +56,8 @@
 #include <QUrl>
 #include <QVariant>
 
+#include <QSysInfo>
+
 #include <QNetworkProxyFactory>
 
 #include <QApplication>
@@ -410,6 +412,11 @@ QStringList lastSessionArgument()
 #ifdef ENABLE_CRASHPAD
 bool startCrashpad(const QString &libexecPath, bool crashReportingEnabled)
 {
+    if (QSysInfo::currentCpuArchitecture() == "arm64") {
+        qDebug() << "The crashpad_handler binary does not work on arm64 properly. So it is disabled for now.";
+        return false;
+    }
+
     using namespace crashpad;
 
     // Cache directory that will store crashpad information and minidumps
@@ -438,6 +445,7 @@ bool startCrashpad(const QString &libexecPath, bool crashReportingEnabled)
 
     // Optional arguments to pass to the handler
     std::vector<std::string> arguments;
+    arguments.push_back("--no-rate-limit");
 
     CrashpadClient *client = new CrashpadClient();
     bool success = client->StartHandler(

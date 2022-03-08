@@ -190,12 +190,6 @@ static void addSpacerToToolBar(QToolBar *toolBar)
 
 void DesignModeWidget::setup()
 {
-    auto &actionManager = viewManager().designerActionManager();
-    actionManager.createDefaultDesignerActions();
-    actionManager.createDefaultAddResourceHandler();
-    actionManager.createDefaultModelNodePreviewImageHandlers();
-    actionManager.polishActions();
-
     auto settings = Core::ICore::settings(QSettings::UserScope);
 
     ADS::DockManager::setConfigFlags(ADS::DockManager::DefaultNonOpaqueConfig);
@@ -214,11 +208,7 @@ void DesignModeWidget::setup()
     m_dockManager->setStyleSheet(Theme::replaceCssColors(sheet));
 
     // Setup icons
-    const QColor iconColor(Theme::getColor(Theme::DStitleBarIcon));
-
     const QString closeUnicode = Theme::getIconUnicode(Theme::Icon::adsClose);
-    const QString menuUnicode = Theme::getIconUnicode(Theme::Icon::adsDropDown);
-    const QString undockUnicode = Theme::getIconUnicode(Theme::Icon::adsDetach);
 
     const QString fontName = "qtds_propertyIconFont.ttf";
     const QSize size = QSize(28, 28);
@@ -346,7 +336,7 @@ void DesignModeWidget::setup()
         auto outputPanePlaceholder = new Core::OutputPanePlaceHolder(Core::Constants::MODE_DESIGN);
         m_outputPaneDockWidget = new ADS::DockWidget(uniqueId);
         m_outputPaneDockWidget->setWidget(outputPanePlaceholder);
-        m_outputPaneDockWidget->setWindowTitle(tr("Output Pane"));
+        m_outputPaneDockWidget->setWindowTitle(tr("Output"));
         m_dockManager->addDockWidget(ADS::NoDockWidgetArea, m_outputPaneDockWidget);
 
         // Set unique id as object name

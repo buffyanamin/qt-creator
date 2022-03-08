@@ -26,7 +26,6 @@
 #include "sshdeviceprocess.h"
 
 #include "idevice.h"
-#include "../runcontrol.h"
 
 #include <coreplugin/icore.h>
 #include <ssh/sshconnection.h>
@@ -51,7 +50,7 @@ public:
     SshDeviceProcessPrivate(SshDeviceProcess *q) : q(q) {}
 
     SshDeviceProcess * const q;
-    bool ignoreSelfSignals = true;
+    QSharedPointer<const IDevice> m_device;
     QSsh::SshConnection *connection = nullptr;
     QSsh::SshRemoteProcessPtr remoteProcess;
     QString processName;
@@ -67,21 +66,26 @@ public:
 };
 
 SshDeviceProcess::SshDeviceProcess(const IDevice::ConstPtr &device, QObject *parent)
-    : DeviceProcess(device, parent),
+    : QtcProcess(parent),
       d(std::make_unique<SshDeviceProcessPrivate>(this))
 {
-    // Hack: we rely on fact that below slots were called before any other external slots connected
-    // to this instance signals. That's why we don't re-emit them from inside our handlers since
-    // these signal will reach all other external slots anyway after our handlers are done.
-    connect(this, &QtcProcess::started, this, [this] {
-        if (!d->ignoreSelfSignals)
-            handleProcessStarted();
-    });
-    connect(this, &QtcProcess::finished, this, [this] {
-        if (!d->ignoreSelfSignals)
-            handleProcessFinished(QtcProcess::errorString());
-    });
+    d->m_device = device;
     connect(&d->killTimer, &QTimer::timeout, this, &SshDeviceProcess::handleKillOperationTimeout);
+}
+
+void SshDeviceProcess::emitStarted()
+{
+    handleProcessStarted();
+}
+
+void SshDeviceProcess::emitFinished()
+{
+    handleProcessFinished(QtcProcess::errorString());
+}
+
+const QSharedPointer<const IDevice> &SshDeviceProcess::device() const
+{
+    return d->m_device;
 }
 
 SshDeviceProcess::~SshDeviceProcess()
@@ -100,7 +104,7 @@ void SshDeviceProcess::start()
     d->processName = commandLine().executable().toString();
     d->displayName = extraData("Ssh.X11ForwardToDisplay").toString();
 
-    QSsh::SshConnectionParameters params = device()->sshParameters();
+    QSsh::SshConnectionParameters params = d->m_device->sshParameters();
     params.x11DisplayName = d->displayName;
     d->connection = QSsh::SshConnectionManager::acquireConnection(params);
     connect(d->connection, &QSsh::SshConnection::errorOccurred,
@@ -188,7 +192,6 @@ void SshDeviceProcess::handleConnected()
     const QString display = d->displayName;
     if (!display.isEmpty())
         d->remoteProcess->requestX11Forwarding(display);
-    d->ignoreSelfSignals = !usesTerminal();
     if (usesTerminal()) {
         setAbortOnMetaChars(false);
         setCommand(d->remoteProcess->fullLocalCommandLine(true));
@@ -196,8 +199,9 @@ void SshDeviceProcess::handleConnected()
     } else {
         connect(d->remoteProcess.get(), &QSsh::SshRemoteProcess::started,
                 this, &SshDeviceProcess::handleProcessStarted);
-        connect(d->remoteProcess.get(), &QSsh::SshRemoteProcess::done,
-                this, &SshDeviceProcess::handleProcessFinished);
+        connect(d->remoteProcess.get(), &QSsh::SshRemoteProcess::finished, this, [this] {
+                handleProcessFinished(d->remoteProcess->errorString());
+        });
         connect(d->remoteProcess.get(), &QSsh::SshRemoteProcess::readyReadStandardOutput,
                 this, &QtcProcess::readyReadStandardOutput);
         connect(d->remoteProcess.get(), &QSsh::SshRemoteProcess::readyReadStandardError,
@@ -237,8 +241,7 @@ void SshDeviceProcess::handleProcessStarted()
     QTC_ASSERT(d->state == SshDeviceProcessPrivate::Connected, return);
 
     d->setState(SshDeviceProcessPrivate::ProcessRunning);
-    if (d->ignoreSelfSignals)
-        emit started();
+    emit started();
 }
 
 void SshDeviceProcess::handleProcessFinished(const QString &error)
@@ -247,8 +250,7 @@ void SshDeviceProcess::handleProcessFinished(const QString &error)
     if (d->killOperation && error.isEmpty())
         d->errorMessage = tr("The process was ended forcefully.");
     d->setState(SshDeviceProcessPrivate::Inactive);
-    if (d->ignoreSelfSignals)
-        emit finished();
+    emit finished();
 }
 
 void SshDeviceProcess::handleKillOperationFinished(const QString &errorMessage)
@@ -291,7 +293,7 @@ void SshDeviceProcess::SshDeviceProcessPrivate::doSignal(Signal signal)
         break;
     case SshDeviceProcessPrivate::Connected:
     case SshDeviceProcessPrivate::ProcessRunning:
-        DeviceProcessSignalOperation::Ptr signalOperation = q->device()->signalOperation();
+        DeviceProcessSignalOperation::Ptr signalOperation = m_device->signalOperation();
         const qint64 processId = q->processId();
         if (signal == Signal::Interrupt) {
             if (processId != 0)

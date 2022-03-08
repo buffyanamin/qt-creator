@@ -145,7 +145,7 @@ void UpdateInfoPlugin::startCheckForUpdates()
                                      60 * 3, // 3 minutes timeout
                                      /*workingDirectory=*/{},
                                      [](int /*exitCode*/) {
-                                         return Utils::QtcProcess::FinishedWithSuccess;
+                                         return Utils::ProcessResult::FinishedWithSuccess;
                                      });
     if (d->m_settings.checkForQtVersions) {
         d->m_checkUpdatesCommand
@@ -153,7 +153,7 @@ void UpdateInfoPlugin::startCheckForUpdates()
                       {"se", "qt[.]qt[0-9][.][0-9]+$", "-g", "*=false,ifw.package.*=true"}},
                      60 * 3, // 3 minutes timeout
                      /*workingDirectory=*/{},
-                     [](int /*exitCode*/) { return Utils::QtcProcess::FinishedWithSuccess; });
+                     [](int /*exitCode*/) { return Utils::ProcessResult::FinishedWithSuccess; });
     }
     d->m_checkUpdatesCommand->execute();
     d->m_progress = d->m_checkUpdatesCommand->futureProgress();
@@ -209,7 +209,7 @@ struct QtPackage
     QString displayName;
     QVersionNumber version;
     bool installed;
-    bool isPrerelease;
+    bool isPrerelease = false;
 };
 
 static QList<QtPackage> availableQtPackages(const QDomDocument &document)

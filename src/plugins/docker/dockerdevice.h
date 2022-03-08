@@ -37,17 +37,14 @@ namespace Internal {
 class DockerDeviceData
 {
 public:
-    // Used for "docker run" and for host parts of FilePaths
-    QString dockerId() const;
-    // Used as autodetection source string
-    QString autodetectId() const { return "docker:" + dockerId(); }
+    // Used for "docker run"
+    QString repoAndTag() const;
 
     QString imageId;
     QString repo;
     QString tag;
     QString size;
     bool useLocalUidGid = true;
-    bool useFilePathMapping = false;
     QStringList mounts;
 };
 
@@ -68,7 +65,7 @@ public:
     QList<ProjectExplorer::Task> validate() const override;
 
     bool canCreateProcess() const override { return true; }
-    ProjectExplorer::DeviceProcess *createProcess(QObject *parent) const override;
+    Utils::QtcProcess *createProcess(QObject *parent) const override;
     bool canAutoDetectPorts() const override;
     ProjectExplorer::PortsGatheringMethod::Ptr portsGatheringMethod() const override;
     bool canCreateProcessModel() const override { return false; }
@@ -114,12 +111,7 @@ public:
     DockerDeviceData &data();
 
     void updateContainerAccess() const;
-    bool hasLocalFileAccess() const;
     void setMounts(const QStringList &mounts) const;
-
-    Utils::FilePath mapToLocalAccess(const Utils::FilePath &filePath) const;
-    Utils::FilePath mapFromLocalAccess(const Utils::FilePath &filePath) const;
-    Utils::FilePath mapFromLocalAccess(const QString &filePath) const;
 
 protected:
     void fromMap(const QVariantMap &map) final;

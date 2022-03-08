@@ -242,8 +242,8 @@ void tst_Ssh::remoteProcess()
     SshRemoteProcessRunner runner;
     QEventLoop loop;
     connect(&runner, &SshRemoteProcessRunner::connectionError, &loop, &QEventLoop::quit);
-    connect(&runner, &SshRemoteProcessRunner::processStarted, &loop, &QEventLoop::quit);
-    connect(&runner, &SshRemoteProcessRunner::processClosed, &loop, &QEventLoop::quit);
+    connect(&runner, &SshRemoteProcessRunner::started, &loop, &QEventLoop::quit);
+    connect(&runner, &SshRemoteProcessRunner::finished, &loop, &QEventLoop::quit);
     connect(&runner, &SshRemoteProcessRunner::readyReadStandardOutput,
             [&remoteStdout, &runner] { remoteStdout += runner.readAllStandardOutput(); });
     connect(&runner, &SshRemoteProcessRunner::readyReadStandardError,
@@ -259,8 +259,8 @@ void tst_Ssh::remoteProcess()
     timer.stop();
     QVERIFY2(runner.lastConnectionErrorString().isEmpty(),
              qPrintable(runner.lastConnectionErrorString()));
-    QVERIFY2(runner.processErrorString().isEmpty(), qPrintable(runner.processErrorString()));
-    QVERIFY(runner.isProcessRunning()); // Event loop exit should have been triggered by started().
+    QVERIFY2(runner.errorString().isEmpty(), qPrintable(runner.errorString()));
+    QVERIFY(runner.isRunning()); // Event loop exit should have been triggered by started().
     QVERIFY2(remoteStdout.isEmpty(), remoteStdout.constData());
     QVERIFY2(remoteStderr.isEmpty(), remoteStderr.constData());
 
@@ -272,14 +272,14 @@ void tst_Ssh::remoteProcess()
     loop.exec();
     QVERIFY(timer.isActive());
     timer.stop();
-    QVERIFY(!runner.isProcessRunning());
+    QVERIFY(!runner.isRunning());
     QVERIFY2(runner.lastConnectionErrorString().isEmpty(),
              qPrintable(runner.lastConnectionErrorString()));
     if (isBlocking) {
-        QVERIFY(runner.processExitStatus() == QProcess::CrashExit
-                || runner.processExitCode() != 0);
+        QVERIFY(runner.exitStatus() == QProcess::CrashExit
+                || runner.exitCode() != 0);
     } else {
-        QCOMPARE(successExpected, runner.processExitCode() == 0);
+        QCOMPARE(successExpected, runner.exitCode() == 0);
     }
     QCOMPARE(stdoutExpected, !remoteStdout.isEmpty());
     QCOMPARE(stderrExpected, !remoteStderr.isEmpty());
@@ -299,7 +299,7 @@ void tst_Ssh::remoteProcessChannels()
     SshRemoteProcessPtr echoProcess
             = connection.createRemoteProcess("printf " + QString::fromUtf8(testString) + " >&2");
     QEventLoop loop;
-    connect(echoProcess.get(), &SshRemoteProcess::done, &loop, &QEventLoop::quit);
+    connect(echoProcess.get(), &SshRemoteProcess::finished, &loop, &QEventLoop::quit);
     connect(echoProcess.get(), &Utils::QtcProcess::readyReadStandardError,
             [&remoteData, p = echoProcess.get()] { remoteData += p->readAllStandardError(); });
     connect(echoProcess.get(), &SshRemoteProcess::readyReadStandardOutput,
@@ -334,7 +334,7 @@ void tst_Ssh::remoteProcessInput()
     catProcess->setProcessMode(Utils::ProcessMode::Writer);
     QEventLoop loop;
     connect(catProcess.get(), &SshRemoteProcess::started, &loop, &QEventLoop::quit);
-    connect(catProcess.get(), &SshRemoteProcess::done, &loop, &QEventLoop::quit);
+    connect(catProcess.get(), &SshRemoteProcess::finished, &loop, &QEventLoop::quit);
     QTimer timer;
     QObject::connect(&timer, &QTimer::timeout, &loop, &QEventLoop::quit);
     timer.setSingleShot(true);

@@ -119,19 +119,15 @@ void CallgrindController::run(Option option)
 #endif
     connect(m_controllerProcess, &ApplicationLauncher::finished,
             this, &CallgrindController::controllerProcessFinished);
-    connect(m_controllerProcess, &ApplicationLauncher::error,
+    connect(m_controllerProcess, &ApplicationLauncher::errorOccurred,
             this, &CallgrindController::handleControllerProcessError);
 
     Runnable controller = m_valgrindRunnable;
     controller.command.setExecutable(FilePath::fromString(CALLGRIND_CONTROL_BINARY));
     controller.command.setArguments(QString("%1 %2").arg(toOptionString(option)).arg(m_pid));
-
+    controller.device = m_valgrindRunnable.device;
     m_controllerProcess->setRunnable(controller);
-    if (!m_valgrindRunnable.device
-            || m_valgrindRunnable.device->type() == ProjectExplorer::Constants::DESKTOP_DEVICE_TYPE)
-        m_controllerProcess->start();
-    else
-        m_controllerProcess->start(m_valgrindRunnable.device);
+    m_controllerProcess->start();
 }
 
 void CallgrindController::setValgrindPid(qint64 pid)

@@ -28,7 +28,7 @@
 #include "algorithm.h"
 #include "checkablemessagebox.h"
 #include "environment.h"
-#include "mimetypes/mimedatabase.h"
+#include "mimeutils.h"
 #include "qtcassert.h"
 #include "qtcprocess.h"
 
@@ -219,7 +219,7 @@ Archive *Archive::unarchive(const FilePath &src, const FilePath &dest)
         [archive] {
             if (!archive->m_process)
                 return;
-            emit archive->finished(archive->m_process->result() == QtcProcess::FinishedWithSuccess);
+            emit archive->finished(archive->m_process->result() == ProcessResult::FinishedWithSuccess);
             archive->m_process->deleteLater();
             archive->m_process = nullptr;
             archive->deleteLater();

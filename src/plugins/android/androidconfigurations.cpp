@@ -1,5 +1,6 @@
 /****************************************************************************
 **
+** Copyright (C) 2022 The Qt Company Ltd.
 ** Copyright (C) 2016 BogDan Vatra <bog_dan_ro@yahoo.com>
 ** Contact: https://www.qt.io/licensing/
 **
@@ -164,7 +165,7 @@ namespace {
                 proc.setTimeoutS(30);
                 proc.setCommand({executable, {shell}});
                 proc.runBlocking();
-                if (proc.result() != QtcProcess::FinishedWithSuccess)
+                if (proc.result() != ProcessResult::FinishedWithSuccess)
                     return true;
                 return !proc.allOutput().contains("x86-64");
             }
@@ -634,7 +635,7 @@ QVector<AndroidDeviceInfo> AndroidConfig::connectedDevices(QString *error) const
     CommandLine cmd{adbToolPath(), {"devices"}};
     adbProc.setCommand(cmd);
     adbProc.runBlocking();
-    if (adbProc.result() != QtcProcess::FinishedWithSuccess) {
+    if (adbProc.result() != ProcessResult::FinishedWithSuccess) {
         if (error)
             *error = QApplication::translate("AndroidConfiguration", "Could not run: %1")
                 .arg(cmd.toUserOutput());
@@ -705,7 +706,7 @@ QString AndroidConfig::getDeviceProperty(const QString &device, const QString &p
     adbProc.setTimeoutS(10);
     adbProc.setCommand(cmd);
     adbProc.runBlocking();
-    if (adbProc.result() != QtcProcess::FinishedWithSuccess)
+    if (adbProc.result() != ProcessResult::FinishedWithSuccess)
         return QString();
 
     return adbProc.allOutput();
@@ -750,48 +751,6 @@ QString AndroidConfig::getAvdName(const QString &serialnumber)
         }
     }
     return QString::fromLatin1(name).trimmed();
-}
-
-static SdkToolResult emulatorNameAdbCommand(const QString &serialNumber)
-{
-    QStringList args = AndroidDeviceInfo::adbSelector(serialNumber);
-    args.append({"emu", "avd", "name"});
-    return AndroidManager::runAdbCommand(args);
-}
-
-QString AndroidConfig::getRunningAvdsSerialNumber(const QString &name) const
-{
-    for (const AndroidDeviceInfo &dev : connectedDevices()) {
-        if (!dev.serialNumber.startsWith("emulator"))
-            continue;
-        SdkToolResult result = emulatorNameAdbCommand(dev.serialNumber);
-        const QString stdOut = result.stdOut();
-        if (stdOut.isEmpty())
-            continue; // Not an avd
-        const QStringList outputLines = stdOut.split('\n');
-        if (outputLines.size() > 1 && outputLines.first() == name)
-            return dev.serialNumber;
-    }
-
-    return {};
-}
-
-QStringList AndroidConfig::getRunningAvdsFromDevices(const QVector<AndroidDeviceInfo> &devs)
-{
-    QStringList runningDevs;
-    for (const AndroidDeviceInfo &dev : devs) {
-        if (!dev.serialNumber.startsWith("emulator"))
-            continue;
-        SdkToolResult result = emulatorNameAdbCommand(dev.serialNumber);
-        const QString stdOut = result.stdOut();
-        if (stdOut.isEmpty())
-            continue; // Not an avd
-        const QStringList outputLines = stdOut.split('\n');
-        if (outputLines.size() > 1)
-            runningDevs.append(outputLines.first());
-    }
-
-    return runningDevs;
 }
 
 AndroidConfig::OpenGl AndroidConfig::getOpenGLEnabled(const QString &emulator) const
@@ -846,7 +805,7 @@ QStringList AndroidConfig::getAbis(const QString &device)
     adbProc.setTimeoutS(10);
     adbProc.setCommand({adbTool, arguments});
     adbProc.runBlocking();
-    if (adbProc.result() != QtcProcess::FinishedWithSuccess)
+    if (adbProc.result() != ProcessResult::FinishedWithSuccess)
         return result;
 
     QString output = adbProc.allOutput().trimmed();
@@ -869,7 +828,7 @@ QStringList AndroidConfig::getAbis(const QString &device)
         abiProc.setTimeoutS(10);
         abiProc.setCommand({adbTool, arguments});
         abiProc.runBlocking();
-        if (abiProc.result() != QtcProcess::FinishedWithSuccess)
+        if (abiProc.result() != ProcessResult::FinishedWithSuccess)
             return result;
 
         QString abi = abiProc.allOutput().trimmed();

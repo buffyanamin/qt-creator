@@ -312,8 +312,11 @@ bool QmlDesignerPlugin::delayedInitialize()
     d->viewManager.registerFormEditorTool(std::make_unique<QmlDesigner::PathTool>());
     d->viewManager.registerFormEditorTool(std::make_unique<QmlDesigner::TransitionTool>());
 
-    if (QmlProjectManager::QmlProject::isQtDesignStudio())
+    if (QmlProjectManager::QmlProject::isQtDesignStudio()) {
         emitUsageStatistics("StandaloneMode");
+        if (QmlProjectManager::QmlProject::isQtDesignStudioStartedFromQtC())
+            emitUsageStatistics("QDSlaunchedFromQtC");
+    }
 
     return true;
 }
@@ -325,6 +328,15 @@ void QmlDesignerPlugin::extensionsInitialized()
     connect(Core::ICore::instance(), &Core::ICore::coreAboutToOpen, this, [this] {
         integrateIntoQtCreator(&d->mainWidget);
     });
+
+    if (QmlProjectManager::QmlProject::isQtDesignStudio())
+        d->mainWidget.initialize();
+
+    auto &actionManager = d->viewManager.designerActionManager();
+    actionManager.createDefaultDesignerActions();
+    actionManager.createDefaultAddResourceHandler();
+    actionManager.createDefaultModelNodePreviewImageHandlers();
+    actionManager.polishActions();
 }
 
 static QStringList allUiQmlFilesforCurrentProject(const Utils::FilePath &fileName)

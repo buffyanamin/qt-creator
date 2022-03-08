@@ -47,7 +47,7 @@ using Utils::FilePath;
 void McuSupportTest::initTestCase()
 {
     EXPECT_CALL(freeRtosPackage, environmentVariableName()).WillRepeatedly(ReturnRef(freeRtosEnvVar));
-    EXPECT_CALL(freeRtosPackage, validStatus()).WillRepeatedly(Return(true));
+    EXPECT_CALL(freeRtosPackage, isValidStatus()).WillRepeatedly(Return(true));
     EXPECT_CALL(freeRtosPackage, path())
         .WillRepeatedly(Return(FilePath::fromString(defaultfreeRtosPath)));
 }
@@ -82,7 +82,7 @@ void McuSupportTest::test_addNewKit()
 
 void McuSupportTest::test_addFreeRtosCmakeVarToKit()
 {
-    McuSupportOptions::updateKitEnvironment(&kit, &mcuTarget);
+    McuKitManager::updateKitEnvironment(&kit, &mcuTarget);
 
     QVERIFY(kit.hasValue(EnvironmentKitAspect::id()));
     QVERIFY(kit.isValid());

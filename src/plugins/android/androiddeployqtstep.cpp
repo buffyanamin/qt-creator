@@ -182,7 +182,7 @@ bool AndroidDeployQtStep::init()
             return false;
         }
 
-        if (!dev->canSupportAbis(selectedAbis)) {
+        if (!selectedAbis.isEmpty() && !dev->canSupportAbis(selectedAbis)) {
             const QString error = tr("The deployment device \"%1\" does not support the "
                                      "architectures used by the kit.\n"
                                      "The kit supports \"%2\", but the device uses \"%3\".")
@@ -527,8 +527,8 @@ void AndroidDeployQtStep::runCommand(const CommandLine &command)
                    OutputFormat::NormalMessage);
 
     buildProc.setCommand(command);
-    buildProc.runBlocking(QtcProcess::WithEventLoop);
-    if (buildProc.result() != QtcProcess::FinishedWithSuccess)
+    buildProc.runBlocking(EventLoopMode::On);
+    if (buildProc.result() != ProcessResult::FinishedWithSuccess)
         reportWarningOrError(buildProc.exitMessage(), Task::Error);
 }
 

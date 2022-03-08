@@ -79,7 +79,7 @@
 #include <utils/fixedsizeclicklabel.h>
 #include <utils/hostosinfo.h>
 #include <utils/infobar.h>
-#include <utils/mimetypes/mimedatabase.h>
+#include <utils/mimeutils.h>
 #include <utils/multitextcursor.h>
 #include <utils/qtcassert.h>
 #include <utils/styledbar.h>
@@ -2610,7 +2610,7 @@ void TextEditorWidget::keyPressEvent(QKeyEvent *e)
 
     if (ro || !isPrintableText(eventText)) {
         QTextCursor::MoveOperation blockSelectionOperation = QTextCursor::NoMove;
-        if (e->modifiers() & Qt::AltModifier && !Utils::HostOsInfo::isMacHost()) {
+        if (e->modifiers() == (Qt::AltModifier | Qt::ShiftModifier) && !Utils::HostOsInfo::isMacHost()) {
             if (MultiTextCursor::multiCursorAddEvent(e, QKeySequence::MoveToNextLine))
                 blockSelectionOperation = QTextCursor::Down;
             else if (MultiTextCursor::multiCursorAddEvent(e, QKeySequence::MoveToPreviousLine))

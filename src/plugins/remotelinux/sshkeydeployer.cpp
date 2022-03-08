@@ -66,7 +66,7 @@ void SshKeyDeployer::deployPublicKey(const SshConnectionParameters &sshParams,
 
     connect(&d->deployProcess, &SshRemoteProcessRunner::connectionError,
             this, &SshKeyDeployer::handleConnectionFailure);
-    connect(&d->deployProcess, &SshRemoteProcessRunner::processClosed,
+    connect(&d->deployProcess, &SshRemoteProcessRunner::finished,
             this, &SshKeyDeployer::handleKeyUploadFinished);
     const QString command = "test -d .ssh "
         "|| mkdir -p ~/.ssh && chmod 0700 .ssh && echo '"
@@ -83,8 +83,8 @@ void SshKeyDeployer::handleConnectionFailure()
 
 void SshKeyDeployer::handleKeyUploadFinished()
 {
-    const int exitCode = d->deployProcess.processExitCode();
-    const QString errorMsg = d->deployProcess.processErrorString();
+    const int exitCode = d->deployProcess.exitCode();
+    const QString errorMsg = d->deployProcess.errorString();
     cleanup();
     if (errorMsg.isEmpty() && exitCode == 0) {
         emit finishedSuccessfully();

@@ -106,32 +106,51 @@ bool RmKitOperation::test() const
     qtMap = AddQtData{"{qt-id}", "Qt", "desktop-qt", "/usr/bin/qmake", {}, {}}.addQt(qtMap);
 
     QVariantMap devMap = AddDeviceOperation::initializeDevices();
-    devMap = AddDeviceData{"{dev-id}", "Dev", 0, 0,
-                           "HWplatform", "SWplatform",
-                           "localhost", "10000-11000", "localhost", "", 42,
-                           "desktop", "", 22, 10000, "uname", 1,
-                           KeyValuePairList()}
-            .addDevice(devMap);
+    AddDeviceData devData;
+    devData.m_id = "{dev-id}";
+    devData.m_displayName = "Dev";
+    devData.m_type = 0;
+    devData.m_authentication = 0;
+    devData.m_b2q_platformHardware = "HWplatform";
+    devData.m_b2q_platformSoftware = "SWplatform";
+    devData.m_debugServer = "localhost";
+    devData.m_freePortsSpec = "10000-11000";
+    devData.m_host = "localhost";
+    devData.m_keyFile = "";
+    devData.m_origin = 42;
+    devData.m_osType = "desktop";
+    devData.m_password = "";
+    devData.m_sshPort = 22;
+    devData.m_timeout = 10000;
+    devData.m_uname = "uname";
+    devData.m_version = 1;
+    devMap = devData.addDevice(devMap);
 
     QHash<QString, QString> tcs;
     tcs.insert("Cxx", "{tc-id}");
 
-    QVariantMap map =
-            AddKitData{"testId", "Test Qt Version", "/tmp/icon.png", QString(), 1,
-                       "/usr/bin/gdb-test", "Desktop", QString(), QString(), tcs,
-                       "{qt-id}", "unsupported/mkspec",
-                       QString(), QString(), QString(), QString(), QString(), QStringList(), QStringList(),
-                       {{"PE.Profile.Data/extraData", QVariant("extraValue")}}}
-            .addKit(AddKitData::initializeKits(), tcMap, qtMap, devMap, {});
+    AddKitData kitData;
+    kitData.m_id = "testId";
+    kitData.m_displayName = "Test Qt Version";
+    kitData.m_icon = "/tmp/icon.png";
+    kitData.m_debuggerEngine = 1;
+    kitData.m_debugger =  "/usr/bin/gdb-test";
+    kitData.m_deviceType = "Desktop";
+    kitData.m_tcs = tcs;
+    kitData.m_qt = "{qt-id}";
+    kitData.m_mkspec = "unsupported/mkspec";
+    kitData.m_extra =  {{"PE.Profile.Data/extraData", QVariant("extraValue")}};
+
+    QVariantMap map = kitData.addKit(AddKitData::initializeKits(), tcMap, qtMap, devMap, {});
 
 
-    map =   AddKitData{"testId2", "Test Qt Version",
-                       "/tmp/icon2.png", QString(), 1, "/usr/bin/gdb-test2",
-                       "Desktop", QString(), QString(), tcs, "{qt-id}",
-                       "unsupported/mkspec2",
-                       QString(), QString(), QString(), QString(), QString(), QStringList(), QStringList(),
-                       {{"PE.Profile.Data/extraData", QVariant("extraValue2")}}}
-            .addKit(map, tcMap, qtMap, devMap, {});
+    kitData.m_id = "testId2";
+    kitData.m_icon = "/tmp/icon2.png";
+    kitData.m_icon = "/usr/bin/gdb-test2";
+    kitData.m_mkspec = "unsupported/mkspec2";
+    kitData.m_extra =  {{"PE.Profile.Data/extraData", QVariant("extraValue2")}};
+
+    map = kitData.addKit(map, tcMap, qtMap, devMap, {});
 
     QVariantMap result = rmKit(map, "testId");
     if (result.count() != 4

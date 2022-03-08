@@ -126,7 +126,7 @@ void GenericLinuxDeviceTester::handleConnected()
     QTC_ASSERT(d->state == Connecting, return);
 
     d->process = d->connection->createRemoteProcess("uname -rsm");
-    connect(d->process.get(), &SshRemoteProcess::done,
+    connect(d->process.get(), &SshRemoteProcess::finished,
             this, &GenericLinuxDeviceTester::handleProcessFinished);
 
     emit progressMessage(tr("Checking kernel version..."));
@@ -143,11 +143,11 @@ void GenericLinuxDeviceTester::handleConnectionFailure()
     setFinished(TestFailure);
 }
 
-void GenericLinuxDeviceTester::handleProcessFinished(const QString &error)
+void GenericLinuxDeviceTester::handleProcessFinished()
 {
     QTC_ASSERT(d->state == RunningUname, return);
 
-    if (!error.isEmpty() || d->process->exitCode() != 0) {
+    if (!d->process->errorString().isEmpty() || d->process->exitCode() != 0) {
         const QByteArray stderrOutput = d->process->readAllStandardError();
         if (!stderrOutput.isEmpty())
             emit errorMessage(tr("uname failed: %1").arg(QString::fromUtf8(stderrOutput)) + QLatin1Char('\n'));
