@@ -26,10 +26,10 @@
 #pragma once
 
 #include "mcupackage.h"
-#include "mcutarget.h"
 #include "mcusupportoptions.h"
 #include "mcusupportplugin.h"
 #include "mcusupportsdk.h"
+#include "mcutarget.h"
 #include "packagemock.h"
 
 #include <projectexplorer/kit.h>
@@ -52,9 +52,10 @@ class McuSupportTest : public QObject
 private slots:
     void initTestCase();
 
-    void test_addFreeRtosCmakeVarToKit();
     void test_addNewKit();
     void test_parseBasicInfoFromJson();
+    void test_createPackagesWithCorrespondingSettings();
+    void test_createPackagesWithCorrespondingSettings_data();
 
 private:
     QVersionNumber currentQulVersion{2, 0};
@@ -66,17 +67,6 @@ private:
     const QString freeRtosEnvVar{"EVK_MIMXRT1170_FREERTOS_PATH"};
     const QString freeRtosCmakeVar{"FREERTOS_DIR"};
     const QString defaultfreeRtosPath{"/opt/freertos/default"};
-
-    PackageMock freeRtosPackage;
-    Kit kit;
-
-    McuToolChainPackage toolchainPackage{{}, {}, {}, {}, {}};
-    const McuTarget::Platform platform{id, name, vendor};
-    McuTarget mcuTarget{currentQulVersion,
-                        platform,
-                        McuTarget::OS::FreeRTOS,
-                        {&freeRtosPackage},
-                        &toolchainPackage};
 
 }; // class McuSupportTest
 

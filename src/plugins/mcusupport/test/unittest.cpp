@@ -24,17 +24,41 @@
 ****************************************************************************/
 
 #include "unittest.h"
-#include "mcutargetdescription.h"
+#include "armgcc_nxp_1050_json.h"
+#include "armgcc_nxp_1064_json.h"
+#include "armgcc_stm32f769i_freertos_json.h"
+#include "armgcc_stm32h750b_metal_json.h"
+#include "iar_stm32f469i_metal_json.h"
 #include "mcukitmanager.h"
-#include "nxp_1064_json.h"
-#include "utils/filepath.h"
+#include "mcusupportconstants.h"
+#include "mcusupportsdk.h"
+#include "mcutargetdescription.h"
+#include <utils/algorithm.h>
+#include <utils/filepath.h>
+
 #include <cmakeprojectmanager/cmakeconfigitem.h>
 #include <cmakeprojectmanager/cmakekitinformation.h>
 #include <gmock/gmock.h>
 #include <QJsonArray>
 #include <QJsonDocument>
+#include <qtestcase.h>
+#include <algorithm>
+#include <ciso646>
 
 namespace McuSupport::Internal::Test {
+
+// clazy:excludeall=non-pod-global-static
+static const QString nxp1050FreeRtosEnvVar{"IMXRT1050_FREERTOS_DIR"};
+static const QString nxp1064FreeRtosEnvVar{"IMXRT1064_FREERTOS_DIR"};
+static const QString nxp1170FreeRtosEnvVar{"EVK_MIMXRT1170_FREERTOS_PATH"};
+static const QString stm32f7FreeRtosEnvVar{"STM32F7_FREERTOS_DIR"};
+static const QString stm32f7{"STM32F7"};
+static const QString nxp1170{"EVK_MIMXRT1170"};
+static const QString nxp1050{"IMXRT1050"};
+static const QString nxp1064{"IMXRT1064"};
+
+static const QStringList jsonFiles{QString::fromUtf8(armgcc_nxp_1050_json),
+                                   QString::fromUtf8(armgcc_nxp_1064_json)};
 
 using CMakeProjectManager::CMakeConfigItem;
 using CMakeProjectManager::CMakeConfigurationKitAspect;
@@ -46,15 +70,11 @@ using Utils::FilePath;
 
 void McuSupportTest::initTestCase()
 {
-    EXPECT_CALL(freeRtosPackage, environmentVariableName()).WillRepeatedly(ReturnRef(freeRtosEnvVar));
-    EXPECT_CALL(freeRtosPackage, isValidStatus()).WillRepeatedly(Return(true));
-    EXPECT_CALL(freeRtosPackage, path())
-        .WillRepeatedly(Return(FilePath::fromString(defaultfreeRtosPath)));
 }
 
 void McuSupportTest::test_parseBasicInfoFromJson()
 {
-    const auto description = Sdk::parseDescriptionJson(nxp_1064_json);
+    const auto description = Sdk::parseDescriptionJson(armgcc_nxp_1064_json);
 
     QVERIFY(!description.freeRTOS.envVar.isEmpty());
     QVERIFY(description.freeRTOS.boardSdkSubDir.isEmpty());
@@ -62,11 +82,35 @@ void McuSupportTest::test_parseBasicInfoFromJson()
 
 void McuSupportTest::test_addNewKit()
 {
+    const QString cmakeVar = "CMAKE_SDK";
+    McuPackage sdkPackage{"sdk", // label
+                          {}, // defaultPath
+                          {}, // detectionPath
+                          "sdk", // settingsKey
+                          cmakeVar, // cmake var
+                          {}}; // env var
+    Kit kit;
+
+    McuToolChainPackage toolchainPackage{
+        {}, // label
+        {}, // defaultPath
+        {}, // detectionPath
+        {}, // settingsKey
+        McuToolChainPackage::ToolChainType::Unsupported, // toolchain type
+        {}, // cmake var name
+        {}}; // env var name
+    const McuTarget::Platform platform{id, name, vendor};
+    McuTarget mcuTarget{currentQulVersion, // version
+                        platform, // platform
+                        McuTarget::OS::FreeRTOS, // os
+                        {&sdkPackage}, // packages
+                        &toolchainPackage}; // toolchain packages
+
     auto &kitManager{*KitManager::instance()};
 
     QSignalSpy kitAddedSpy(&kitManager, &KitManager::kitAdded);
 
-    auto *newKit{McuKitManager::newKit(&mcuTarget, &freeRtosPackage)};
+    auto *newKit{McuKitManager::newKit(&mcuTarget, &sdkPackage)};
     QVERIFY(newKit != nullptr);
 
     QCOMPARE(kitAddedSpy.count(), 1);
@@ -75,25 +119,61 @@ void McuSupportTest::test_addNewKit()
     QVERIFY(createdKit != nullptr);
     QCOMPARE(createdKit, newKit);
 
-    auto cmakeAspect{CMakeConfigurationKitAspect{}};
-    QVERIFY(createdKit->hasValue(cmakeAspect.id()));
-    QVERIFY(createdKit->value(cmakeAspect.id(), freeRtosCmakeVar).isValid());
+    const auto config = CMakeConfigurationKitAspect::configuration(newKit);
+    QVERIFY(config.size() > 0);
+    QVERIFY(Utils::indexOf(config.toVector(), [&cmakeVar](const CMakeConfigItem &item) {
+        return item.key == cmakeVar.toUtf8();
+    }) != -1);
 }
 
-void McuSupportTest::test_addFreeRtosCmakeVarToKit()
+void McuSupportTest::test_createPackagesWithCorrespondingSettings_data()
 {
-    McuKitManager::updateKitEnvironment(&kit, &mcuTarget);
+    QTest::addColumn<QString>("json");
+    QTest::addColumn<QSet<QString>>("expectedSettings");
 
-    QVERIFY(kit.hasValue(EnvironmentKitAspect::id()));
-    QVERIFY(kit.isValid());
-    QVERIFY(!kit.allKeys().empty());
+    QSet<QString> commonSettings{{"CypressAutoFlashUtil"},
+                                 {"GHSArmToolchain"},
+                                 {"GHSToolchain"},
+                                 {"GNUArmEmbeddedToolchain"},
+                                 {"IARToolchain"},
+                                 {"MCUXpressoIDE"},
+                                 {"RenesasFlashProgrammer"},
+                                 {"Stm32CubeProgrammer"}};
 
-    const auto &cmakeConfig{CMakeConfigurationKitAspect::configuration(&kit)};
-    QCOMPARE(cmakeConfig.size(), 1);
+    QTest::newRow("nxp1064") << armgcc_nxp_1064_json
+                             << QSet<QString>{{"EVK_MIMXRT1064_SDK_PATH"},
+                                              {QString{Constants::SETTINGS_KEY_FREERTOS_PREFIX}
+                                                   .append("IMXRT1064")}}
+                                    .unite(commonSettings);
+    QTest::newRow("nxp1050") << armgcc_nxp_1050_json
+                             << QSet<QString>{{"EVKB_IMXRT1050_SDK_PATH"},
+                                              {QString{Constants::SETTINGS_KEY_FREERTOS_PREFIX}
+                                                   .append("IMXRT1050")}}
+                                    .unite(commonSettings);
 
-    CMakeConfigItem expectedCmakeVar{freeRtosCmakeVar.toLocal8Bit(),
-                                     FilePath::fromString(defaultfreeRtosPath).toUserOutput().toLocal8Bit()};
-    QVERIFY(cmakeConfig.contains(expectedCmakeVar));
+    QTest::newRow("stm32h750b") << armgcc_stm32h750b_metal_json
+                                << QSet<QString>{{"STM32Cube_FW_H7_SDK_PATH"}}.unite(commonSettings);
+
+    QTest::newRow("stm32f769i") << armgcc_stm32f769i_freertos_json
+                                << QSet<QString>{{"STM32Cube_FW_F7_SDK_PATH"}}.unite(commonSettings);
+
+    QTest::newRow("stm32f469i") << iar_stm32f469i_metal_json
+                                << QSet<QString>{{"STM32Cube_FW_F4_SDK_PATH"}}.unite(commonSettings);
+}
+
+void McuSupportTest::test_createPackagesWithCorrespondingSettings()
+{
+    QFETCH(QString, json);
+    const auto description = Sdk::parseDescriptionJson(json.toLocal8Bit());
+    QVector<McuAbstractPackage *> packages;
+    const auto targets = Sdk::targetsFromDescriptions({description}, &packages);
+    Q_UNUSED(targets);
+
+    QSet<QString> settings = Utils::transform<QSet<QString>>(packages, [](const auto &package) {
+        return package->settingsKey();
+    });
+    QFETCH(QSet<QString>, expectedSettings);
+    QVERIFY(settings.contains(expectedSettings));
 }
 
 } // namespace McuSupport::Internal::Test

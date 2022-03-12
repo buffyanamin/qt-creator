@@ -23,13 +23,17 @@
 **
 ****************************************************************************/
 
+#include <app/app_version.h>
+
 #include <utils/environment.h>
 #include <utils/hostosinfo.h>
 #include <utils/launcherinterface.h>
 #include <utils/porting.h>
+#include <utils/qtcassert.h>
 #include <utils/qtcprocess.h>
 #include <utils/singleton.h>
 #include <utils/stringutils.h>
+#include <utils/temporarydirectory.h>
 
 #include <QElapsedTimer>
 #include <QRegularExpression>
@@ -43,29 +47,41 @@
   #include <fcntl.h>
 #endif
 
-
 using namespace Utils;
 
-// Many tests in this file need to start a new subprocess with custom code.
-// In order to simplify things we don't produce separate executables, but invoke
-// the same test process recursively and prior to the execution we set one of the
-// following environment variables:
+using SubProcessMain = std::function<void ()>;
+static QMap<const char *, SubProcessMain> s_subProcesses = {};
 
-const char kExitCodeSubProcessCode[] = "QTC_TST_QTCPROCESS_EXITCODE_CODE";
-const char kRunBlockingStdOutSubProcessWithEndl[] = "QTC_TST_QTCPROCESS_RUNBLOCKINGSTDOUT_WITHENDL";
-const char kLineCallback[] = "QTC_TST_QTCPROCESS_LINECALLBACK";
-const char kTestProcess[] = "QTC_TST_TEST_PROCESS";
-const char kForwardProcess[] = "QTC_TST_FORWARD_PROCESS";
-const char kForwardSubProcess[] = "QTC_TST_FORWARD_SUB_PROCESS";
-const char kBlockingProcess[] = "QTC_TST_BLOCKING_PROCESS";
+static void invokeSubProcessIfRequired()
+{
+    for (auto it = s_subProcesses.constBegin(); it != s_subProcesses.constEnd(); ++it) {
+        if (qEnvironmentVariableIsSet(it.key()))
+            it.value()();
+    }
+}
 
-// The variables above are meant to be different custom executables. Inside initTestCase()
-// we are detecting if one of these variables is set and invoke directly a respective custom
-// executable code, which always ends up with a call to exit(). In this case we need to stop
-// the recursion, as from the test point of view we meant to execute only our custom code
-// without further execution of the test itself.
+static void registerSubProcess(const char *envVar, const SubProcessMain &main)
+{
+    s_subProcesses.insert(envVar, main);
+}
 
-const char testProcessData[] = "Test process successfully executed.";
+#define SUB_CREATOR_PROCESS(SubProcessClass)\
+class SubProcessClass\
+{\
+public:\
+    SubProcessClass()\
+    {\
+        registerSubProcess(envVar(), &SubProcessClass::main);\
+    }\
+    static const char *envVar() { return m_envVar; }\
+private:\
+    static void main();\
+    static constexpr char m_envVar[] = "TST_QTC_PROCESS_" QTC_ASSERT_STRINGIFY(SubProcessClass);\
+};\
+\
+SubProcessClass m_ ## SubProcessClass
+
+const char simpleTestData[] = "Test process successfully executed.";
 const char forwardedOutputData[] = "This is the output message.";
 const char forwardedErrorData[] = "This is the error message.";
 const char runBlockingStdOutSubProcessMagicWord[] = "42";
@@ -78,83 +94,58 @@ const char lineCallbackData[] =
        "Rebasing (1/10)\r| <delay> Rebasing (2/10)\r| <delay> ...\r\n|"
        "And no end";
 
-static void exitCodeSubProcessMain()
-{
-    const int exitCode = qEnvironmentVariableIntValue(kExitCodeSubProcessCode);
-    std::cout << "Exiting with code:" << exitCode << std::endl;
-    exit(exitCode);
-}
-
-static void blockingStdOutSubProcessMain()
-{
-    std::cout << "Wait for the Answer to the Ultimate Question of Life, "
-                 "The Universe, and Everything..." << std::endl;
-    QThread::msleep(300);
-    std::cout << runBlockingStdOutSubProcessMagicWord << "...Now wait for the question...";
-    if (qEnvironmentVariable(kRunBlockingStdOutSubProcessWithEndl) == "true")
-        std::cout << std::endl;
-    QThread::msleep(5000);
-    exit(0);
-}
-
-static void lineCallbackMain()
-{
-#ifdef Q_OS_WIN
-    // Prevent \r\n -> \r\r\n translation.
-    setmode(fileno(stderr), O_BINARY);
-#endif
-    fprintf(stderr, "%s", QByteArray(lineCallbackData).replace('|', "").data());
-    exit(0);
-}
-
-static void testProcessSubProcessMain()
-{
-    std::cout << testProcessData << std::endl;
-    exit(0);
-}
-
-// Since we want to test whether the process forwards its channels or not, we can't just create
-// a process and start it, because in this case there is no way on how to check whether something
-// went into out output channels or not.
-
-// So we start two processes in chain instead. On the beginning the processChannelForwarding()
-// test starts the "testForwardProcessMain" - this one will start another process
-// "testForwardSubProcessMain" with forwarding options. The "testForwardSubProcessMain"
-// is very simple - it just puts something to the output and the error channels.
-// Then "testForwardProcessMain" either forwards these channels or not - we check it in the outer
-// processChannelForwarding() test.
-static void testForwardProcessMain()
+static Environment subEnvironment(const char *envVar, const QString &envVal)
 {
     Environment env = Environment::systemEnvironment();
-    env.set(kForwardSubProcess, {});
+    env.set(envVar, envVal);
+    return env;
+}
+
+static CommandLine subCommandLine()
+{
     QStringList args = QCoreApplication::arguments();
     const QString binary = args.takeFirst();
-    const CommandLine command(FilePath::fromString(binary), args);
-
-    QtcProcess process;
-    const QProcess::ProcessChannelMode channelMode
-            = QProcess::ProcessChannelMode(qEnvironmentVariableIntValue(kForwardProcess));
-    process.setProcessChannelMode(channelMode);
-    process.setCommand(command);
-    process.setEnvironment(env);
-    process.start();
-    process.waitForFinished();
-    exit(0);
+    const FilePath filePath = FilePath::fromString(QDir::currentPath()).resolvePath(binary);
+    return CommandLine(filePath, args);
 }
 
-static void testForwardSubProcessMain()
+class SubCreatorConfig
 {
-    std::cout << forwardedOutputData << std::endl;
-    std::cerr << forwardedErrorData << std::endl;
-    exit(0);
-}
+public:
+    SubCreatorConfig(const char *envVar, const QString &envVal)
+        : m_environment(subEnvironment(envVar, envVal))
+        , m_commandLine(subCommandLine()) {}
 
-static void blockingProcessSubProcessMain()
+    void setupSubProcess(QtcProcess *subProcess)
+    {
+        subProcess->setEnvironment(m_environment);
+        subProcess->setCommand(m_commandLine);
+    }
+private:
+    const Environment m_environment;
+    const CommandLine m_commandLine;
+};
+
+static std::atomic_int s_processCounter = 0;
+static const bool s_removeSingletonsOnLastProcess = false;
+// The use of this class (when s_removeSingletonsOnLastProcess = true) guarantees that if all
+// instances of QtcProcess are destructed at some point (i.e. after each test function ends)
+// we also run process reaper's and process launcher's destructors. Otherwise
+// (when s_removeSingletonsOnLastProcess = true) this is a no-op wrapper around QtcProcess.
+class TestProcess : public QtcProcess
 {
-    std::cout << "Blocking process successfully executed." << std::endl;
-    while (true)
-        ;
-}
+public:
+    class TestProcessDeleter : public QObject
+    {
+    public:
+        TestProcessDeleter(QObject *parent) : QObject(parent) { s_processCounter.fetch_add(1); }
+        ~TestProcessDeleter() {
+            if ((s_processCounter.fetch_sub(1) == 1) && s_removeSingletonsOnLastProcess)
+                Utils::Singleton::deleteAll();
+        }
+    };
+    TestProcess() { new TestProcessDeleter(this); }
+};
 
 class MacroMapExpander : public AbstractMacroExpander {
 public:
@@ -213,6 +204,29 @@ private slots:
     void cleanupTestCase();
 
 private:
+    // Many tests in this file need to start a new subprocess with custom code.
+    // In order to simplify things we don't produce separate executables, but invoke
+    // the same test process recursively. These tests are embedded in classes,
+    // defined by the SUB_CREATOR_PROCESS macro. The macro defines a class alongside of the
+    // corresponding environment variable which is set prior to the execution of the subprocess.
+    // The following subprocess classes are defined:
+
+    SUB_CREATOR_PROCESS(SimpleTest);
+    SUB_CREATOR_PROCESS(ExitCode);
+    SUB_CREATOR_PROCESS(RunBlockingStdOut);
+    SUB_CREATOR_PROCESS(LineCallback);
+    SUB_CREATOR_PROCESS(ProcessChannelForwarding);
+    SUB_CREATOR_PROCESS(SubProcessChannelForwarding);
+    SUB_CREATOR_PROCESS(KillBlockingProcess);
+
+    // In order to get a value associated with the certain subprocess use SubProcessClass::envVar().
+    // The classes above define different custom executables. Inside initTestCase()
+    // we are detecting if one of these variables is set (by a call to
+    // invokeSubProcessIfRequired()) and invoke directly a respective custom
+    // executable code, which always ends up with a call to exit(). In this way (by calling exit()
+    // by the end of each subprocess executable) we stop the recursion, as from the test point of
+    // view we meant to execute only our custom code without further execution of the test itself.
+
     void iteratorEditsHelper(OsType osType);
 
     Environment envWindows;
@@ -224,24 +238,20 @@ private:
     QString home;
 };
 
+void tst_QtcProcess::SimpleTest::main()
+{
+    std::cout << simpleTestData << std::endl;
+    exit(0);
+}
+
 void tst_QtcProcess::initTestCase()
 {
+    Utils::TemporaryDirectory::setMasterTemporaryDirectory(QDir::tempPath() + "/"
+                                                + Core::Constants::IDE_CASED_ID + "-XXXXXX");
     Utils::LauncherInterface::setPathToLauncher(qApp->applicationDirPath() + '/'
                                                 + QLatin1String(TEST_RELATIVE_LIBEXEC_PATH));
-    if (qEnvironmentVariableIsSet(kExitCodeSubProcessCode))
-        exitCodeSubProcessMain();
-    if (qEnvironmentVariableIsSet(kRunBlockingStdOutSubProcessWithEndl))
-        blockingStdOutSubProcessMain();
-    if (qEnvironmentVariableIsSet(kLineCallback))
-        lineCallbackMain();
-    if (qEnvironmentVariableIsSet(kTestProcess))
-        testProcessSubProcessMain();
-    if (qEnvironmentVariableIsSet(kForwardSubProcess))
-        testForwardSubProcessMain();
-    else if (qEnvironmentVariableIsSet(kForwardProcess))
-        testForwardProcessMain();
-    if (qEnvironmentVariableIsSet(kBlockingProcess))
-        blockingProcessSubProcessMain();
+
+    invokeSubProcessIfRequired();
 
     homeStr = QLatin1String("@HOME@");
     home = QDir::homePath();
@@ -902,6 +912,13 @@ void tst_QtcProcess::iteratorEditsLinux()
     iteratorEditsHelper(OsTypeLinux);
 }
 
+void tst_QtcProcess::ExitCode::main()
+{
+    const int exitCode = qEnvironmentVariableIntValue(envVar());
+    std::cout << "Exiting with code:" << exitCode << std::endl;
+    exit(exitCode);
+}
+
 void tst_QtcProcess::exitCode_data()
 {
     QTest::addColumn<int>("exitCode");
@@ -920,32 +937,37 @@ void tst_QtcProcess::exitCode()
 {
     QFETCH(int, exitCode);
 
-    Environment env = Environment::systemEnvironment();
-    env.set(kExitCodeSubProcessCode, QString::number(exitCode));
-    QStringList args = QCoreApplication::arguments();
-    const QString binary = args.takeFirst();
-    const CommandLine command(FilePath::fromString(binary), args);
-
+    SubCreatorConfig subConfig(ExitCode::envVar(), QString::number(exitCode));
     {
-        QtcProcess qtcP;
-        qtcP.setCommand(command);
-        qtcP.setEnvironment(env);
-        qtcP.start();
-        const bool finished = qtcP.waitForFinished();
+        TestProcess process;
+        subConfig.setupSubProcess(&process);
+        process.start();
+        const bool finished = process.waitForFinished();
 
         QVERIFY(finished);
-        QCOMPARE(qtcP.exitCode(), exitCode);
-        QCOMPARE(qtcP.exitCode() == 0, qtcP.result() == ProcessResult::FinishedWithSuccess);
+        QCOMPARE(process.exitCode(), exitCode);
+        QCOMPARE(process.exitCode() == 0, process.result() == ProcessResult::FinishedWithSuccess);
     }
     {
-        QtcProcess sP;
-        sP.setCommand(command);
-        sP.setEnvironment(env);
-        sP.runBlocking();
+        TestProcess process;
+        subConfig.setupSubProcess(&process);
+        process.runBlocking();
 
-        QCOMPARE(sP.exitCode(), exitCode);
-        QCOMPARE(sP.exitCode() == 0, sP.result() == ProcessResult::FinishedWithSuccess);
+        QCOMPARE(process.exitCode(), exitCode);
+        QCOMPARE(process.exitCode() == 0, process.result() == ProcessResult::FinishedWithSuccess);
     }
+}
+
+void tst_QtcProcess::RunBlockingStdOut::main()
+{
+    std::cout << "Wait for the Answer to the Ultimate Question of Life, "
+                 "The Universe, and Everything..." << std::endl;
+    QThread::msleep(300);
+    std::cout << runBlockingStdOutSubProcessMagicWord << "...Now wait for the question...";
+    if (qEnvironmentVariable(envVar()) == "true")
+        std::cout << std::endl;
+    QThread::msleep(5000);
+    exit(0);
 }
 
 void tst_QtcProcess::runBlockingStdOut_data()
@@ -969,45 +991,54 @@ void tst_QtcProcess::runBlockingStdOut()
     QFETCH(bool, withEndl);
     QFETCH(int, timeOutS);
 
-    QtcProcess sp;
-    QStringList args = QCoreApplication::arguments();
-    const QString binary = args.takeFirst();
-    sp.setCommand(CommandLine(FilePath::fromString(binary), args));
-    Environment env = Environment::systemEnvironment();
-    env.set(kRunBlockingStdOutSubProcessWithEndl, withEndl ? "true" : "false");
-    sp.setEnvironment(env);
-    sp.setTimeoutS(timeOutS);
+    SubCreatorConfig subConfig(RunBlockingStdOut::envVar(), withEndl ? "true" : "false");
+    TestProcess process;
+    subConfig.setupSubProcess(&process);
+
+    process.setTimeoutS(timeOutS);
     bool readLastLine = false;
-    sp.setStdOutCallback([&readLastLine, &sp](const QString &out) {
+    process.setStdOutCallback([&readLastLine, &process](const QString &out) {
         if (out.startsWith(runBlockingStdOutSubProcessMagicWord)) {
             readLastLine = true;
-            sp.kill();
+            process.kill();
         }
     });
-    sp.runBlocking();
+    process.runBlocking();
 
     // See also QTCREATORBUG-25667 for why it is a bad idea to use QtcProcess::runBlocking
     // with interactive cli tools.
     QEXPECT_FAIL("Unterminated stdout lost: early timeout", "", Continue);
-    QVERIFY2(sp.result() != ProcessResult::Hang, "Process run did not time out.");
+    QVERIFY2(process.result() != ProcessResult::Hang, "Process run did not time out.");
     QEXPECT_FAIL("Unterminated stdout lost: early timeout", "", Continue);
     QVERIFY2(readLastLine, "Last line was read.");
 }
 
+void tst_QtcProcess::LineCallback::main()
+{
+#ifdef Q_OS_WIN
+    // Prevent \r\n -> \r\r\n translation.
+    _setmode(_fileno(stderr), O_BINARY);
+#endif
+    fprintf(stderr, "%s", QByteArray(lineCallbackData).replace('|', "").data());
+    exit(0);
+}
+
 void tst_QtcProcess::lineCallback()
 {
-    QtcProcess process;
-    QStringList args = QCoreApplication::arguments();
-    const QString binary = args.takeFirst();
-    process.setCommand(CommandLine(FilePath::fromString(binary), args));
-    Environment env = Environment::systemEnvironment();
-    env.set(kLineCallback, "Yes");
-    process.setEnvironment(env);
+    SubCreatorConfig subConfig(LineCallback::envVar(), {});
+    TestProcess process;
+    subConfig.setupSubProcess(&process);
+
     QStringList lines = QString(lineCallbackData).split('|');
     int lineNumber = 0;
     process.setStdErrLineCallback([lines, &lineNumber](const QString &actual) {
-        QString expected = lines.at(lineNumber++);
+        QString expected = lines.at(lineNumber);
         expected.replace("\r\n", "\n");
+        // Omit some initial lines generated by Qt, e.g.
+        // Warning: Ignoring WAYLAND_DISPLAY on Gnome. Use QT_QPA_PLATFORM=wayland to run on Wayland anyway.
+        if (lineNumber == 0 && actual != expected)
+            return;
+        ++lineNumber;
         QCOMPARE(actual, expected);
     });
     process.start();
@@ -1017,12 +1048,17 @@ void tst_QtcProcess::lineCallback()
 
 void tst_QtcProcess::lineCallbackIntern()
 {
-    QtcProcess process;
+    TestProcess process;
     QStringList lines = QString(lineCallbackData).split('|');
     int lineNumber = 0;
     process.setStdOutLineCallback([lines, &lineNumber](const QString &actual) {
-        QString expected = lines.at(lineNumber++);
+        QString expected = lines.at(lineNumber);
         expected.replace("\r\n", "\n");
+        // Omit some initial lines generated by Qt, e.g.
+        // Warning: Ignoring WAYLAND_DISPLAY on Gnome. Use QT_QPA_PLATFORM=wayland to run on Wayland anyway.
+        if (lineNumber == 0 && actual != expected)
+            return;
+        ++lineNumber;
         QCOMPARE(actual, expected);
     });
     process.beginFeed();
@@ -1033,15 +1069,10 @@ void tst_QtcProcess::lineCallbackIntern()
 
 void tst_QtcProcess::waitForStartedAndFinished()
 {
-    Environment env = Environment::systemEnvironment();
-    env.set(kTestProcess, {});
-    QStringList args = QCoreApplication::arguments();
-    const QString binary = args.takeFirst();
-    const CommandLine command(FilePath::fromString(binary), args);
+    SubCreatorConfig subConfig(SimpleTest::envVar(), {});
+    TestProcess process;
+    subConfig.setupSubProcess(&process);
 
-    QtcProcess process;
-    process.setCommand(command);
-    process.setEnvironment(env);
     process.start();
     QThread::msleep(1000); // long enough for process to finish
     QVERIFY(process.waitForStarted());
@@ -1052,7 +1083,7 @@ void tst_QtcProcess::waitForStartedAndFinished()
 
 void tst_QtcProcess::notRunningAfterStartingNonExistingProgram()
 {
-    QtcProcess process;
+    TestProcess process;
     process.setCommand({ FilePath::fromString(
               "there_is_a_big_chance_that_executable_with_that_name_does_not_exists"), {} });
 
@@ -1081,6 +1112,40 @@ void tst_QtcProcess::notRunningAfterStartingNonExistingProgram()
     }
 }
 
+// Since we want to test whether the process forwards its channels or not, we can't just create
+// a process and start it, because in this case there is no way on how to check whether something
+// went into our output channels or not.
+
+// So we start two processes in chain instead. On the beginning the processChannelForwarding()
+// test starts the ProcessChannelForwarding::main() - this one will start another process
+// SubProcessChannelForwarding::main() with forwarding options.
+// The SubProcessChannelForwarding::main() is very simple - it just puts something to the output
+// and the error channels. Then ProcessChannelForwarding::main() either forwards these channels
+// or not - we check it in the outer processChannelForwarding() test.
+
+void tst_QtcProcess::SubProcessChannelForwarding::main()
+{
+    std::cout << forwardedOutputData << std::endl;
+    std::cerr << forwardedErrorData << std::endl;
+    exit(0);
+}
+
+void tst_QtcProcess::ProcessChannelForwarding::main()
+{
+    const QProcess::ProcessChannelMode channelMode
+            = QProcess::ProcessChannelMode(qEnvironmentVariableIntValue(envVar()));
+    qunsetenv(envVar());
+
+    SubCreatorConfig subConfig(SubProcessChannelForwarding::envVar(), {});
+    TestProcess process;
+    subConfig.setupSubProcess(&process);
+
+    process.setProcessChannelMode(channelMode);
+    process.start();
+    process.waitForFinished();
+    exit(0);
+}
+
 void tst_QtcProcess::processChannelForwarding_data()
 {
     QTest::addColumn<QProcess::ProcessChannelMode>("channelMode");
@@ -1099,15 +1164,10 @@ void tst_QtcProcess::processChannelForwarding()
     QFETCH(bool, outputForwarded);
     QFETCH(bool, errorForwarded);
 
-    Environment env = Environment::systemEnvironment();
-    env.set(kForwardProcess, QString::number(int(channelMode)));
-    QStringList args = QCoreApplication::arguments();
-    const QString binary = args.takeFirst();
-    const CommandLine command(FilePath::fromString(binary), args);
+    SubCreatorConfig subConfig(ProcessChannelForwarding::envVar(), QString::number(int(channelMode)));
+    TestProcess process;
+    subConfig.setupSubProcess(&process);
 
-    QtcProcess process;
-    process.setCommand(command);
-    process.setEnvironment(env);
     process.start();
     QVERIFY(process.waitForFinished());
 
@@ -1156,19 +1216,21 @@ protected:
 bool MessageHandler::ok = true;
 QtMessageHandler MessageHandler::oldMessageHandler = 0;
 
+void tst_QtcProcess::KillBlockingProcess::main()
+{
+    std::cout << "Blocking process successfully executed." << std::endl;
+    while (true)
+        ;
+}
+
 void tst_QtcProcess::killBlockingProcess()
 {
-    Environment env = Environment::systemEnvironment();
-    env.set(kBlockingProcess, {});
-    QStringList args = QCoreApplication::arguments();
-    const QString binary = args.takeFirst();
-    const CommandLine command(FilePath::fromString(binary), args);
+    SubCreatorConfig subConfig(KillBlockingProcess::envVar(), {});
 
     MessageHandler msgHandler;
     {
-        QtcProcess process;
-        process.setCommand(command);
-        process.setEnvironment(env);
+        TestProcess process;
+        subConfig.setupSubProcess(&process);
         process.start();
         QVERIFY(process.waitForStarted());
         QVERIFY(!process.waitForFinished(1000));
@@ -1179,15 +1241,10 @@ void tst_QtcProcess::killBlockingProcess()
 
 void tst_QtcProcess::flushFinishedWhileWaitingForReadyRead()
 {
-    Environment env = Environment::systemEnvironment();
-    env.set(kTestProcess, {});
-    QStringList args = QCoreApplication::arguments();
-    const QString binary = args.takeFirst();
-    const CommandLine command(FilePath::fromString(binary), args);
+    SubCreatorConfig subConfig(SimpleTest::envVar(), {});
+    TestProcess process;
+    subConfig.setupSubProcess(&process);
 
-    QtcProcess process;
-    process.setCommand(command);
-    process.setEnvironment(env);
     process.start();
 
     QVERIFY(process.waitForStarted());
@@ -1204,7 +1261,7 @@ void tst_QtcProcess::flushFinishedWhileWaitingForReadyRead()
 
     QCOMPARE(process.state(), QProcess::NotRunning);
     QVERIFY(!timer.hasExpired());
-    QVERIFY(reply.contains(testProcessData));
+    QVERIFY(reply.contains(simpleTestData));
 }
 
 QTEST_MAIN(tst_QtcProcess)

@@ -7,6 +7,7 @@ Project {
         "buildoutputparser/buildoutputparser.qbs",
         "clangbackend/clangbackend.qbs",
         "cplusplustools.qbs",
+        "disclaim/disclaim.qbs",
         "processlauncher/processlauncher.qbs",
         "qml2puppet/qml2puppet.qbs",
         "qtcdebugger/qtcdebugger.qbs",
@@ -16,7 +17,6 @@ Project {
         "sdktool/sdktool.qbs",
         "valgrindfake/valgrindfake.qbs",
         "iostool/iostool.qbs",
-        "winrtdebughelper/winrtdebughelper.qbs"
     ].concat(project.additionalTools)
 
     Project {

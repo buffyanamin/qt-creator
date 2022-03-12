@@ -42,9 +42,11 @@ public:
     MOCK_METHOD(Utils::FilePath, detectionPath, (), (const));
     MOCK_METHOD(QString, statusText, (), (const));
     MOCK_METHOD(void, updateStatus, ());
+    MOCK_METHOD(QString, settingsKey, (), (const));
 
     MOCK_METHOD(Status, status, (), (const));
     MOCK_METHOD(bool, isValidStatus, (), (const));
+    MOCK_METHOD(const QString &, cmakeVariableName, (), (const));
     MOCK_METHOD(const QString &, environmentVariableName, (), (const));
     MOCK_METHOD(bool, isAddToSystemPath, (), (const));
     MOCK_METHOD(bool, writeToSettings, (), (const));

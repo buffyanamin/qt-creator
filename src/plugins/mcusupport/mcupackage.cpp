@@ -53,6 +53,7 @@ McuPackage::McuPackage(const QString &label,
                        const FilePath &defaultPath,
                        const FilePath &detectionPath,
                        const QString &settingsKey,
+                       const QString &cmakeVarName,
                        const QString &envVarName,
                        const QString &downloadUrl,
                        const McuPackageVersionDetector *versionDetector,
@@ -64,6 +65,7 @@ McuPackage::McuPackage(const QString &label,
     , m_settingsKey(settingsKey)
     , m_versionDetector(versionDetector)
     , m_relativePathModifier(relativePathModifier)
+    , m_cmakeVariableName(cmakeVarName)
     , m_environmentVariableName(envVarName)
     , m_downloadUrl(downloadUrl)
     , m_addToSystemPath(addToSystemPath)
@@ -74,6 +76,16 @@ McuPackage::McuPackage(const QString &label,
 QString McuPackage::label() const
 {
     return m_label;
+}
+
+QString McuPackage::settingsKey() const
+{
+    return m_settingsKey;
+}
+
+const QString &McuPackage::cmakeVariableName() const
+{
+    return m_cmakeVariableName;
 }
 
 const QString &McuPackage::environmentVariableName() const
@@ -98,7 +110,7 @@ FilePath McuPackage::basePath() const
 
 FilePath McuPackage::path() const
 {
-    return basePath().resolvePath(m_relativePathModifier).absoluteFilePath();
+    return basePath().pathAppended(m_relativePathModifier.path()).absoluteFilePath();
 }
 
 FilePath McuPackage::defaultPath() const
@@ -121,7 +133,7 @@ void McuPackage::updatePath()
 void McuPackage::updateStatus()
 {
     bool validPath = !m_path.isEmpty() && m_path.exists();
-    const FilePath detectionPath = basePath().resolvePath(m_detectionPath);
+    const FilePath detectionPath = basePath().pathAppended(m_detectionPath.path());
     const bool validPackage = m_detectionPath.isEmpty() || detectionPath.exists();
     m_detectedVersion = validPath && validPackage && m_versionDetector
                             ? m_versionDetector->parseVersion(basePath().toString())
@@ -147,7 +159,6 @@ bool McuPackage::isValidStatus() const
 {
     return m_status == Status::ValidPackage || m_status == Status::ValidPackageMismatchedVersion;
 }
-
 
 void McuPackage::updateStatusUi()
 {
@@ -269,15 +280,15 @@ QWidget *McuPackage::widget()
     return m_widget;
 }
 
-
 McuToolChainPackage::McuToolChainPackage(const QString &label,
                                          const FilePath &defaultPath,
                                          const FilePath &detectionPath,
                                          const QString &settingsKey,
                                          McuToolChainPackage::ToolChainType type,
+                                         const QString &cmakeVarName,
                                          const QString &envVarName,
                                          const McuPackageVersionDetector *versionDetector)
-    : McuPackage(label, defaultPath, detectionPath, settingsKey, envVarName, {}, versionDetector)
+    : McuPackage(label, defaultPath, detectionPath, settingsKey, cmakeVarName, envVarName, {}, versionDetector)
     , m_type(type)
 {}
 
@@ -465,6 +476,5 @@ QVariant McuToolChainPackage::debuggerId() const
     newDebugger.setEngineType(engineType);
     return DebuggerItemManager::registerDebugger(newDebugger);
 }
-
 
 } // namespace McuSupport::Internal

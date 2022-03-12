@@ -46,6 +46,7 @@ public:
     };
 
     virtual QString label() const = 0;
+    virtual const QString &cmakeVariableName() const = 0;
     virtual const QString &environmentVariableName() const = 0;
     virtual bool isAddToSystemPath() const = 0;
     virtual void setVersions(const QStringList &) = 0;
@@ -54,6 +55,7 @@ public:
     virtual Utils::FilePath path() const = 0;
     virtual Utils::FilePath defaultPath() const = 0;
     virtual Utils::FilePath detectionPath() const = 0;
+    virtual QString settingsKey() const = 0;
 
     virtual void updateStatus() = 0;
     virtual Status status() const = 0;

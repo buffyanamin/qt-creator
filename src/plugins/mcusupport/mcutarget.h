@@ -37,8 +37,7 @@ class PathChooser;
 class InfoLabel;
 } // namespace Utils
 
-namespace McuSupport {
-namespace Internal {
+namespace McuSupport::Internal {
 
 class McuAbstractPackage;
 class McuToolChainPackage;
@@ -85,5 +84,4 @@ private:
 }; // class McuTarget
 
 
-} // namespace Internal
-} // namespace McuSupport
+} // namespace McuSupport::Internal
