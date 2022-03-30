@@ -49,6 +49,43 @@
 
 using namespace Utils;
 
+// This handler is inspired by the one used in qtbase/tests/auto/corelib/io/qfile/tst_qfile.cpp
+class MessageHandler {
+public:
+    MessageHandler(QtMessageHandler messageHandler = handler)
+    {
+        s_oldMessageHandler = qInstallMessageHandler(messageHandler);
+    }
+
+    ~MessageHandler()
+    {
+        qInstallMessageHandler(s_oldMessageHandler);
+    }
+
+    static int destroyCount()
+    {
+        return s_destroyCount;
+    }
+
+protected:
+    static void handler(QtMsgType type, const QMessageLogContext &context, const QString &msg)
+    {
+        if (msg.contains("QProcess: Destroyed while process")
+                && msg.contains("is still running.")) {
+            ++s_destroyCount;
+        }
+        // Defer to old message handler.
+        if (s_oldMessageHandler)
+            s_oldMessageHandler(type, context, msg);
+    }
+
+    static QtMessageHandler s_oldMessageHandler;
+    static int s_destroyCount;
+};
+
+int MessageHandler::s_destroyCount = 0;
+QtMessageHandler MessageHandler::s_oldMessageHandler = 0;
+
 using SubProcessMain = std::function<void ()>;
 static QMap<const char *, SubProcessMain> s_subProcesses = {};
 
@@ -169,6 +206,11 @@ private:
     QHash<QString, QString> m_map;
 };
 
+static void doCrash()
+{
+    qFatal("The application has crashed purposefully!");
+}
+
 class tst_QtcProcess : public QObject
 {
     Q_OBJECT
@@ -198,8 +240,11 @@ private slots:
     void notRunningAfterStartingNonExistingProgram();
     void processChannelForwarding_data();
     void processChannelForwarding();
+    void killBlockingProcess_data();
     void killBlockingProcess();
     void flushFinishedWhileWaitingForReadyRead();
+    void emitOneErrorOnCrash();
+    void crashAfterOneSecond();
 
     void cleanupTestCase();
 
@@ -218,6 +263,8 @@ private:
     SUB_CREATOR_PROCESS(ProcessChannelForwarding);
     SUB_CREATOR_PROCESS(SubProcessChannelForwarding);
     SUB_CREATOR_PROCESS(KillBlockingProcess);
+    SUB_CREATOR_PROCESS(EmitOneErrorOnCrash);
+    SUB_CREATOR_PROCESS(CrashAfterOneSecond);
 
     // In order to get a value associated with the certain subprocess use SubProcessClass::envVar().
     // The classes above define different custom executables. Inside initTestCase()
@@ -236,6 +283,8 @@ private:
     MacroMapExpander mxUnix;
     QString homeStr;
     QString home;
+
+    MessageHandler *msgHandler = nullptr;
 };
 
 void tst_QtcProcess::SimpleTest::main()
@@ -246,6 +295,7 @@ void tst_QtcProcess::SimpleTest::main()
 
 void tst_QtcProcess::initTestCase()
 {
+    msgHandler = new MessageHandler;
     Utils::TemporaryDirectory::setMasterTemporaryDirectory(QDir::tempPath() + "/"
                                                 + Core::Constants::IDE_CASED_ID + "-XXXXXX");
     Utils::LauncherInterface::setPathToLauncher(qApp->applicationDirPath() + '/'
@@ -297,10 +347,16 @@ void tst_QtcProcess::initTestCase()
 void tst_QtcProcess::cleanupTestCase()
 {
     Utils::Singleton::deleteAll();
+    const int destroyCount = msgHandler->destroyCount();
+    delete msgHandler;
+    if (destroyCount)
+        qDebug() << "Received" << destroyCount << "messages about destroying running QProcess!";
+    QCOMPARE(destroyCount, 0);
 }
 
 Q_DECLARE_METATYPE(ProcessArgs::SplitError)
 Q_DECLARE_METATYPE(Utils::OsType)
+Q_DECLARE_METATYPE(Utils::ProcessResult)
 
 void tst_QtcProcess::splitArgs_data()
 {
@@ -966,6 +1022,8 @@ void tst_QtcProcess::RunBlockingStdOut::main()
     std::cout << runBlockingStdOutSubProcessMagicWord << "...Now wait for the question...";
     if (qEnvironmentVariable(envVar()) == "true")
         std::cout << std::endl;
+    else
+        std::cout << std::flush; // otherwise it won't reach the original process (will be buffered)
     QThread::msleep(5000);
     exit(0);
 }
@@ -974,22 +1032,28 @@ void tst_QtcProcess::runBlockingStdOut_data()
 {
     QTest::addColumn<bool>("withEndl");
     QTest::addColumn<int>("timeOutS");
+    QTest::addColumn<ProcessResult>("expectedResult");
 
-    QTest::newRow("Terminated stdout delivered instantly")
-            << true
-            << 2;
-    QTest::newRow("Unterminated stdout lost: early timeout")
-            << false
-            << 2;
-    QTest::newRow("Unterminated stdout lost: hanging")
-            << false
-            << 20;
+    // TerminatedAbnormally, since it didn't time out and callback stopped the process forcefully.
+    QTest::newRow("Short timeout with end of line")
+            << true << 2 << ProcessResult::TerminatedAbnormally;
+
+    // Hang, since it times out, calls the callback handler and stops the process forcefully.
+    QTest::newRow("Short timeout without end of line")
+            << false << 2 << ProcessResult::Hang;
+
+    // FinishedWithSuccess, since it doesn't time out, it finishes process normally,
+    // calls the callback handler and tries to stop the process forcefully what is no-op
+    // at this point in time since the process is already finished.
+    QTest::newRow("Long timeout without end of line")
+            << false << 20 << ProcessResult::FinishedWithSuccess;
 }
 
 void tst_QtcProcess::runBlockingStdOut()
 {
     QFETCH(bool, withEndl);
     QFETCH(int, timeOutS);
+    QFETCH(ProcessResult, expectedResult);
 
     SubCreatorConfig subConfig(RunBlockingStdOut::envVar(), withEndl ? "true" : "false");
     TestProcess process;
@@ -1007,9 +1071,7 @@ void tst_QtcProcess::runBlockingStdOut()
 
     // See also QTCREATORBUG-25667 for why it is a bad idea to use QtcProcess::runBlocking
     // with interactive cli tools.
-    QEXPECT_FAIL("Unterminated stdout lost: early timeout", "", Continue);
-    QVERIFY2(process.result() != ProcessResult::Hang, "Process run did not time out.");
-    QEXPECT_FAIL("Unterminated stdout lost: early timeout", "", Continue);
+    QCOMPARE(process.result(), expectedResult);
     QVERIFY2(readLastLine, "Last line was read.");
 }
 
@@ -1178,65 +1240,64 @@ void tst_QtcProcess::processChannelForwarding()
     QCOMPARE(error.contains(QByteArray(forwardedErrorData)), errorForwarded);
 }
 
-// This handler is inspired by the one used in qtbase/tests/auto/corelib/io/qfile/tst_qfile.cpp
-class MessageHandler {
-public:
-    MessageHandler(QtMessageHandler messageHandler = handler)
-    {
-        ok = true;
-        oldMessageHandler = qInstallMessageHandler(messageHandler);
-    }
-
-    ~MessageHandler()
-    {
-        qInstallMessageHandler(oldMessageHandler);
-    }
-
-    static bool testPassed()
-    {
-        return ok;
-    }
-
-protected:
-    static void handler(QtMsgType type, const QMessageLogContext &context, const QString &msg)
-    {
-        if (msg.startsWith("QProcess: Destroyed while process")
-                && msg.endsWith("is still running.")) {
-            ok = false;
-        }
-        // Defer to old message handler.
-        if (oldMessageHandler)
-            oldMessageHandler(type, context, msg);
-    }
-
-    static QtMessageHandler oldMessageHandler;
-    static bool ok;
+enum class BlockType {
+    EndlessLoop,
+    InfiniteSleep,
+    MutexDeadlock,
+    EventLoop
 };
 
-bool MessageHandler::ok = true;
-QtMessageHandler MessageHandler::oldMessageHandler = 0;
+Q_DECLARE_METATYPE(BlockType)
 
 void tst_QtcProcess::KillBlockingProcess::main()
 {
     std::cout << "Blocking process successfully executed." << std::endl;
-    while (true)
-        ;
+    const BlockType blockType = BlockType(qEnvironmentVariableIntValue(envVar()));
+    switch (blockType) {
+    case BlockType::EndlessLoop:
+        while (true)
+            ;
+        break;
+    case BlockType::InfiniteSleep:
+        QThread::sleep(INT_MAX);
+        break;
+    case BlockType::MutexDeadlock: {
+        QMutex mutex;
+        mutex.lock();
+        mutex.lock();
+        break;
+    }
+    case BlockType::EventLoop: {
+        QEventLoop loop;
+        loop.exec();
+        break;
+    }
+
+    }
+    exit(1);
+}
+
+void tst_QtcProcess::killBlockingProcess_data()
+{
+    QTest::addColumn<BlockType>("blockType");
+
+    QTest::newRow("EndlessLoop") << BlockType::EndlessLoop;
+    QTest::newRow("InfiniteSleep") << BlockType::InfiniteSleep;
+    QTest::newRow("MutexDeadlock") << BlockType::MutexDeadlock;
+    QTest::newRow("EventLoop") << BlockType::EventLoop;
 }
 
 void tst_QtcProcess::killBlockingProcess()
 {
-    SubCreatorConfig subConfig(KillBlockingProcess::envVar(), {});
+    QFETCH(BlockType, blockType);
 
-    MessageHandler msgHandler;
-    {
-        TestProcess process;
-        subConfig.setupSubProcess(&process);
-        process.start();
-        QVERIFY(process.waitForStarted());
-        QVERIFY(!process.waitForFinished(1000));
-    }
+    SubCreatorConfig subConfig(KillBlockingProcess::envVar(), QString::number(int(blockType)));
 
-    QVERIFY(msgHandler.testPassed());
+    TestProcess process;
+    subConfig.setupSubProcess(&process);
+    process.start();
+    QVERIFY(process.waitForStarted());
+    QVERIFY(!process.waitForFinished(1000));
 }
 
 void tst_QtcProcess::flushFinishedWhileWaitingForReadyRead()
@@ -1262,6 +1323,54 @@ void tst_QtcProcess::flushFinishedWhileWaitingForReadyRead()
     QCOMPARE(process.state(), QProcess::NotRunning);
     QVERIFY(!timer.hasExpired());
     QVERIFY(reply.contains(simpleTestData));
+}
+
+void tst_QtcProcess::EmitOneErrorOnCrash::main()
+{
+    doCrash();
+}
+
+void tst_QtcProcess::emitOneErrorOnCrash()
+{
+    SubCreatorConfig subConfig(EmitOneErrorOnCrash::envVar(), {});
+    TestProcess process;
+    subConfig.setupSubProcess(&process);
+
+    int errorCount = 0;
+    connect(&process, &QtcProcess::errorOccurred, this, [&errorCount] { ++errorCount; });
+    process.start();
+    QVERIFY(process.waitForStarted(1000));
+
+    QEventLoop loop;
+    connect(&process, &QtcProcess::finished, &loop, &QEventLoop::quit);
+    loop.exec();
+
+    QCOMPARE(errorCount, 1);
+    QCOMPARE(process.error(), QProcess::Crashed);
+}
+
+void tst_QtcProcess::CrashAfterOneSecond::main()
+{
+    QThread::sleep(1);
+    doCrash();
+}
+
+void tst_QtcProcess::crashAfterOneSecond()
+{
+    SubCreatorConfig subConfig(CrashAfterOneSecond::envVar(), {});
+    TestProcess process;
+    subConfig.setupSubProcess(&process);
+
+    process.start();
+    QVERIFY(process.waitForStarted(1000));
+    QElapsedTimer timer;
+    timer.start();
+    // Please note that QProcess documentation says it should return false, but apparently
+    // it doesn't (try running this test with QTC_USE_QPROCESS=)
+    QVERIFY(process.waitForFinished(2000));
+    QVERIFY(timer.elapsed() < 2000);
+    QCOMPARE(process.state(), QProcess::NotRunning);
+    QCOMPARE(process.error(), QProcess::Crashed);
 }
 
 QTEST_MAIN(tst_QtcProcess)

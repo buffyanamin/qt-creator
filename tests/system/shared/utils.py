@@ -366,6 +366,9 @@ def getConfiguredKits():
     def __setQtVersionForKit__(kit, kitName, kitsQtVersionName):
         mouseClick(waitForObjectItem(":BuildAndRun_QTreeView", kit))
         qtVersionStr = str(waitForObjectExists(":Kits_QtVersion_QComboBox").currentText)
+        invalid = qtVersionStr.endswith(" (invalid)")
+        if invalid:
+            qtVersionStr = qtVersionStr[:-10]
         kitsQtVersionName[kitName] = qtVersionStr
     # end of internal function for iterate kits
 
@@ -650,11 +653,11 @@ def openVcsLog():
         waitForObject("{text='Version Control' type='QLabel' unnamed='1' visible='1' "
                       "window=':Qt Creator_Core::Internal::MainWindow'}", 2000)
     except:
-        invokeMenuItem("View", "Output Panes", "Version Control")
+        invokeMenuItem("View", "Output", "Version Control")
 
 def openGeneralMessages():
     if not object.exists(":Qt Creator_Core::OutputWindow"):
-        invokeMenuItem("View", "Output Panes", "General Messages")
+        invokeMenuItem("View", "Output", "General Messages")
 
 # function that retrieves a specific child object by its class
 # this is sometimes the best way to avoid using waitForObject() on objects that

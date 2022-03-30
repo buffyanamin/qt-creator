@@ -734,8 +734,10 @@ QtcProcess::QtcProcess(QObject *parent)
             qCDebug(processLog).nospace() << "Process " << number << " finished: "
                                           << "result=" << int(result())
                                           << ", ex=" << exitCode()
-                                          << ", " << stdOut().size() << " bytes stdout"
-                                          << ", " << stdErr().size() << " bytes stderr"
+                                          << ", " << stdOut().size() << " bytes stdout: "
+                                          << stdOut().left(20)
+                                          << ", " << stdErr().size() << " bytes stderr: "
+                                          << stdErr().left(1000)
                                           << ", " << msElapsed << " ms elapsed";
             if (processStdoutLog().isDebugEnabled() && !stdOut().isEmpty())
                 qCDebug(processStdoutLog).nospace()
@@ -1028,15 +1030,15 @@ void QtcProcess::setRemoteProcessHooks(const DeviceProcessHooks &hooks)
     s_deviceHooks = hooks;
 }
 
-bool QtcProcess::stopProcess()
+void QtcProcess::stopProcess()
 {
     if (state() == QProcess::NotRunning)
-        return true;
+        return;
     terminate();
     if (waitForFinished(300))
-        return true;
+        return;
     kill();
-    return waitForFinished(300);
+    waitForFinished(300);
 }
 
 static bool askToKill(const QString &command)
@@ -1632,6 +1634,8 @@ void QtcProcess::runBlocking(EventLoopMode eventLoopMode)
             d->m_eventLoop = nullptr;
             d->m_stdOut.append(d->m_process->readAllStandardOutput());
             d->m_stdErr.append(d->m_process->readAllStandardError());
+            d->m_stdOut.handleRest();
+            d->m_stdErr.handleRest();
 
             timer.stop();
 #ifdef QT_GUI_LIB
@@ -1651,13 +1655,11 @@ void QtcProcess::runBlocking(EventLoopMode eventLoopMode)
                 kill();
                 waitForFinished(1000);
             }
+            d->m_stdOut.append(d->m_process->readAllStandardOutput());
+            d->m_stdErr.append(d->m_process->readAllStandardError());
+            d->m_stdOut.handleRest();
+            d->m_stdErr.handleRest();
         }
-
-        if (state() != QProcess::NotRunning)
-            return;
-
-        d->m_stdOut.append(d->m_process->readAllStandardOutput());
-        d->m_stdErr.append(d->m_process->readAllStandardError());
     }
 }
 

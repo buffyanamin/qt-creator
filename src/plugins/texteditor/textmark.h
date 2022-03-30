@@ -72,8 +72,11 @@ public:
     int lineNumber() const;
 
     virtual void paintIcon(QPainter *painter, const QRect &rect) const;
-    virtual void paintAnnotation(QPainter &painter, QRectF *annotationRect,
-                                 const qreal fadeInOffset, const qreal fadeOutOffset,
+    virtual void paintAnnotation(QPainter &painter,
+                                 const QRect &eventRect,
+                                 QRectF *annotationRect,
+                                 const qreal fadeInOffset,
+                                 const qreal fadeOutOffset,
                                  const QPointF &contentOffset) const;
     struct AnnotationRects
     {
@@ -102,7 +105,6 @@ public:
     void setIcon(const QIcon &icon);
     void setIconProvider(const std::function<QIcon()> &iconProvider);
     const QIcon icon() const;
-    // call this if the icon has changed.
     void updateMarker();
     Priority priority() const { return m_priority;}
     void setPriority(Priority prioriy);
@@ -122,7 +124,7 @@ public:
     void setBaseTextDocument(TextDocument *baseTextDocument) { m_baseTextDocument = baseTextDocument; }
 
     QString lineAnnotation() const { return m_lineAnnotation; }
-    void setLineAnnotation(const QString &lineAnnotation) { m_lineAnnotation = lineAnnotation; }
+    void setLineAnnotation(const QString &lineAnnotation);
 
     QString toolTip() const;
     void setToolTip(const QString &toolTip);

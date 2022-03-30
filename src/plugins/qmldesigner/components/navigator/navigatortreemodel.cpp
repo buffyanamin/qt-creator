@@ -324,14 +324,25 @@ QList<ModelNode> NavigatorTreeModel::filteredList(const NodeListProperty &proper
         return it.value();
 
     QList<ModelNode> list;
+    QList<ModelNode> propertyNodes = property.toModelNodeList();
+    QList<ModelNode> nameFilteredList;
+
+    if (m_nameFilter.isEmpty()) {
+        nameFilteredList = propertyNodes;
+    } else {
+        nameFilteredList.append(Utils::filtered(propertyNodes, [&] (const ModelNode &arg){
+            const bool value = m_nameFilteredList.contains(arg);
+            return value;
+        }));
+    }
 
     if (filter) {
-        list.append(Utils::filtered(property.toModelNodeList(), [] (const ModelNode &arg) {
+        list.append(Utils::filtered(nameFilteredList, [] (const ModelNode &arg) {
             const bool value = QmlItemNode::isValidQmlItemNode(arg) || NodeHints::fromModelNode(arg).visibleInNavigator();
             return value;
         }));
     } else {
-        list = property.toModelNodeList();
+        list = nameFilteredList;
     }
 
     appendForcedNodes(property, list);
@@ -910,8 +921,8 @@ ModelNode NavigatorTreeModel::handleItemLibraryShaderDrop(const QString &shaderP
 
             // Rename the node based on shader source
             QFileInfo fi(relPath);
-            newModelNode.setIdWithoutRefactoring(m_view->generateNewId(fi.baseName(),
-                                                                       "shader"));
+            newModelNode.setIdWithoutRefactoring(
+                m_view->model()->generateNewId(fi.baseName(), "shader"));
             // Passes can't have children, so move shader node under parent
             if (targetProperty.parentModelNode().isSubclassOf("QtQuick3D.Pass")) {
                 BindingProperty listProp = targetNode.bindingProperty("shaders");
@@ -956,9 +967,9 @@ ModelNode NavigatorTreeModel::handleItemLibrarySoundDrop(const QString &soundPat
 
         // Rename the node based on source
         QFileInfo fi(relPath);
-        newModelNode.setIdWithoutRefactoring(m_view->generateNewId(fi.baseName(),
-                                                                   "soundEffect"));
-        }
+        newModelNode.setIdWithoutRefactoring(
+            m_view->model()->generateNewId(fi.baseName(), "soundEffect"));
+    }
 
     return newModelNode;
 }
@@ -1073,7 +1084,8 @@ ModelNode NavigatorTreeModel::createTextureNode(const NodeAbstractProperty &targ
 
         // Rename the node based on source image
         QFileInfo fi(imagePath);
-        newModelNode.setIdWithoutRefactoring(m_view->generateNewId(fi.baseName(), "textureImage"));
+        newModelNode.setIdWithoutRefactoring(
+            m_view->model()->generateNewId(fi.baseName(), "textureImage"));
         return newModelNode;
     }
     return {};
@@ -1218,6 +1230,35 @@ void NavigatorTreeModel::setFilter(bool showOnlyVisibleItems)
 {
     m_showOnlyVisibleItems = showOnlyVisibleItems;
     m_rowCache.clear();
+    resetModel();
+}
+
+void NavigatorTreeModel::setNameFilter(const QString &filter)
+{
+    m_nameFilter = filter;
+    m_rowCache.clear();
+
+    ModelNode rootNode = m_view->rootModelNode();
+    QList<ModelNode> allNodes = rootNode.allSubModelNodes();
+    m_nameFilteredList.clear();
+
+    if (filter.isEmpty()) {
+        m_nameFilteredList = allNodes;
+    } else {
+        for (ModelNode &node : rootNode.allSubModelNodes()) {
+            if (node.displayName().contains(filter, Qt::CaseSensitivity::CaseInsensitive)) {
+                m_nameFilteredList.append(node);
+                ModelNode n = node;
+                while (n.hasParentProperty()) {
+                    n = n.parentProperty().parentModelNode();
+                    if (n.isRootNode() || m_nameFilteredList.contains(n))
+                        break;
+                    m_nameFilteredList.append(n);
+                }
+            }
+        }
+    }
+
     resetModel();
 }
 

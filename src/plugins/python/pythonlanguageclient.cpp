@@ -25,20 +25,21 @@
 
 #include "pythonlanguageclient.h"
 
+#include "pipsupport.h"
 #include "pythonconstants.h"
 #include "pythonplugin.h"
+#include "pythonproject.h"
 #include "pythonsettings.h"
 #include "pythonutils.h"
 
 #include <coreplugin/editormanager/editormanager.h>
 #include <coreplugin/icore.h>
 #include <coreplugin/progressmanager/progressmanager.h>
-
 #include <languageclient/languageclientmanager.h>
-
+#include <languageserverprotocol/workspace.h>
+#include <projectexplorer/session.h>
 #include <texteditor/textdocument.h>
 #include <texteditor/texteditor.h>
-
 #include <utils/infobar.h>
 #include <utils/qtcprocess.h>
 #include <utils/runextensions.h>
@@ -63,7 +64,6 @@ namespace Internal {
 static constexpr char startPylsInfoBarId[] = "Python::StartPyls";
 static constexpr char installPylsInfoBarId[] = "Python::InstallPyls";
 static constexpr char enablePylsInfoBarId[] = "Python::EnablePyls";
-static constexpr char installPylsTaskId[] = "Python::InstallPylsTask";
 
 struct PythonLanguageServerState
 {
@@ -76,25 +76,6 @@ struct PythonLanguageServerState
     } state;
     FilePath pylsModulePath;
 };
-
-static QString pythonName(const FilePath &pythonPath)
-{
-    static QHash<FilePath, QString> nameForPython;
-    if (!pythonPath.exists())
-        return {};
-    QString name = nameForPython.value(pythonPath);
-    if (name.isEmpty()) {
-        QtcProcess pythonProcess;
-        pythonProcess.setTimeoutS(2);
-        pythonProcess.setCommand({pythonPath, {"--version"}});
-        pythonProcess.runBlocking();
-        if (pythonProcess.result() != ProcessResult::FinishedWithSuccess)
-            return {};
-        name = pythonProcess.allOutput().trimmed();
-        nameForPython[pythonPath] = name;
-    }
-    return name;
-}
 
 FilePath getPylsModulePath(CommandLine pylsCommand)
 {
@@ -442,7 +423,7 @@ bool PyLSSettings::applyFromSettingsWidget(QWidget *widget)
     if (m_configuration != pylswidget->configuration()) {
         m_configuration = pylswidget->configuration();
         if (!changed) { // if only the settings configuration changed just send an update
-            const QVector<Client *> clients = LanguageClientManager::clientForSetting(this);
+            const QList<Client *> clients = LanguageClientManager::clientsForSetting(this);
             for (Client *client : clients)
                 client->updateConfiguration(configuration());
         }
@@ -471,9 +452,39 @@ void PyLSSettings::setInterpreter(const QString &interpreterId)
     m_executable = interpreter.command;
 }
 
+class PyLSClient : public Client
+{
+public:
+    using Client::Client;
+    void openDocument(TextEditor::TextDocument *document) override
+    {
+        using namespace LanguageServerProtocol;
+        if (reachable()) {
+            const FilePath documentPath = document->filePath();
+            if (isSupportedDocument(document) && !pythonProjectForFile(documentPath)) {
+                const FilePath workspacePath = documentPath.parentDir();
+                if (!extraWorkspaceDirs.contains(workspacePath)) {
+                    WorkspaceFoldersChangeEvent event;
+                    event.setAdded({WorkSpaceFolder(DocumentUri::fromFilePath(workspacePath),
+                                                    workspacePath.fileName())});
+                    DidChangeWorkspaceFoldersParams params;
+                    params.setEvent(event);
+                    DidChangeWorkspaceFoldersNotification change(params);
+                    sendContent(change);
+                    extraWorkspaceDirs.append(workspacePath);
+                }
+            }
+        }
+        Client::openDocument(document);
+    }
+
+private:
+    FilePaths extraWorkspaceDirs;
+};
+
 Client *PyLSSettings::createClient(BaseClientInterface *interface) const
 {
-    return new Client(interface);
+    return new PyLSClient(interface);
 }
 
 QJsonObject PyLSSettings::defaultConfiguration()
@@ -540,99 +551,10 @@ static Client *registerLanguageServer(const FilePath &python)
     settings->m_name = PyLSConfigureAssistant::tr("Python Language Server (%1)")
                            .arg(pythonName(python));
     LanguageClientManager::registerClientSettings(settings);
-    Client *client = LanguageClientManager::clientForSetting(settings).value(0);
+    Client *client = LanguageClientManager::clientsForSetting(settings).value(0);
     PyLSConfigureAssistant::updateEditorInfoBars(python, client);
     return client;
 }
-
-class PythonLSInstallHelper : public QObject
-{
-    Q_OBJECT
-public:
-    PythonLSInstallHelper(const FilePath &python, QPointer<TextEditor::TextDocument> document)
-        : m_python(python)
-        , m_document(document)
-    {
-        m_watcher.setFuture(m_future.future());
-    }
-
-    void run()
-    {
-        Core::ProgressManager::addTask(m_future.future(), "Install PyLS", installPylsTaskId);
-        connect(&m_process, &QtcProcess::finished, this, &PythonLSInstallHelper::installFinished);
-        connect(&m_process,
-                &QtcProcess::readyReadStandardError,
-                this,
-                &PythonLSInstallHelper::errorAvailable);
-        connect(&m_process,
-                &QtcProcess::readyReadStandardOutput,
-                this,
-                &PythonLSInstallHelper::outputAvailable);
-
-        connect(&m_killTimer, &QTimer::timeout, this, &PythonLSInstallHelper::cancel);
-        connect(&m_watcher, &QFutureWatcher<void>::canceled, this, &PythonLSInstallHelper::cancel);
-
-        QStringList arguments = {"-m", "pip", "install", "python-lsp-server[all]"};
-
-        // add --user to global pythons, but skip it for venv pythons
-        if (!QDir(m_python.parentDir().toString()).exists("activate"))
-            arguments << "--user";
-
-        m_process.setCommand({m_python, arguments});
-        m_process.start();
-
-        Core::MessageManager::writeDisrupting(
-            tr("Running \"%1\" to install Python language server.")
-                .arg(m_process.commandLine().toUserOutput()));
-
-        m_killTimer.setSingleShot(true);
-        m_killTimer.start(5 /*minutes*/ * 60 * 1000);
-    }
-
-private:
-    void cancel()
-    {
-        m_process.stopProcess();
-        Core::MessageManager::writeFlashing(
-            tr("The Python language server installation was canceled by %1.")
-                .arg(m_killTimer.isActive() ? tr("user") : tr("time out")));
-    }
-
-    void installFinished()
-    {
-        m_future.reportFinished();
-        if (m_process.result() == ProcessResult::FinishedWithSuccess) {
-            if (Client *client = registerLanguageServer(m_python))
-                LanguageClientManager::openDocumentWithClient(m_document, client);
-        } else {
-            Core::MessageManager::writeFlashing(
-                tr("Installing the Python language server failed with exit code %1")
-                    .arg(m_process.exitCode()));
-        }
-        deleteLater();
-    }
-
-    void outputAvailable()
-    {
-        const QString &stdOut = QString::fromLocal8Bit(m_process.readAllStandardOutput().trimmed());
-        if (!stdOut.isEmpty())
-            Core::MessageManager::writeSilently(stdOut);
-    }
-
-    void errorAvailable()
-    {
-        const QString &stdErr = QString::fromLocal8Bit(m_process.readAllStandardError().trimmed());
-        if (!stdErr.isEmpty())
-            Core::MessageManager::writeSilently(stdErr);
-    }
-
-    QFutureInterface<void> m_future;
-    QFutureWatcher<void> m_watcher;
-    QtcProcess m_process;
-    QTimer m_killTimer;
-    const FilePath m_python;
-    QPointer<TextEditor::TextDocument> m_document;
-};
 
 void PyLSConfigureAssistant::installPythonLanguageServer(const FilePath &python,
                                                          QPointer<TextEditor::TextDocument> document)
@@ -644,7 +566,19 @@ void PyLSConfigureAssistant::installPythonLanguageServer(const FilePath &python,
     for (TextEditor::TextDocument *additionalDocument : m_infoBarEntries[python])
         additionalDocument->infoBar()->removeInfo(installPylsInfoBarId);
 
-    auto install = new PythonLSInstallHelper(python, document);
+    auto install = new PipInstallTask(python);
+
+    connect(install, &PipInstallTask::finished, this, [=](const bool success) {
+        if (success) {
+            if (Client *client = registerLanguageServer(python)) {
+                if (document)
+                    LanguageClientManager::openDocumentWithClient(document, client);
+            }
+        }
+        install->deleteLater();
+    });
+
+    install->setPackage(PipPackage{"python-lsp-server[all]", "Python Language Server"});
     install->run();
 }
 
@@ -663,25 +597,12 @@ static void enablePythonLanguageServer(const FilePath &python,
     if (const StdIOSettings *setting = PyLSConfigureAssistant::languageServerForPython(python)) {
         LanguageClientManager::enableClientSettings(setting->m_id);
         if (const StdIOSettings *setting = PyLSConfigureAssistant::languageServerForPython(python)) {
-            if (Client *client = LanguageClientManager::clientForSetting(setting).value(0)) {
+            if (Client *client = LanguageClientManager::clientsForSetting(setting).value(0)) {
                 LanguageClientManager::openDocumentWithClient(document, client);
                 PyLSConfigureAssistant::updateEditorInfoBars(python, client);
             }
         }
     }
-}
-
-void PyLSConfigureAssistant::documentOpened(Core::IDocument *document)
-{
-    auto textDocument = qobject_cast<TextEditor::TextDocument *>(document);
-    if (!textDocument || textDocument->mimeType() != Constants::C_PY_MIMETYPE)
-        return;
-
-    const FilePath &python = detectPython(textDocument->filePath());
-    if (!python.exists())
-        return;
-
-    instance()->openDocumentWithPython(python, textDocument);
 }
 
 void PyLSConfigureAssistant::openDocumentWithPython(const FilePath &python,
@@ -719,7 +640,7 @@ void PyLSConfigureAssistant::handlePyLSState(const FilePath &python,
         return;
     if (state.state == PythonLanguageServerState::AlreadyConfigured) {
         if (const StdIOSettings *setting = languageServerForPython(python)) {
-            if (Client *client = LanguageClientManager::clientForSetting(setting).value(0))
+            if (Client *client = LanguageClientManager::clientsForSetting(setting).value(0))
                 LanguageClientManager::openDocumentWithClient(document, client);
         }
         return;
@@ -798,5 +719,3 @@ PyLSConfigureAssistant::PyLSConfigureAssistant(QObject *parent)
 
 } // namespace Internal
 } // namespace Python
-
-#include "pythonlanguageclient.moc"

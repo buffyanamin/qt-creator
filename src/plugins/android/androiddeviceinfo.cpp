@@ -46,25 +46,24 @@ bool AndroidDeviceInfo::operator<(const AndroidDeviceInfo &other) const
         return type == ProjectExplorer::IDevice::Hardware;
     if (sdk != other.sdk)
         return sdk < other.sdk;
-    if (avdname != other.avdname)
-        return avdname < other.avdname;
+    if (avdName != other.avdName)
+        return avdName < other.avdName;
 
     return serialNumber < other.serialNumber;
 }
 
 bool AndroidDeviceInfo::operator==(const AndroidDeviceInfo &other) const
 {
-    return serialNumber == other.serialNumber && avdname == other.avdname && cpuAbi == other.cpuAbi
-           && avdTarget == other.avdTarget && avdDevice == other.avdDevice
-           && avdSkin == other.avdSkin && avdSdcardSize == other.avdSdcardSize && sdk == other.sdk
-           && state == other.state && type == other.type;
+    return serialNumber == other.serialNumber && avdName == other.avdName
+            && avdPath == other.avdPath && cpuAbi == other.cpuAbi
+            && sdk == other.sdk && state == other.state && type == other.type;
 }
 
 QDebug &operator<<(QDebug &stream, const AndroidDeviceInfo &device)
 {
     stream << "Type:" << (device.type == ProjectExplorer::IDevice::Emulator ? "Emulator" : "Device")
            << ", ABI:" << device.cpuAbi << ", Serial:" << device.serialNumber
-           << ", Name:" << device.avdname << ", API:" << device.sdk
+           << ", Name:" << device.avdName << ", API:" << device.sdk
            << ", Authorised:" << (device.state == IDevice::DeviceReadyToUse);
     return stream;
 }

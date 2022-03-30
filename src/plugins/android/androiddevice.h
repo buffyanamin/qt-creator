@@ -35,6 +35,7 @@
 
 #include <QFutureWatcher>
 #include <QFileSystemWatcher>
+#include <QSettings>
 
 namespace Utils { class QtcProcess; }
 
@@ -50,7 +51,6 @@ public:
 
     static IDevice::Ptr create();
     static AndroidDeviceInfo androidDeviceInfoFromIDevice(const IDevice *dev);
-    static void setAndroidDeviceInfoExtras(IDevice *dev, const AndroidDeviceInfo &info);
 
     static QString displayNameFromInfo(const AndroidDeviceInfo &info);
     static Utils::Id idFromDeviceInfo(const AndroidDeviceInfo &info);
@@ -66,25 +66,33 @@ public:
     QString avdName() const;
     int sdkLevel() const;
 
+    Utils::FilePath avdPath() const;
+    void setAvdPath(const Utils::FilePath &path);
+
     QString deviceTypeName() const;
     QString androidVersion() const;
+
+    // AVD specific
     QString skinName() const;
     QString androidTargetName() const;
     QString sdcardSize() const;
-    QString openGlStatusString() const;
-    // TODO: remove not used
-    AndroidConfig::OpenGl openGlStatus() const;
+    QString openGLStatus() const;
 
 protected:
     void fromMap(const QVariantMap &map) final;
 
 private:
-    void addEmulatorActionsIfNotFound();
+    void addActionsIfNotFound();
     ProjectExplorer::IDevice::DeviceInfo deviceInformation() const override;
     ProjectExplorer::IDeviceWidget *createWidget() override;
     bool canAutoDetectPorts() const override;
     ProjectExplorer::DeviceProcessSignalOperation::Ptr signalOperation() const override;
     QUrl toolControlChannel(const ControlChannelHint &) const override;
+
+    QSettings *avdSettings() const;
+    void initAvdSettings();
+
+    std::unique_ptr<QSettings> m_avdSettings;
 };
 
 class AndroidDeviceFactory final : public ProjectExplorer::IDeviceFactory
@@ -107,6 +115,7 @@ public:
 
     void startAvd(const ProjectExplorer::IDevice::Ptr &device, QWidget *parent = nullptr);
     void eraseAvd(const ProjectExplorer::IDevice::Ptr &device, QWidget *parent = nullptr);
+    void setupWifiForDevice(const ProjectExplorer::IDevice::Ptr &device, QWidget *parent = nullptr);
 
     void setEmulatorArguments(QWidget *parent = nullptr);
 
@@ -114,6 +123,7 @@ public:
 
 private:
     AndroidDeviceManager(QObject *parent = nullptr);
+    ~AndroidDeviceManager();
     void HandleDevicesListChange(const QString &serialNumber);
     void HandleAvdsListChange();
     void handleAvdRemoved();
@@ -126,6 +136,8 @@ private:
     std::unique_ptr<Utils::QtcProcess> m_adbDeviceWatcherProcess;
     AndroidConfig &m_androidConfig;
     AndroidAvdManager m_avdManager;
+
+    friend class AndroidPluginPrivate;
 };
 
 } // namespace Internal

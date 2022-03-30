@@ -51,6 +51,7 @@
 #include <utils/environment.h>
 #include <utils/fileutils.h>
 #include <utils/hostosinfo.h>
+#include <utils/infolabel.h>
 #include <utils/layoutbuilder.h>
 #include <utils/overridecursor.h>
 #include <utils/pathlisteditor.h>
@@ -324,13 +325,26 @@ public:
             data.useLocalUidGid = on;
         });
 
+        m_pathsListLabel = new InfoLabel(tr("Paths to mount:"));
+        // FIXME: 8.0: use
+        //m_pathsListLabel->setToolTip(tr("Source directory list should not be empty"));
+
         m_pathsListEdit = new PathListEditor;
+        // FIXME: 8.0: use
+        //m_pathsListEdit->setPlaceholderText(tr("Host directories to mount into the container"));
         m_pathsListEdit->setToolTip(tr("Maps paths in this list one-to-one to the "
                                        "docker container."));
         m_pathsListEdit->setPathList(data.mounts);
 
-        connect(m_pathsListEdit, &PathListEditor::changed, this, [dockerDevice, this]() {
+        auto markupMounts = [this] {
+            const bool isEmpty = m_pathsListEdit->pathList().isEmpty();
+            m_pathsListLabel->setType(isEmpty ? InfoLabel::Warning : InfoLabel::None);
+        };
+        markupMounts();
+
+        connect(m_pathsListEdit, &PathListEditor::changed, this, [dockerDevice, markupMounts, this] {
             dockerDevice->setMounts(m_pathsListEdit->pathList());
+            markupMounts();
         });
 
         auto logView = new QTextBrowser;
@@ -345,12 +359,14 @@ public:
         searchDirsComboBox->addItem(tr("Search in PATH"));
         searchDirsComboBox->addItem(tr("Search in Selected Directories"));
 
-        auto searchDirsLineEdit = new QLineEdit;
-        searchDirsLineEdit->setText("/usr/bin;/opt");
+        auto searchDirsLineEdit = new FancyLineEdit;
+        // FIXME: 8.0: use
+        //searchDirsLineEdit->setPlaceholderText(tr("Semicolon-separated list of directories"));
         searchDirsLineEdit->setToolTip(
             tr("Select the paths in the docker image that should be scanned for kit entries."));
+        searchDirsLineEdit->setHistoryCompleter("DockerMounts", true);
 
-        auto searchPaths = [this, searchDirsComboBox, searchDirsLineEdit, dockerDevice] {
+        auto searchPaths = [searchDirsComboBox, searchDirsLineEdit, dockerDevice] {
             FilePaths paths;
             if (searchDirsComboBox->currentIndex() == 0) {
                 paths = dockerDevice->systemEnvironment().path();
@@ -397,7 +413,7 @@ public:
             daemonStateLabel, m_daemonReset, m_daemonState, Break(),
             m_runAsOutsideUser, Break(),
             Column {
-                new QLabel(tr("Paths to mount:")),
+                m_pathsListLabel,
                 m_pathsListEdit,
             }, Break(),
             Column {
@@ -418,8 +434,10 @@ public:
         }.attachTo(this);
 
         searchDirsLineEdit->setVisible(false);
-        auto updateDirectoriesLineEdit = [this, searchDirsLineEdit](int index) {
+        auto updateDirectoriesLineEdit = [searchDirsLineEdit](int index) {
             searchDirsLineEdit->setVisible(index == 1);
+            if (index == 1)
+                searchDirsLineEdit->setFocus();
         };
         QObject::connect(searchDirsComboBox, qOverload<int>(&QComboBox::activated),
                          this, updateDirectoriesLineEdit);
@@ -435,7 +453,8 @@ private:
     QToolButton *m_daemonReset;
     QLabel *m_daemonState;
     QCheckBox *m_runAsOutsideUser;
-    Utils::PathListEditor *m_pathsListEdit;
+    InfoLabel *m_pathsListLabel;
+    PathListEditor *m_pathsListEdit;
 
     KitDetector m_kitItemDetector;
 };
@@ -665,7 +684,7 @@ Toolchains KitDetectorPrivate::autoDetectToolChains()
     emit q->logOutput('\n' + tr("Searching toolchains..."));
     for (ToolChainFactory *factory : factories) {
         emit q->logOutput(tr("Searching toolchains of type %1").arg(factory->displayName()));
-        const ToolchainDetector detector(alreadyKnown, m_device);
+        const ToolchainDetector detector(alreadyKnown, m_device, m_searchPaths);
         const Toolchains newToolChains = factory->autoDetect(detector);
         for (ToolChain *toolChain : newToolChains) {
             emit q->logOutput(tr("Found \"%1\"").arg(toolChain->compilerCommand().toUserOutput()));
@@ -1476,6 +1495,12 @@ QByteArray DockerDevicePrivate::outputForRunInShell(const CommandLine &cmd) cons
     QTC_ASSERT(m_shell && m_shell->isRunning(), return {});
     QMutexLocker l(&m_shellMutex);
     m_shell->readAllStandardOutput(); // clean possible left-overs
+    const QByteArray oldError = m_shell->readAllStandardError(); // clean possible left-overs
+    if (!oldError.isEmpty()) {
+        LOG("Unexpected old stderr: " << oldError);
+        QTC_CHECK(false);
+    }
+
     const QByteArray markerWithNewLine("___QC_DOCKER_" + randomHex() + "_OUTPUT_MARKER___\n");
     m_shell->write(cmd.toUserOutput().toUtf8() + "\necho -n \"" + markerWithNewLine + "\"\n");
     QByteArray output;
@@ -1487,6 +1512,11 @@ QByteArray DockerDevicePrivate::outputForRunInShell(const CommandLine &cmd) cons
     LOG("Run command in shell:" << cmd.toUserOutput() << "output size:" << output.size());
     if (QTC_GUARD(output.endsWith(markerWithNewLine)))
         output.chop(markerWithNewLine.size());
+    const QByteArray currentError = m_shell->readAllStandardError();
+    if (!currentError.isEmpty()) {
+        LOG("Unexpected current stderr: " << currentError);
+        QTC_CHECK(false);
+    }
     return output;
 }
 
@@ -1543,12 +1573,19 @@ public:
         m_log = new QTextBrowser;
         m_log->setVisible(false);
 
+        const QString fail = QString{"Docker: "}
+                + QCoreApplication::translate("Debugger::Internal::GdbEngine",
+                                              "Process failed to start.");
+        auto errorLabel = new Utils::InfoLabel(fail, Utils::InfoLabel::Error, this);
+        errorLabel->setVisible(false);
+
         m_buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel);
 
         using namespace Layouting;
         Column {
             m_view,
             m_log,
+            errorLabel,
             m_buttons,
         }.attachTo(this);
 
@@ -1584,6 +1621,13 @@ public:
         connect(m_process, &Utils::QtcProcess::readyReadStandardError, this, [this] {
             const QString out = DockerDevice::tr("Error: %1").arg(m_process->stdErr());
             m_log->append(DockerDevice::tr("Error: %1").arg(out));
+        });
+
+        connect(m_process, &Utils::QtcProcess::finished,
+                this, [this, errorLabel]() {
+            if (m_process->exitCode() != 0) {
+                errorLabel->setVisible(true);
+            }
         });
 
         connect(m_view->selectionModel(), &QItemSelectionModel::selectionChanged, [this] {

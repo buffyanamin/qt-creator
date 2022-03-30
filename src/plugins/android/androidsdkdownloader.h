@@ -32,7 +32,10 @@
 #include <QObject>
 #include <QProgressDialog>
 
-namespace Utils { class FilePath; }
+namespace Utils {
+class Archive;
+class FilePath;
+}
 
 namespace Android {
 namespace Internal {
@@ -43,7 +46,8 @@ class AndroidSdkDownloader : public QObject
 
 public:
     AndroidSdkDownloader();
-    void downloadAndExtractSdk(const Utils::FilePath &sdkExtractPath);
+    ~AndroidSdkDownloader();
+    void downloadAndExtractSdk();
     static QString dialogTitle();
 
     void cancel();
@@ -71,7 +75,8 @@ private:
     QNetworkReply *m_reply = nullptr;
     Utils::FilePath m_sdkFilename;
     QProgressDialog *m_progressDialog = nullptr;
-    const AndroidConfig &m_androidConfig;
+    AndroidConfig &m_androidConfig;
+    std::unique_ptr<Utils::Archive> m_archive;
 };
 
 } // Internal

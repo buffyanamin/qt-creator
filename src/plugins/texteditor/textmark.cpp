@@ -133,23 +133,35 @@ void TextMark::paintIcon(QPainter *painter, const QRect &rect) const
     icon().paint(painter, rect, Qt::AlignCenter);
 }
 
-void TextMark::paintAnnotation(QPainter &painter, QRectF *annotationRect,
-                               const qreal fadeInOffset, const qreal fadeOutOffset,
+void TextMark::paintAnnotation(QPainter &painter,
+                               const QRect &eventRect,
+                               QRectF *annotationRect,
+                               const qreal fadeInOffset,
+                               const qreal fadeOutOffset,
                                const QPointF &contentOffset) const
 {
     QString text = lineAnnotation();
     if (text.isEmpty())
         return;
 
-    const AnnotationRects &rects = annotationRects(*annotationRect, painter.fontMetrics(),
-                                                   fadeInOffset, fadeOutOffset);
+    const AnnotationRects &rects = annotationRects(*annotationRect,
+                                                   painter.fontMetrics(),
+                                                   fadeInOffset,
+                                                   fadeOutOffset);
+    annotationRect->setRight(rects.fadeOutRect.right());
+    const QRectF eventRectF(eventRect);
+    if (!(rects.fadeInRect.intersects(eventRectF) || rects.annotationRect.intersects(eventRectF)
+          || rects.fadeOutRect.intersects(eventRectF))) {
+        return;
+    }
+
     const QColor &markColor = m_color.has_value()
                                   ? Utils::creatorTheme()->color(m_color.value()).toHsl()
                                   : painter.pen().color();
 
     const FontSettings &fontSettings = m_baseTextDocument->fontSettings();
     const AnnotationColors &colors = AnnotationColors::getAnnotationColors(
-                markColor, fontSettings.toTextCharFormat(C_TEXT).background().color());
+        markColor, fontSettings.toTextCharFormat(C_TEXT).background().color());
 
     painter.save();
     QLinearGradient grad(rects.fadeInRect.topLeft() - contentOffset,
@@ -169,7 +181,6 @@ void TextMark::paintAnnotation(QPainter &painter, QRectF *annotationRect,
         painter.fillRect(rects.fadeOutRect, grad);
     }
     painter.restore();
-    annotationRect->setRight(rects.fadeOutRect.right());
 }
 
 TextMark::AnnotationRects TextMark::annotationRects(const QRectF &boundingRect,
@@ -348,11 +359,13 @@ void TextMark::setIcon(const QIcon &icon)
 {
     m_icon = icon;
     m_iconProvider = std::function<QIcon()>();
+    updateMarker();
 }
 
 void TextMark::setIconProvider(const std::function<QIcon ()> &iconProvider)
 {
     m_iconProvider = iconProvider;
+    updateMarker();
 }
 
 const QIcon TextMark::icon() const
@@ -368,6 +381,13 @@ Utils::optional<Theme::Color> TextMark::color() const
 void TextMark::setColor(const Theme::Color &color)
 {
     m_color = color;
+    updateMarker();
+}
+
+void TextMark::setLineAnnotation(const QString &lineAnnotation)
+{
+    m_lineAnnotation = lineAnnotation;
+    updateMarker();
 }
 
 void TextMark::setToolTipProvider(const std::function<QString()> &toolTipProvider)

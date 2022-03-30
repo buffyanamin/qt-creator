@@ -149,7 +149,7 @@ public:
                               qint64 *pid = nullptr);
 
     // Starts the command and waits for finish.
-    // User input processing is enabled when WithEventLoop was passed.
+    // User input processing is enabled when EventLoopMode::On was passed.
     void runBlocking(EventLoopMode eventLoopMode = EventLoopMode::Off);
 
     /* Timeout for hanging processes (triggers after no more output
@@ -166,7 +166,7 @@ public:
     void setStdErrCallback(const std::function<void(const QString &)> &callback);
     void setStdErrLineCallback(const std::function<void(const QString &)> &callback);
 
-    bool stopProcess();
+    void stopProcess();
     bool readDataFromProcess(int timeoutS, QByteArray *stdOut, QByteArray *stdErr,
                              bool showTimeOutMessageBox);
 

@@ -42,7 +42,8 @@ def handleDebuggerWarnings(config, isMsvcBuild=False):
             clickButton(waitForObject("{text='Cancel' type='QPushButton' unnamed='1' visible='1' window=':Dialog_Debugger::Internal::SymbolPathsDialog'}", 10000))
         except LookupError:
             pass # No warning. Fine.
-    if "Release" in config and (isMsvcBuild or platform.system() == "Linux"):
+    isReleaseConfig = "Release" in config and not "with Debug Information" in config
+    if isReleaseConfig and (isMsvcBuild or platform.system() == "Linux"):
         msgBox = "{type='QMessageBox' unnamed='1' visible='1' windowTitle='Warning'}"
         message = waitForObject("{name='qt_msgbox_label' type='QLabel' visible='1' window=%s}" % msgBox)
         messageText = str(message.text)
@@ -84,7 +85,7 @@ def setBreakpointsForCurrentProject(filesAndLines):
             editor = getEditorForFileSuffix(curFile, True)
             if not placeCursorToLine(editor, curLine, True):
                 return None
-            invokeMenuItem("Debug", "Toggle Breakpoint")
+            invokeMenuItem("Debug", "Enable or Disable Breakpoint")
             filePath = str(waitForObjectExists(":Qt Creator_FilenameQComboBox").toolTip)
             breakPointList.append({filePath:lineNumberWithCursor(editor)})
             test.log('Set breakpoint in %s' % curFile, curLine)
@@ -175,8 +176,24 @@ def doSimpleDebugging(currentKit, currentConfigName, expectedBPOrder=[], enableQ
 def isMsvcConfig(currentKit):
     switchViewTo(ViewConstants.PROJECTS)
     switchToBuildOrRunSettingsFor(currentKit, ProjectSettings.BUILD)
-    clickButton(waitForObject(":scrollArea.Details_Utils::DetailsButton"))
-    isMsvc = " -spec win32-msvc" in str(waitForObject(":Qt Creator.Effective qmake call:_QTextEdit").plainText)
+
+    waitForObject(":Projects.ProjectNavigationTreeView")
+    bAndRIndex = getQModelIndexStr("text='Build & Run'", ":Projects.ProjectNavigationTreeView")
+    wantedKitName = Targets.getStringForTarget(currentKit)
+    wantedKitIndexString = getQModelIndexStr("text='%s'" % wantedKitName, bAndRIndex)
+    if not test.verify(__kitIsActivated__(findObject(wantedKitIndexString)),
+                       "Verifying target '%s' is enabled." % wantedKitName):
+        raise Exception("Kit '%s' is not activated in the project." % wantedKitName)
+    index = waitForObject(wantedKitIndexString)
+    toolTip = str(index.data(Qt.ToolTipRole).toString())
+    compilerPattern = re.compile("<tr><td><b>Compiler:</b></td><td>(?P<compiler>.+)</td></tr>")
+    match = compilerPattern.search(toolTip)
+    if match is None:
+        test.warning("UI seems to have changed - failed to check for compiler.")
+        return False
+
+    compiler = str(match.group("compiler"))
+    isMsvc = compiler.startswith("MSVC") or compiler.startswith("Microsoft Visual C")
     switchViewTo(ViewConstants.EDIT)
     return isMsvc
 

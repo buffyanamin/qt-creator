@@ -140,6 +140,7 @@ Item {
                         id: delegateId
                         width: stylesList.width
                         height: DialogValues.styleListItemHeight
+                        hoverEnabled: true
 
                         onClicked: stylesList.currentIndex = index
 
@@ -160,8 +161,17 @@ Item {
                                            + 2 * DialogValues.styleImageBorderWidth
                                     height: DialogValues.styleImageHeight
                                             + 2 * DialogValues.styleImageBorderWidth
-                                    border.color: index === stylesList.currentIndex ? DialogValues.textColorInteraction : "transparent"
-                                    border.width: index === stylesList.currentIndex ? DialogValues.styleImageBorderWidth : 0
+
+                                    border.color: delegateId.hovered
+                                                  ? DialogValues.textColor
+                                                  : (index === stylesList.currentIndex
+                                                     ? DialogValues.textColorInteraction
+                                                     : "transparent")
+
+                                    border.width: index === stylesList.currentIndex || delegateId.hovered
+                                                  ? DialogValues.styleImageBorderWidth
+                                                  : 0
+
                                     color: "transparent"
 
                                     Image {

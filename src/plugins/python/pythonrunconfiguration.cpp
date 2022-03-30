@@ -25,6 +25,7 @@
 
 #include "pythonrunconfiguration.h"
 
+#include "pyside.h"
 #include "pythonconstants.h"
 #include "pythonlanguageclient.h"
 #include "pythonproject.h"
@@ -144,6 +145,7 @@ public:
     Interpreter currentInterpreter() const;
     void updateInterpreters(const QList<Interpreter> &interpreters);
     void setDefaultInterpreter(const Interpreter &interpreter) { m_defaultId = interpreter.id; }
+    void setCurrentInterpreter(const Interpreter &interpreter);
 
     void fromMap(const QVariantMap &) override;
     void toMap(QVariantMap &) const override;
@@ -168,6 +170,12 @@ void InterpreterAspect::updateInterpreters(const QList<Interpreter> &interpreter
     m_interpreters = interpreters;
     if (m_comboBox)
         updateComboBox();
+}
+
+void InterpreterAspect::setCurrentInterpreter(const Interpreter &interpreter)
+{
+    m_currentId = interpreter.id;
+    emit changed();
 }
 
 void InterpreterAspect::fromMap(const QVariantMap &map)
@@ -244,7 +252,7 @@ PythonRunConfiguration::PythonRunConfiguration(Target *target, Utils::Id id)
     auto interpreterAspect = addAspect<InterpreterAspect>();
     interpreterAspect->setSettingsKey("PythonEditor.RunConfiguation.Interpreter");
     connect(interpreterAspect, &InterpreterAspect::changed,
-            this, &PythonRunConfiguration::updateLanguageServer);
+            this, &PythonRunConfiguration::interpreterChanged);
 
     connect(PythonSettings::instance(), &PythonSettings::interpretersChanged,
             interpreterAspect, &InterpreterAspect::updateInterpreters);
@@ -292,16 +300,18 @@ PythonRunConfiguration::PythonRunConfiguration(Target *target, Utils::Id id)
     connect(target, &Target::buildSystemUpdated, this, &RunConfiguration::update);
 }
 
-void PythonRunConfiguration::updateLanguageServer()
+void PythonRunConfiguration::interpreterChanged()
 {
     using namespace LanguageClient;
 
-    const FilePath python(FilePath::fromUserInput(interpreter()));
+    const FilePath python = interpreter().command;
 
     for (FilePath &file : project()->files(Project::AllFiles)) {
         if (auto document = TextEditor::TextDocument::textDocumentForFilePath(file)) {
-            if (document->mimeType() == Constants::C_PY_MIMETYPE)
+            if (document->mimeType() == Constants::C_PY_MIMETYPE) {
                 PyLSConfigureAssistant::instance()->openDocumentWithPython(python, document);
+                PySideInstaller::instance()->checkPySideInstallation(python, document);
+            }
         }
     }
 }
@@ -321,9 +331,19 @@ QString PythonRunConfiguration::arguments() const
     return aspect<ArgumentsAspect>()->arguments(macroExpander());
 }
 
-QString PythonRunConfiguration::interpreter() const
+Interpreter PythonRunConfiguration::interpreter() const
 {
-    return aspect<InterpreterAspect>()->currentInterpreter().command.toString();
+    return aspect<InterpreterAspect>()->currentInterpreter();
+}
+
+QString PythonRunConfiguration::interpreterPath() const
+{
+    return interpreter().command.toString();
+}
+
+void PythonRunConfiguration::setInterpreter(const Interpreter &interpreter)
+{
+    aspect<InterpreterAspect>()->setCurrentInterpreter(interpreter);
 }
 
 PythonRunConfigurationFactory::PythonRunConfigurationFactory()

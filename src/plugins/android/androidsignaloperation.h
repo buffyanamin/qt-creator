@@ -26,6 +26,7 @@
 #pragma once
 
 #include <projectexplorer/devicesupport/idevice.h>
+#include <utils/qtcprocess.h>
 
 #include <QObject>
 #include <QTimer>
@@ -47,22 +48,26 @@ protected:
     explicit AndroidSignalOperation();
 
 private:
+    enum State {
+        Idle,
+        RunAs,
+        Kill
+    };
+
+    using FinishHandler = std::function<void()>;
+
     void adbFindRunAsFinished();
     void adbKillFinished();
     void handleTimeout();
 
     void signalOperationViaADB(qint64 pid, int signal);
+    void startAdbProcess(State state, const Utils::CommandLine &commandLine, FinishHandler handler);
 
     Utils::FilePath m_adbPath;
-    Utils::QtcProcess *m_adbProcess;
+    std::unique_ptr<Utils::QtcProcess> m_adbProcess;
     QTimer *m_timeout;
 
-    enum State {
-        Idle,
-        RunAs,
-        Kill
-    } m_state = Idle;
-
+    State m_state = Idle;
     qint64 m_pid = 0;
     int m_signal = 0;
 

@@ -42,6 +42,7 @@
 #include <QtQuick3DRuntimeRender/private/qssgrendermodel_p.h>
 #include <QtQuick3DUtils/private/qssgbounds3_p.h>
 #include <QtQuick3DUtils/private/qssgutils_p.h>
+#include <QtQml/qqml.h>
 #include <QtQuick/qquickwindow.h>
 #include <QtQuick/qquickitem.h>
 #include <QtCore/qmath.h>
@@ -50,6 +51,7 @@
 #include <QtQuick3DParticles/private/qquick3dparticlemodelshape_p.h>
 #include <QtQuick3DParticles/private/qquick3dparticleemitter_p.h>
 #include <QtQuick3DParticles/private/qquick3dparticletrailemitter_p.h>
+#include <QtQuick3DParticles/private/qquick3dparticleattractor_p.h>
 #endif
 
 #include <limits>
@@ -91,6 +93,26 @@ QString GeneralHelper::generateUniqueName(const QString &nameRoot)
     static QHash<QString, int> counters;
     int count = counters[nameRoot]++;
     return QStringLiteral("%1_%2").arg(nameRoot).arg(count);
+}
+
+// Resolves absolute model source path
+QUrl GeneralHelper::resolveAbsoluteSourceUrl(const QQuick3DModel *sourceModel)
+{
+    if (!sourceModel)
+        return {};
+
+    const QUrl source = sourceModel->source();
+    if (source.hasFragment()) {
+        // Fragment is part of the url separated by '#', check if it is an index or primitive
+        bool isNumber = false;
+        source.fragment().toInt(&isNumber);
+        // If it wasn't an index, then it was a primitive and we can return it as-is
+        if (!isNumber)
+            return source;
+    }
+
+    QQmlContext *context = qmlContext(sourceModel);
+    return context ? context->resolvedUrl(source) : source;
 }
 
 void GeneralHelper::orbitCamera(QQuick3DCamera *camera, const QVector3D &startRotation,
@@ -456,11 +478,15 @@ QQuick3DNode *GeneralHelper::createParticleEmitterGizmoModel(QQuick3DNode *emitt
                                                              QQuick3DMaterial *material) const
 {
 #ifdef QUICK3D_PARTICLES_MODULE
-    auto e = qobject_cast<QQuick3DParticleEmitter *>(emitter);
-    if (!e || qobject_cast<QQuick3DParticleTrailEmitter *>(e) || !material)
+    if (qobject_cast<QQuick3DParticleTrailEmitter *>(emitter) || !material)
         return nullptr;
 
-    auto shape = qobject_cast<QQuick3DParticleModelShape *>(e->shape());
+    QQuick3DParticleModelShape *shape = nullptr;
+    if (auto e = qobject_cast<QQuick3DParticleEmitter *>(emitter))
+        shape = qobject_cast<QQuick3DParticleModelShape *>(e->shape());
+    else if (auto a = qobject_cast<QQuick3DParticleAttractor *>(emitter))
+        shape = qobject_cast<QQuick3DParticleModelShape *>(a->shape());
+
     if (shape && shape->delegate()) {
         if (auto model = qobject_cast<QQuick3DModel *>(
                     shape->delegate()->create(shape->delegate()->creationContext()))) {

@@ -25,39 +25,15 @@
 
 #pragma once
 
-#include <QHash>
-#include <QVector>
+#include "mcuabstracttargetfactory.h"
 
-namespace McuSupport::Internal {
+namespace McuSupport::Internal::Sdk {
 
-class McuAbstractPackage;
-class McuPackage;
-class McuTarget;
-class McuToolChainPackage;
-
-namespace Sdk {
-
-struct McuTargetDescription;
-
-class McuTargetFactory
+class McuTargetFactory : public McuAbstractTargetFactory
 {
 public:
-    McuTargetFactory(const QHash<QString, McuToolChainPackage *> &tcPkgs,
-                     const QHash<QString, McuPackage *> &vendorPkgs)
-        : tcPkgs(tcPkgs)
-        , vendorPkgs(vendorPkgs)
-    {}
-
-    QVector<McuTarget *> createTargets(const McuTargetDescription &description);
-    QVector<McuAbstractPackage *> getMcuPackages() const;
-
-private:
-    const QHash<QString, McuToolChainPackage *> &tcPkgs;
-    const QHash<QString, McuPackage *> &vendorPkgs;
-
-    QHash<QString, McuPackage *> boardSdkPkgs;
-    QHash<QString, McuPackage *> freeRTOSPkgs;
+    QPair<Targets, Packages> createTargets(const McuTargetDescription &) override;
+    Packages createPackages(const McuTargetDescription &);
 }; // struct McuTargetFactory
 
-} // namespace Sdk
-} // namespace McuSupport::Internal
+} // namespace McuSupport::Internal::Sdk

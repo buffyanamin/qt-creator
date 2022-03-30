@@ -304,34 +304,7 @@ bool AndroidSettingsWidget::isDefaultNdkSelected() const
 AndroidSettingsWidget::AndroidSettingsWidget()
 {
     m_ui.setupUi(this);
-    m_sdkManagerWidget = new AndroidSdkManagerWidget(m_androidConfig, &m_sdkManager,
-                                                     m_ui.sdkManagerGroupBox);
-    auto sdkMangerLayout = new QVBoxLayout(m_ui.sdkManagerGroupBox);
-    sdkMangerLayout->addWidget(m_sdkManagerWidget);
-    connect(m_sdkManagerWidget, &AndroidSdkManagerWidget::updatingSdk, [this] {
-        // Disable the top level UI to keep the user from unintentionally interrupting operations
-        m_ui.androidSettingsGroupBox->setEnabled(false);
-        m_ui.androidOpenSSLSettingsGroupBox->setEnabled(false);
-        m_ui.CreateKitCheckBox->setEnabled(false);
-        m_androidSummary->setState(DetailsWidget::Collapsed);
-        m_androidProgress->hide();
-    });
-    connect(m_sdkManagerWidget, &AndroidSdkManagerWidget::updatingSdkFinished, [this] {
-        m_ui.androidSettingsGroupBox->setEnabled(true);
-        m_ui.androidOpenSSLSettingsGroupBox->setEnabled(true);
-        m_ui.CreateKitCheckBox->setEnabled(true);
-    });
-    connect(m_sdkManagerWidget, &AndroidSdkManagerWidget::licenseWorkflowStarted, [this] {
-        QObject *parentWidget = parent();
-        while (parentWidget) {
-            if (auto scrollArea = qobject_cast<QScrollArea *>(parentWidget)) {
-                scrollArea->ensureWidgetVisible(m_ui.sdkManagerGroupBox);
-                break;
-            }
-            parentWidget = parentWidget->parent();
-        };
-    });
-
+    m_sdkManagerWidget = new AndroidSdkManagerWidget(m_androidConfig, &m_sdkManager, this);
     QMap<int, QString> androidValidationPoints;
     androidValidationPoints[SdkPathExistsAndWritableRow] =
             tr("Android SDK path exists and is writable.");
@@ -446,12 +419,21 @@ AndroidSettingsWidget::AndroidSettingsWidget()
         m_androidSummary->setInProgressText("Retrieving packages information");
         m_androidProgress->show();
     });
+    connect(m_ui.sdkManagerToolButton, &QAbstractButton::clicked,
+            this, [this]() { m_sdkManagerWidget->exec(); });
     connect(m_ui.sdkToolsAutoDownloadButton, &QAbstractButton::clicked,
             this, &AndroidSettingsWidget::downloadSdk);
     connect(&m_sdkDownloader, &AndroidSdkDownloader::sdkDownloaderError, this, [this](const QString &error) {
         QMessageBox::warning(this, AndroidSdkDownloader::dialogTitle(), error);
     });
     connect(&m_sdkDownloader, &AndroidSdkDownloader::sdkExtracted, this, [this] {
+        // Make sure the sdk path is created before installing packages
+        const FilePath sdkPath = m_androidConfig.sdkLocation();
+        if (!sdkPath.createDir()) {
+            QMessageBox::warning(this, AndroidSdkDownloader::dialogTitle(),
+                                 tr("Failed to create the SDK Tools path %1.")
+                                 .arg("\n\"" + sdkPath.toUserOutput() + "\""));
+        }
         m_sdkManager.reloadPackages(true);
         updateUI();
         apply();
@@ -584,13 +566,6 @@ void AndroidSettingsWidget::downloadOpenSslRepo(const bool silent)
         return;
     }
 
-    const QString openSslRepo("https://github.com/KDAB/android_openssl.git");
-    QtcProcess *gitCloner = new QtcProcess(this);
-    CommandLine gitCloneCommand("git", {"clone", "--depth=1", openSslRepo, openSslPath.toString()});
-    gitCloner->setCommand(gitCloneCommand);
-
-    qCDebug(androidsettingswidget) << "Cloning OpenSSL repo: " << gitCloneCommand.toUserOutput();
-
     QDir openSslDir(openSslPath.toString());
     const bool isEmptyDir = openSslDir.isEmpty(QDir::AllEntries | QDir::NoDotAndDotDot
                                                | QDir::Hidden | QDir::System);
@@ -611,7 +586,14 @@ void AndroidSettingsWidget::downloadOpenSslRepo(const bool silent)
     openSslProgressDialog->setWindowTitle(openSslCloneTitle);
     openSslProgressDialog->setFixedSize(openSslProgressDialog->sizeHint());
 
-    connect(openSslProgressDialog, &QProgressDialog::canceled, gitCloner, &QtcProcess::kill);
+    const QString openSslRepo("https://github.com/KDAB/android_openssl.git");
+    QtcProcess *gitCloner = new QtcProcess(this);
+    CommandLine gitCloneCommand("git", {"clone", "--depth=1", openSslRepo, openSslPath.toString()});
+    gitCloner->setCommand(gitCloneCommand);
+
+    qCDebug(androidsettingswidget) << "Cloning OpenSSL repo: " << gitCloneCommand.toUserOutput();
+
+    connect(openSslProgressDialog, &QProgressDialog::canceled, gitCloner, &QObject::deleteLater);
 
     auto failDialog = [=](const QString &msgSuffix = {}) {
         QStringList sl;
@@ -630,7 +612,7 @@ void AndroidSettingsWidget::downloadOpenSslRepo(const bool silent)
         openButton->deleteLater();
     };
 
-    connect(gitCloner, &QtcProcess::finished, [=] {
+    connect(gitCloner, &QtcProcess::finished, this, [=] {
                 openSslProgressDialog->close();
                 validateOpenSsl();
                 m_ui.openSslPathChooser->triggerChanged(); // After cloning, the path exists
@@ -661,11 +643,8 @@ void AndroidSettingsWidget::createKitToggled()
 
 void AndroidSettingsWidget::updateUI()
 {
-    const bool sdkToolsOk = m_androidSummary->rowsOk({SdkPathExistsAndWritableRow, SdkToolsInstalledRow});
     const bool androidSetupOk = m_androidSummary->allRowsOk();
     const bool openSslOk = m_openSslSummary->allRowsOk();
-
-    m_ui.sdkManagerGroupBox->setEnabled(sdkToolsOk);
 
     const QListWidgetItem *currentItem = m_ui.ndkListWidget->currentItem();
     const FilePath currentNdk = FilePath::fromString(currentItem ? currentItem->text() : "");
@@ -703,12 +682,13 @@ void AndroidSettingsWidget::downloadSdk()
         return;
     }
 
-    const QString message = tr("Download and install Android SDK Tools to: %1?")
-                        .arg(m_ui.SDKLocationPathChooser->filePath().cleanPath().toUserOutput());
+    const QString message = tr("Download and install Android SDK Tools to %1?")
+            .arg("\n\"" + m_ui.SDKLocationPathChooser->filePath().cleanPath().toUserOutput()
+                 + "\"");
     auto userInput = QMessageBox::information(this, AndroidSdkDownloader::dialogTitle(),
                                               message, QMessageBox::Yes | QMessageBox::No);
     if (userInput == QMessageBox::Yes)
-        m_sdkDownloader.downloadAndExtractSdk(m_ui.SDKLocationPathChooser->filePath().cleanPath());
+        m_sdkDownloader.downloadAndExtractSdk();
 }
 
 // AndroidSettingsPage

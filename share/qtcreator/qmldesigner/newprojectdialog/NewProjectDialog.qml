@@ -204,11 +204,22 @@ Item {
                                             font.weight: Font.DemiBold
                                             font.pixelSize: DialogValues.viewHeaderPixelSize
                                             verticalAlignment: Text.AlignVCenter
-                                            color: tabBarRow.currIndex === index ? DialogValues.textColorInteraction
-                                                                                 : DialogValues.textColor
+
+                                            color: {
+                                                var color = tabBarRow.currIndex === index
+                                                       ? DialogValues.textColorInteraction
+                                                       : DialogValues.textColor
+
+                                                return tabItemMouseArea.containsMouse
+                                                       ? Qt.darker(color, 1.5)
+                                                       : color
+                                            }
+
                                             Behavior on color { ColorAnimation { duration: tabBar.animDur } }
 
                                             MouseArea {
+                                                id: tabItemMouseArea
+                                                hoverEnabled: true
                                                 anchors.fill: parent
                                                 onClicked: {
                                                     tabBar.selectTab(index)
@@ -254,7 +265,7 @@ Item {
                                     anchors.fill: parent
                                     anchors.margins: DialogValues.gridMargins
 
-                                    NewProjectView {
+                                    PresetView {
                                         id: presetView
                                         anchors.fill: parent
 

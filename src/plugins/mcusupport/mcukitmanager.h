@@ -29,8 +29,6 @@
 #include <utils/environmentfwd.h>
 
 #include <QCoreApplication>
-#include <QObject>
-#include <QVector>
 #include <QVersionNumber>
 
 namespace ProjectExplorer {
@@ -41,7 +39,6 @@ namespace McuSupport {
 namespace Internal {
 
 class McuAbstractPackage;
-class McuToolChainPackage;
 class McuTarget;
 
 namespace McuKitManager {
@@ -83,3 +80,5 @@ void removeOutdatedKits();
 } // namespace McuKitManager
 } // namespace Internal
 } // namespace McuSupport
+
+Q_DECLARE_METATYPE(McuSupport::Internal::McuKitManager::UpgradeOption)

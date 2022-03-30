@@ -99,11 +99,11 @@ const char SdkLocation[] = "SdkLocation"; // FileName
 const Utils::Id AndroidSerialNumber = "AndroidSerialNumber";
 const Utils::Id AndroidAvdName = "AndroidAvdName";
 const Utils::Id AndroidCpuAbi = "AndroidCpuAbi";
-const Utils::Id AndroidAvdTarget = "AndroidAvdTarget";
-const Utils::Id AndroidAvdDevice = "AndroidAvdDevice";
-const Utils::Id AndroidAvdSkin = "AndroidAvdSkin";
-const Utils::Id AndroidAvdSdcard = "AndroidAvdSdcard";
 const Utils::Id AndroidSdk = "AndroidSdk";
+const Utils::Id AndroidAvdPath = "AndroidAvdPath";
+
+// SDK Tools
+const char cmdlineToolsName[] = "cmdline-tools";
 
 } // namespace Constants;
 } // namespace Android

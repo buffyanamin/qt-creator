@@ -25,6 +25,8 @@
 
 #include "androidsdkdownloader.h"
 
+#include "androidconstants.h"
+
 #include <utils/archive.h>
 #include <utils/filepath.h>
 
@@ -52,6 +54,8 @@ AndroidSdkDownloader::AndroidSdkDownloader()
     connect(&m_manager, &QNetworkAccessManager::finished, this, &AndroidSdkDownloader::downloadFinished);
 }
 
+AndroidSdkDownloader::~AndroidSdkDownloader() = default;
+
 #if QT_CONFIG(ssl)
 void AndroidSdkDownloader::sslErrors(const QList<QSslError> &sslErrors)
 {
@@ -61,7 +65,7 @@ void AndroidSdkDownloader::sslErrors(const QList<QSslError> &sslErrors)
 }
 #endif
 
-void AndroidSdkDownloader::downloadAndExtractSdk(const FilePath &sdkExtractPath)
+void AndroidSdkDownloader::downloadAndExtractSdk()
 {
     if (m_androidConfig.sdkToolsUrl().isEmpty()) {
         logError(tr("The SDK Tools download URL is empty."));
@@ -88,12 +92,23 @@ void AndroidSdkDownloader::downloadAndExtractSdk(const FilePath &sdkExtractPath)
 
     connect(m_progressDialog, &QProgressDialog::canceled, this, &AndroidSdkDownloader::cancel);
 
-    connect(this, &AndroidSdkDownloader::sdkPackageWriteFinished, this, [this, sdkExtractPath]() {
-        if (Archive *archive = Archive::unarchive(m_sdkFilename, sdkExtractPath)) {
-            connect(archive, &Archive::finished, [this, sdkExtractPath](bool success){
-                if (success)
+    connect(this, &AndroidSdkDownloader::sdkPackageWriteFinished, this, [this]() {
+        if (!Archive::supportsFile(m_sdkFilename))
+            return;
+        const FilePath extractDir = m_sdkFilename.parentDir();
+        m_archive.reset(new Archive(m_sdkFilename, extractDir));
+        if (m_archive->isValid()) {
+            connect(m_archive.get(), &Archive::finished, this, [this, extractDir](bool success) {
+                if (success) {
+                    // Save the extraction path temporarily which can be used by sdkmanager
+                    // to install essential packages at firt time setup.
+                    m_androidConfig.setTemporarySdkToolsPath(
+                                extractDir.pathAppended(Constants::cmdlineToolsName));
                     emit sdkExtracted();
+                }
+                m_archive.release()->deleteLater();
             });
+            m_archive->unarchive();
         }
     });
 }
@@ -153,7 +168,7 @@ FilePath AndroidSdkDownloader::getSaveFilename(const QUrl &url)
         basename += QString::number(i);
     }
 
-    return FilePath::fromString(QStandardPaths::writableLocation(QStandardPaths::DownloadLocation))
+    return FilePath::fromString(QStandardPaths::writableLocation(QStandardPaths::TempLocation))
             / basename;
 }
 

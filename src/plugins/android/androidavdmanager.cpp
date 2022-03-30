@@ -162,14 +162,6 @@ static CreateAvdInfo createAvdCommand(const AndroidConfig &config, const CreateA
         }
     }
 
-    // Kill the running process.
-    if (proc.state() != QProcess::NotRunning) {
-        proc.terminate();
-        if (!proc.waitForFinished(3000))
-            proc.kill();
-    }
-
-    QTC_CHECK(proc.state() == QProcess::NotRunning);
     result.error = errorOutput;
     return result;
 }
@@ -294,7 +286,7 @@ bool AndroidAvdManager::startAvdAsync(const QString &avdName) const
                               .arg(m_config.emulatorToolPath().toString()));
         return false;
     }
-    auto avdProcess = new QtcProcess();
+    auto avdProcess = new QtcProcess;
     avdProcess->setProcessChannelMode(QProcess::MergedChannels);
     QObject::connect(avdProcess, &QtcProcess::finished, avdProcess,
                      [avdProcess] { avdProcessFinished(avdProcess->exitCode(), avdProcess); });
@@ -322,7 +314,7 @@ QString AndroidAvdManager::findAvd(const QString &avdName) const
     foreach (AndroidDeviceInfo device, devices) {
         if (device.type != ProjectExplorer::IDevice::Emulator)
             continue;
-        if (device.avdname == avdName)
+        if (device.avdName == avdName)
             return device.serialNumber;
     }
     return QString();

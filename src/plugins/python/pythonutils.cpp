@@ -59,7 +59,7 @@ FilePath detectPython(const FilePath &documentPath)
         if (auto target = project->activeTarget()) {
             if (auto runConfig = qobject_cast<PythonRunConfiguration *>(
                     target->activeRunConfiguration())) {
-                python = FilePath::fromString(runConfig->interpreter());
+                python = runConfig->interpreter().command;
             }
         }
     }
@@ -125,6 +125,36 @@ void openPythonRepl(QObject *parent, const FilePath &file, ReplType type)
                      });
     QObject::connect(process, &QtcProcess::finished, process, &QObject::deleteLater);
     process->start();
+}
+
+QString pythonName(const FilePath &pythonPath)
+{
+    static QHash<FilePath, QString> nameForPython;
+    if (!pythonPath.exists())
+        return {};
+    QString name = nameForPython.value(pythonPath);
+    if (name.isEmpty()) {
+        QtcProcess pythonProcess;
+        pythonProcess.setTimeoutS(2);
+        pythonProcess.setCommand({pythonPath, {"--version"}});
+        pythonProcess.runBlocking();
+        if (pythonProcess.result() != ProcessResult::FinishedWithSuccess)
+            return {};
+        name = pythonProcess.allOutput().trimmed();
+        nameForPython[pythonPath] = name;
+    }
+    return name;
+}
+
+PythonProject *pythonProjectForFile(const FilePath &pythonFile)
+{
+    for (ProjectExplorer::Project *project : ProjectExplorer::SessionManager::projects()) {
+        if (auto pythonProject = qobject_cast<PythonProject *>(project)) {
+            if (pythonProject->isKnownFile(pythonFile))
+                return pythonProject;
+        }
+    }
+    return nullptr;
 }
 
 } // namespace Internal

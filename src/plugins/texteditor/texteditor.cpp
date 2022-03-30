@@ -3254,8 +3254,8 @@ void TextEditorWidgetPrivate::updateSyntaxInfoBar(const Highlighter::Definitions
                           BaseTextEditor::tr("More than one highlight definition was found for this file. "
                                              "Which one should be used to highlight this file?"));
         info.setComboInfo(Utils::transform(definitions, &Highlighter::Definition::name),
-                          [this](const QString &definition) {
-            this->configureGenericHighlighter(Highlighter::definitionForName(definition));
+                          [this](const InfoBarEntry::ComboInfo &info) {
+            this->configureGenericHighlighter(Highlighter::definitionForName(info.displayText));
         });
 
         info.addCustomButton(BaseTextEditor::tr("Remember My Choice"), [multiple, this]() {
@@ -3970,7 +3970,7 @@ void TextEditorWidgetPrivate::updateLineAnnotation(const PaintEventData &data,
         return;
 
     TextMarks marks = Utils::filtered(blockUserData->marks(), [](const TextMark* mark){
-        return !mark->lineAnnotation().isEmpty();
+        return !mark->lineAnnotation().isEmpty() && mark->isVisible();
     });
 
     const bool annotationsVisible = !marks.isEmpty();
@@ -4015,24 +4015,21 @@ void TextEditorWidgetPrivate::updateLineAnnotation(const PaintEventData &data,
     }
 
     for (const TextMark *mark : qAsConst(marks)) {
-        if (!mark->isVisible())
-            continue;
         boundingRect = QRectF(x, boundingRect.top(), q->viewport()->width() - x, boundingRect.height());
         if (boundingRect.isEmpty())
             break;
-        if (data.eventRect.intersects(boundingRect.toRect()))
-            mark->paintAnnotation(painter, &boundingRect, offset, itemOffset / 2, q->contentOffset());
+
+        mark->paintAnnotation(painter,
+                              data.eventRect,
+                              &boundingRect,
+                              offset,
+                              itemOffset / 2,
+                              q->contentOffset());
 
         x = boundingRect.right();
         offset = itemOffset / 2;
         m_annotationRects[data.block.blockNumber()].append({boundingRect, mark});
     }
-
-    QRect updateRect(lineRect.toRect().topRight(), boundingRect.toRect().bottomRight());
-    updateRect.setLeft(qBound(0, updateRect.left(), q->viewport()->width() - 1));
-    updateRect.setRight(qBound(0, updateRect.right(), q->viewport()->width() - 1));
-    if (!updateRect.isEmpty() && !data.eventRect.contains(q->viewport()->rect() & updateRect))
-        q->viewport()->update(updateRect);
 }
 
 QColor blendRightMarginColor(const FontSettings &settings, bool areaColor)
@@ -4245,9 +4242,6 @@ void TextEditorWidgetPrivate::paintCurrentLineHighlight(const PaintEventData &da
         lineRect.moveTop(lineRect.top() + blockRect.top());
         lineRect.setLeft(0);
         lineRect.setRight(data.viewportRect.width());
-        // set alpha, otherwise we cannot see block highlighting and find scope underneath
-        if (!data.eventRect.contains(lineRect.toAlignedRect()))
-            q->viewport()->update(lineRect.toAlignedRect());
         painter.fillRect(lineRect, color);
     }
 }
@@ -4632,8 +4626,8 @@ void TextEditorWidget::paintEvent(QPaintEvent *e)
 
             d->paintAdditionalVisualWhitespaces(data, painter, blockData.boundingRect.top());
             d->paintReplacement(data, painter, blockData.boundingRect.top());
+            d->updateLineAnnotation(data, blockData, painter);
         }
-        d->updateLineAnnotation(data, blockData, painter);
 
         data.offset.ry() += blockData.boundingRect.height();
 
@@ -5112,25 +5106,28 @@ void TextEditorWidgetPrivate::updateCurrentLineHighlight()
 
     // the extra area shows information for the entire current block, not just the currentline.
     // This is why we must force a bigger update region.
-    QList<int> cursorBlockNumbers;
     const QPointF offset = q->contentOffset();
+    auto updateBlock = [&](const QTextBlock &block) {
+        if (block.isValid() && block.isVisible()) {
+            QRect updateRect = q->blockBoundingGeometry(block).translated(offset).toAlignedRect();
+            m_extraArea->update(updateRect);
+            updateRect.setLeft(0);
+            updateRect.setRight(q->viewport()->width());
+            q->viewport()->update(updateRect);
+        }
+    };
+    QList<int> cursorBlockNumbers;
     for (const QTextCursor &c : m_cursors) {
         int cursorBlockNumber = c.blockNumber();
-        if (!m_cursorBlockNumbers.contains(cursorBlockNumber)) {
-            QTextBlock block = c.block();
-            if (block.isValid() && block.isVisible())
-                m_extraArea->update(q->blockBoundingGeometry(block).translated(offset).toAlignedRect());
-        }
+        if (!m_cursorBlockNumbers.contains(cursorBlockNumber))
+            updateBlock(c.block());
         if (!cursorBlockNumbers.contains(c.blockNumber()))
             cursorBlockNumbers << c.blockNumber();
     }
     if (m_cursorBlockNumbers != cursorBlockNumbers) {
         for (int oldBlock : m_cursorBlockNumbers) {
-            if (cursorBlockNumbers.contains(oldBlock))
-                continue;
-            QTextBlock block = m_document->document()->findBlockByNumber(oldBlock);
-            if (block.isValid() && block.isVisible())
-                m_extraArea->update(q->blockBoundingGeometry(block).translated(offset).toAlignedRect());
+            if (!cursorBlockNumbers.contains(oldBlock))
+                updateBlock(m_document->document()->findBlockByNumber(oldBlock));
         }
         m_cursorBlockNumbers = cursorBlockNumbers;
     }

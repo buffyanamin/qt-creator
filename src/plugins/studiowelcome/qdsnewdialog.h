@@ -34,7 +34,6 @@
 #include "presetmodel.h"
 #include "screensizemodel.h"
 #include "stylemodel.h"
-#include "recentpresets.h"
 #include "userpresets.h"
 
 QT_BEGIN_NAMESPACE
@@ -42,6 +41,7 @@ class QStandardItemModel;
 QT_END_NAMESPACE
 
 namespace StudioWelcome {
+
 class QdsNewDialog : public QObject, public Core::NewDialog
 {
     Q_OBJECT
@@ -151,6 +151,8 @@ private:
     QString projectDescription() const { return m_qmlProjectDescription; }
 
     void updateScreenSizes();
+    bool eventFilter(QObject *obj, QEvent *ev) override;
+    UserPresetData currentUserPresetData(const QString &displayName) const;
 
 private slots:
     void onDeletingWizard();
@@ -192,7 +194,7 @@ private:
     std::shared_ptr<PresetItem> m_currentPreset;
 
     WizardHandler m_wizard;
-    RecentPresetsStore m_recentsStore;
+    UserPresetsStore m_recentsStore;
     UserPresetsStore m_userPresetsStore;
 };
 

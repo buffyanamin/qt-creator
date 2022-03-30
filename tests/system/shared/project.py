@@ -1,6 +1,6 @@
 ############################################################################
 #
-# Copyright (C) 2016 The Qt Company Ltd.
+# Copyright (C) 2022 The Qt Company Ltd.
 # Contact: https://www.qt.io/licensing/
 #
 # This file is part of Qt Creator.
@@ -69,10 +69,8 @@ def openCmakeProject(projectPath, buildDir):
     invokeMenuItem("File", "Open File or Project...")
     selectFromFileDialog(projectPath)
     __chooseTargets__([]) # uncheck all
-    targetToChoose = Targets.DESKTOP_4_8_7_DEFAULT # FIXME make the intended target a parameter
-    if not qt4Available:
-        targetToChoose = Targets.DESKTOP_5_14_1_DEFAULT
-    __chooseTargets__([targetToChoose], additionalFunc=additionalFunction)
+    # FIXME make the intended target a parameter
+    __chooseTargets__([Targets.DESKTOP_5_14_1_DEFAULT], additionalFunc=additionalFunction)
     clickButton(waitForObject(":Qt Creator.Configure Project_QPushButton"))
     return True
 
@@ -209,7 +207,7 @@ def __verifyFileCreation__(path, expectedFiles):
 def __modifyAvailableTargets__(available, requiredQt, asStrings=False):
     versionFinder = re.compile("^Desktop (\\d{1}\.\\d{1,2}\.\\d{1,2}).*$")
     tmp = list(available) # we need a deep copy
-    if Qt5Path.toVersionTuple(requiredQt) > (4,8,7):
+    if Qt5Path.toVersionTuple(requiredQt) > (4,8,7) and qt4Available:
         toBeRemoved = Targets.EMBEDDED_LINUX
         if asStrings:
             toBeRemoved = Targets.getStringForTarget(toBeRemoved)
@@ -223,23 +221,34 @@ def __modifyAvailableTargets__(available, requiredQt, asStrings=False):
         if found:
             if Qt5Path.toVersionTuple(found.group(1)) < Qt5Path.toVersionTuple(requiredQt):
                 available.discard(currentItem)
+        elif currentItem.endswith(" (invalid)"):
+            available.discard(currentItem)
+
+def __getProjectFileName__(projectName, buildSystem):
+    if buildSystem is None or buildSystem == "CMake":
+        return "CMakeLists.txt"
+    else:
+        return projectName + (".pro" if buildSystem == "qmake" else ".qbs")
 
 # Creates a Qt GUI project
 # param path specifies where to create the project
 # param projectName is the name for the new project
 # param checks turns tests in the function on if set to True
-def createProject_Qt_GUI(path, projectName, checks = True, addToVersionControl = "<None>"):
+# param addToVersionControl selects the specified VCS from Creator's wizard
+# param buildSystem selects the specified build system from Creator's wizard
+def createProject_Qt_GUI(path, projectName, checks=True, addToVersionControl="<None>",
+                         buildSystem=None):
     template = "Qt Widgets Application"
     available = __createProjectOrFileSelectType__("  Application (Qt)", template)
     __createProjectSetNameAndPath__(path, projectName, checks)
-    buildSystem = __handleBuildSystem__(None)
+    buildSystem = __handleBuildSystem__(buildSystem)
 
     if checks:
         exp_filename = "mainwindow"
         h_file = exp_filename + ".h"
         cpp_file = exp_filename + ".cpp"
         ui_file = exp_filename + ".ui"
-        pro_file = projectName + ".pro"
+        projectFile = __getProjectFileName__(projectName, buildSystem)
 
         waitFor("object.exists(':headerFileLineEdit_Utils::FileNameValidatingLineEdit')", 20000)
         waitFor("object.exists(':sourceFileLineEdit_Utils::FileNameValidatingLineEdit')", 20000)
@@ -259,7 +268,7 @@ def createProject_Qt_GUI(path, projectName, checks = True, addToVersionControl =
             path = os.path.abspath(path)
         path = os.path.join(path, projectName)
         expectedFiles = [path]
-        expectedFiles.extend(__sortFilenamesOSDependent__(["main.cpp", cpp_file, h_file, ui_file, pro_file]))
+        expectedFiles.extend(__sortFilenamesOSDependent__(["main.cpp", cpp_file, h_file, ui_file, projectFile]))
     __createProjectHandleLastPage__(expectedFiles, addToVersionControl)
 
     waitForProjectParsing()
@@ -283,9 +292,9 @@ def createProject_Qt_Console(path, projectName, checks = True, buildSystem = Non
             path = os.path.abspath(path)
         path = os.path.join(path, projectName)
         cpp_file = "main.cpp"
-        pro_file = projectName + ".pro"
+        projectFile = __getProjectFileName__(projectName, buildSystem)
         expectedFiles = [path]
-        expectedFiles.extend(__sortFilenamesOSDependent__([cpp_file, pro_file]))
+        expectedFiles.extend(__sortFilenamesOSDependent__([cpp_file, projectFile]))
     __createProjectHandleLastPage__(expectedFiles)
 
     waitForProjectParsing()
@@ -375,7 +384,8 @@ def createNewNonQtProject(workingDir, projectName, target, plainC=False, buildSy
     __createProjectHandleLastPage__()
     return projectName
 
-def createNewCPPLib(projectDir, projectName, className, target, isStatic):
+
+def createNewCPPLib(projectDir, projectName, className, target, isStatic, buildSystem=None):
     available = __createProjectOrFileSelectType__("  Library", "C++ Library", False, True)
     if isStatic:
         libType = LibType.STATIC
@@ -384,7 +394,7 @@ def createNewCPPLib(projectDir, projectName, className, target, isStatic):
     if projectDir == None:
         projectDir = tempDir()
     projectName = __createProjectSetNameAndPath__(projectDir, projectName, False)
-    __handleBuildSystem__(None)
+    __handleBuildSystem__(buildSystem)
     selectFromCombo(waitForObject("{name='Type' type='QComboBox' visible='1' "
                                   "window=':New_ProjectExplorer::JsonWizard'}"),
                     LibType.getStringForLib(libType))
@@ -396,10 +406,12 @@ def createNewCPPLib(projectDir, projectName, className, target, isStatic):
     __createProjectHandleLastPage__()
     return projectName, className
 
-def createNewQtPlugin(projectDir, projectName, className, target, baseClass="QGenericPlugin"):
+
+def createNewQtPlugin(projectDir, projectName, className, target, baseClass="QGenericPlugin",
+                      buildSystem=None):
     available = __createProjectOrFileSelectType__("  Library", "C++ Library", False, True)
     projectName = __createProjectSetNameAndPath__(projectDir, projectName, False)
-    __handleBuildSystem__(None)
+    __handleBuildSystem__(buildSystem)
     selectFromCombo(waitForObject("{name='Type' type='QComboBox' visible='1' "
                                   "window=':New_ProjectExplorer::JsonWizard'}"),
                     LibType.getStringForLib(LibType.QT_PLUGIN))
@@ -513,7 +525,9 @@ def __closeSubprocessByPushingStop__(isQtQuickUI):
 # configured Qt versions and Toolchains and cannot be looked up the same way
 # if you set getAsStrings to True this function returns a list of strings instead
 # of the constants defined in Targets
-def __getSupportedPlatforms__(text, templateName, getAsStrings=False):
+# ignoreValidity if true kits will be considered available even if they are configured
+# to use an invalid Qt
+def __getSupportedPlatforms__(text, templateName, getAsStrings=False, ignoreValidity=False):
     reqPattern = re.compile("requires qt (?P<version>\d+\.\d+(\.\d+)?)", re.IGNORECASE)
     res = reqPattern.search(text)
     if res:
@@ -526,11 +540,12 @@ def __getSupportedPlatforms__(text, templateName, getAsStrings=False):
         supports = text[text.find('Supported Platforms'):].split(":")[1].strip().split("\n")
         result = set()
         if 'Desktop' in supports:
-            if (version == None or version < "5.0") and not templateName.startswith("Qt Quick 2"):
-                if qt4Available:
+            if (version == None or version < "5.0") and not templateName.startswith("Qt Quick"):
+                neverIgnoreValidity = templateName in ("Qt Custom Designer Widget", "Code Snippet", "Subdirs Project")
+                if qt4Available or ignoreValidity and not neverIgnoreValidity:
                     result.add(Targets.DESKTOP_4_8_7_DEFAULT)
-                if platform.system() in ("Linux", "Darwin"):
-                    result.add(Targets.EMBEDDED_LINUX)
+                    if platform.system() in ("Linux", "Darwin"):
+                        result.add(Targets.EMBEDDED_LINUX)
             result = result.union(set([Targets.DESKTOP_5_10_1_DEFAULT, Targets.DESKTOP_5_14_1_DEFAULT]))
             if platform.system() != 'Darwin':
                 result.add(Targets.DESKTOP_5_4_1_GCC)
