@@ -19,10 +19,6 @@ Project {
         files: [
             "sftpdefs.cpp",
             "sftpdefs.h",
-            "sftpfilesystemmodel.cpp",
-            "sftpfilesystemmodel.h",
-            "sftpsession.cpp",
-            "sftpsession.h",
             "sftptransfer.cpp",
             "sftptransfer.h",
             "ssh.qrc",

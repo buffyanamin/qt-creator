@@ -24,11 +24,12 @@
 ****************************************************************************/
 
 #include "qmljscodestylepreferencesfactory.h"
-#include "qmljscodestylesettingspage.h"
-#include "qmljstoolsconstants.h"
-#include "qmljsindenter.h"
 
-#include <texteditor/simplecodestylepreferences.h>
+#include "qmljscodestylepreferences.h"
+#include "qmljscodestylesettingspage.h"
+#include "qmljsindenter.h"
+#include "qmljstoolsconstants.h"
+
 
 #include <qmljseditor/qmljseditorconstants.h>
 
@@ -68,15 +69,19 @@ QString QmlJSCodeStylePreferencesFactory::displayName()
 
 TextEditor::ICodeStylePreferences *QmlJSCodeStylePreferencesFactory::createCodeStyle() const
 {
-    return new TextEditor::SimpleCodeStylePreferences();
+    return new QmlJSCodeStylePreferences();
 }
 
-QWidget *QmlJSCodeStylePreferencesFactory::createEditor(TextEditor::ICodeStylePreferences *preferences,
-                                                           QWidget *parent) const
+TextEditor::CodeStyleEditorWidget *QmlJSCodeStylePreferencesFactory::createEditor(
+    TextEditor::ICodeStylePreferences *preferences,
+    QWidget *parent) const
 {
+    auto qmlJSPreferences = qobject_cast<QmlJSCodeStylePreferences *>(preferences);
+    if (!qmlJSPreferences)
+        return nullptr;
     auto widget = new Internal::QmlJSCodeStylePreferencesWidget(parent);
     widget->layout()->setContentsMargins(0, 0, 0, 0);
-    widget->setPreferences(preferences);
+    widget->setPreferences(qmlJSPreferences);
     return widget;
 }
 

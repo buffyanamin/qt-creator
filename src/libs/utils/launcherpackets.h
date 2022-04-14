@@ -45,11 +45,10 @@ enum class LauncherPacketType {
     WriteIntoProcess,
     StopProcess,
     // launcher -> client packets:
-    ProcessError,
     ProcessStarted,
     ReadyReadStandardOutput,
     ReadyReadStandardError,
-    ProcessFinished
+    ProcessDone
 };
 
 class PacketParser
@@ -113,12 +112,12 @@ public:
     QStringList env;
     ProcessMode processMode = ProcessMode::Reader;
     QByteArray writeData;
-    QProcess::ProcessChannelMode processChannelMode = QProcess::SeparateChannels;
     QString standardInputFile;
     bool belowNormalPriority = false;
     QString nativeArguments;
     bool lowPriority = false;
     bool unixTerminalDisabled = false;
+    bool useCtrlCStub = false;
 
 private:
     void doSerialize(QDataStream &stream) const override;
@@ -142,6 +141,13 @@ class StopProcessPacket : public LauncherPacket
 public:
     StopProcessPacket(quintptr token);
 
+    enum class SignalType {
+        Kill,
+        Terminate
+    };
+
+    SignalType signalType = SignalType::Kill;
+
 private:
     void doSerialize(QDataStream &stream) const override;
     void doDeserialize(QDataStream &stream) override;
@@ -163,19 +169,6 @@ class ShutdownPacket : public LauncherPacket
 {
 public:
     ShutdownPacket();
-
-private:
-    void doSerialize(QDataStream &stream) const override;
-    void doDeserialize(QDataStream &stream) override;
-};
-
-class ProcessErrorPacket : public LauncherPacket
-{
-public:
-    ProcessErrorPacket(quintptr token);
-
-    QProcess::ProcessError error = QProcess::UnknownError;
-    QString errorString;
 
 private:
     void doSerialize(QDataStream &stream) const override;
@@ -209,17 +202,18 @@ public:
         : ReadyReadPacket(LauncherPacketType::ReadyReadStandardError, token) { }
 };
 
-class ProcessFinishedPacket : public LauncherPacket
+class ProcessDonePacket : public LauncherPacket
 {
 public:
-    ProcessFinishedPacket(quintptr token);
+    ProcessDonePacket(quintptr token);
 
-    QString errorString;
     QByteArray stdOut;
     QByteArray stdErr;
+
+    int exitCode = 0;
     QProcess::ExitStatus exitStatus = QProcess::NormalExit;
     QProcess::ProcessError error = QProcess::UnknownError;
-    int exitCode = 0;
+    QString errorString;
 
 private:
     void doSerialize(QDataStream &stream) const override;

@@ -43,6 +43,7 @@ option(BUILD_LIBRARIES_BY_DEFAULT "Build libraries by default. This can be used 
 option(BUILD_TESTS_BY_DEFAULT "Build tests by default. This can be used to build all tests by default, or none." ON)
 option(QTC_SEPARATE_DEBUG_INFO "Extract debug information from binary files." OFF)
 option(WITH_SCCACHE_SUPPORT "Enables support for building with SCCACHE and separate debug info with MSVC, which SCCACHE normally doesn't support." OFF)
+option(WITH_CCACHE_SUPPORT "Enables support for building with CCACHE and separate debug info with MSVC, which CCACHE normally doesn't support." OFF)
 
 # If we provide a list of plugins, executables, libraries, then the BUILD_<type>_BY_DEFAULT will be set to OFF
 # and for every element we set BUILD_<type>_<elment> to ON
@@ -399,6 +400,7 @@ function(add_qtc_plugin target_name)
 
   ### Configure plugin.json file:
   if (EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/${name}.json.in")
+    list(APPEND _arg_SOURCES ${name}.json.in)
     file(READ "${name}.json.in" plugin_json_in)
     string(REPLACE "\\\"" "\"" plugin_json_in ${plugin_json_in})
     string(REPLACE "\\'" "'" plugin_json_in ${plugin_json_in})

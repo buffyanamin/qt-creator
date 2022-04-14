@@ -87,6 +87,7 @@
 #include "removetaskhandler.h"
 #include "runconfigurationaspects.h"
 #include "runsettingspropertiespage.h"
+#include "sanitizerparser.h"
 #include "selectablefilesmodel.h"
 #include "session.h"
 #include "sessiondialog.h"
@@ -736,6 +737,7 @@ public:
          cmakeRunConfigFactory.runConfigurationId()}
     };
 
+    SanitizerOutputFormatterFactory sanitizerFormatterFactory;
 };
 
 static ProjectExplorerPlugin *m_instance = nullptr;
@@ -1213,8 +1215,9 @@ bool ProjectExplorerPlugin::initialize(const QStringList &arguments, QString *er
     dd->m_sessionManagerAction = new QAction(tr("&Manage..."), this);
     dd->m_sessionMenu->addAction(dd->m_sessionManagerAction);
     dd->m_sessionMenu->addSeparator();
+    cmd = ActionManager::registerAction(dd->m_sessionManagerAction,
+                                        "ProjectExplorer.ManageSessions");
     cmd->setDefaultKeySequence(QKeySequence());
-
 
     // unload action
     dd->m_unloadAction = new ParameterAction(tr("Close Project"), tr("Close Pro&ject \"%1\""),
@@ -2245,6 +2248,8 @@ void ProjectExplorerPlugin::extensionsInitialized()
     dd->m_projectFilterString = filterStrings.join(filterSeparator);
 
     BuildManager::extensionsInitialized();
+    TaskHub::addCategory(Constants::TASK_CATEGORY_SANITIZER,
+                         tr("Sanitizer", "Category for sanitizer issues listed under 'Issues'"));
 
     QSsh::SshSettings::loadSettings(Core::ICore::settings());
     const auto searchPathRetriever = [] {
@@ -2315,6 +2320,11 @@ ExtensionSystem::IPlugin::ShutdownFlag ProjectExplorerPlugin::aboutToShutdown()
     dd->m_outputPane.closeTabs(AppOutputPane::CloseTabNoPrompt /* No prompt any more */);
     dd->m_shutdownWatchDogId = dd->startTimer(10 * 1000); // Make sure we shutdown *somehow*
     return AsynchronousShutdown;
+}
+
+QVector<QObject *> ProjectExplorerPlugin::createTestObjects() const
+{
+    return SanitizerParser::createTestObjects();
 }
 
 void ProjectExplorerPlugin::showSessionManager()

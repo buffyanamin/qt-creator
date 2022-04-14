@@ -193,8 +193,13 @@ class ShellThreadHandler : public QObject
 public:
     ~ShellThreadHandler()
     {
-        if (m_shell)
-            delete m_shell;
+        if (!m_shell)
+            return;
+        if (m_shell->isRunning()) {
+            m_shell->write("exit\n");
+            m_shell->waitForFinished();
+        }
+        delete m_shell;
     }
 
     bool startFailed(const SshConnectionParameters &parameters)
@@ -442,7 +447,11 @@ FilePath LinuxDevice::mapToGlobalPath(const FilePath &pathOnDevice) const
 
 bool LinuxDevice::handlesFile(const FilePath &filePath) const
 {
-    return filePath.scheme() == "ssh" && filePath.host() == userAtHost();
+    if (filePath.scheme() == "device" && filePath.host() == id().toString())
+        return true;
+    if (filePath.scheme() == "ssh" && filePath.host() == userAtHost())
+        return true;
+    return false;
 }
 
 CommandLine LinuxDevicePrivate::fullLocalCommandLine(const CommandLine &remoteCommand,

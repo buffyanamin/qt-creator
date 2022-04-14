@@ -23,30 +23,36 @@
 **
 ****************************************************************************/
 
-#include <ssh/sftpdefs.h>
+#pragma once
 
-#include <QDialog>
+#include "qmljstools_global.h"
 
-QT_BEGIN_NAMESPACE
-namespace Ui { class Window; }
-QT_END_NAMESPACE
+#include <QWidget>
 
-namespace QSsh { class SftpFileSystemModel; }
+namespace TextEditor {
+class ICodeStylePreferences;
+}
 
-class SftpFsWindow : public QDialog
+namespace QmlJSTools {
+class QmlJSCodeStyleSettings;
+class QmlJSCodeStyleSettingsWidget;
+class QmlJSCodeStylePreferences;
+
+class QMLJSTOOLS_EXPORT QmlJSCodeStylePreferencesWidget : public QWidget
 {
     Q_OBJECT
+
 public:
-    SftpFsWindow(QWidget *parent = 0);
-    ~SftpFsWindow();
+    explicit QmlJSCodeStylePreferencesWidget(QWidget *parent = nullptr);
+
+    void setPreferences(QmlJSCodeStylePreferences *tabPreferences);
 
 private:
-    void connectToHost();
-    void downloadFile();
-    void handleConnectionError(const QString &errorMessage);
-    void handleSftpOperationFailed(const QString &errorMessage);
-    void handleSftpOperationFinished(QSsh::SftpJobId jobId, const QString &error);
+    void slotCurrentPreferencesChanged(TextEditor::ICodeStylePreferences* preferences);
+    void slotSettingsChanged(const QmlJSCodeStyleSettings &settings);
 
-    QSsh::SftpFileSystemModel *m_fsModel;
-    Ui::Window *m_ui;
+    QmlJSCodeStyleSettingsWidget *m_codeStyleSettingsWidget;
+    QmlJSCodeStylePreferences *m_preferences = nullptr;
 };
+
+} // namespace QmlJSTools

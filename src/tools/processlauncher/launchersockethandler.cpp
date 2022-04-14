@@ -133,61 +133,49 @@ void LauncherSocketHandler::handleSocketClosed()
     qApp->quit();
 }
 
-void LauncherSocketHandler::handleProcessError()
+void LauncherSocketHandler::handleProcessError(Process *process)
 {
-    Process * proc = senderProcess();
-
     // In case of FailedToStart we won't receive finished signal, so we send the error
     // packet and remove the process here and now. For all other errors we should expect
     // corresponding finished signal to appear, so we will send the error data together with
     // the finished packet later on.
-    if (proc->error() != QProcess::FailedToStart)
-        return;
-
-    ProcessErrorPacket packet(proc->token());
-    packet.error = proc->error();
-    packet.errorString = proc->errorString();
-    sendPacket(packet);
-    removeProcess(proc->token());
+    if (process->error() == QProcess::FailedToStart)
+        handleProcessFinished(process);
 }
 
-void LauncherSocketHandler::handleProcessStarted()
+void LauncherSocketHandler::handleProcessStarted(Process *process)
 {
-    Process *proc = senderProcess();
-    ProcessStartedPacket packet(proc->token());
-    packet.processId = proc->processId();
-    proc->processStartHandler()->handleProcessStarted();
+    ProcessStartedPacket packet(process->token());
+    packet.processId = process->processId();
+    process->processStartHandler()->handleProcessStarted();
     sendPacket(packet);
 }
 
-void LauncherSocketHandler::handleReadyReadStandardOutput()
+void LauncherSocketHandler::handleReadyReadStandardOutput(Process *process)
 {
-    Process * proc = senderProcess();
-    ReadyReadStandardOutputPacket packet(proc->token());
-    packet.standardChannel = proc->readAllStandardOutput();
+    ReadyReadStandardOutputPacket packet(process->token());
+    packet.standardChannel = process->readAllStandardOutput();
     sendPacket(packet);
 }
 
-void LauncherSocketHandler::handleReadyReadStandardError()
+void LauncherSocketHandler::handleReadyReadStandardError(Process *process)
 {
-    Process * proc = senderProcess();
-    ReadyReadStandardErrorPacket packet(proc->token());
-    packet.standardChannel = proc->readAllStandardError();
+    ReadyReadStandardErrorPacket packet(process->token());
+    packet.standardChannel = process->readAllStandardError();
     sendPacket(packet);
 }
 
-void LauncherSocketHandler::handleProcessFinished()
+void LauncherSocketHandler::handleProcessFinished(Process *process)
 {
-    Process * proc = senderProcess();
-    ProcessFinishedPacket packet(proc->token());
-    packet.error = proc->error();
-    packet.errorString = proc->errorString();
-    packet.exitCode = proc->exitCode();
-    packet.exitStatus = proc->exitStatus();
-    packet.stdErr = proc->readAllStandardError();
-    packet.stdOut = proc->readAllStandardOutput();
+    ProcessDonePacket packet(process->token());
+    packet.exitCode = process->exitCode();
+    packet.exitStatus = process->exitStatus();
+    packet.error = process->error();
+    packet.errorString = process->errorString();
+    packet.stdErr = process->readAllStandardError();
+    packet.stdOut = process->readAllStandardOutput();
     sendPacket(packet);
-    removeProcess(proc->token());
+    removeProcess(process->token());
 }
 
 void LauncherSocketHandler::handleStartPacket()
@@ -205,8 +193,6 @@ void LauncherSocketHandler::handleStartPacket()
     process->setEnvironment(packet.env);
     process->setWorkingDirectory(packet.workingDir);
     // Forwarding is handled by the LauncherInterface
-    process->setProcessChannelMode(packet.processChannelMode == QProcess::MergedChannels
-                                   ? QProcess::MergedChannels : QProcess::SeparateChannels);
     process->setStandardInputFile(packet.standardInputFile);
     ProcessStartHandler *handler = process->processStartHandler();
     handler->setProcessMode(packet.processMode);
@@ -218,6 +204,7 @@ void LauncherSocketHandler::handleStartPacket()
         process->setLowPriority();
     if (packet.unixTerminalDisabled)
         process->setUnixTerminalDisabled();
+    process->setUseCtrlCStub(packet.useCtrlCStub);
     process->start(packet.command, packet.arguments, handler->openMode());
     handler->handleProcessStart();
 }
@@ -248,6 +235,15 @@ void LauncherSocketHandler::handleStopPacket()
         logDebug("Got stop request for unknown process");
         return;
     }
+    const auto packet = LauncherPacket::extractPacket<StopProcessPacket>(
+                m_packetParser.token(),
+                m_packetParser.packetData());
+
+    if (packet.signalType == StopProcessPacket::SignalType::Terminate) {
+        process->terminate();
+        return;
+    }
+
     if (process->state() == QProcess::NotRunning) {
         // This shouldn't happen, since as soon as process finishes or error occurrs
         // the process is being removed.
@@ -255,7 +251,7 @@ void LauncherSocketHandler::handleStopPacket()
     } else {
         // We got the client request to stop the starting / running process.
         // We report process exit to the client.
-        ProcessFinishedPacket packet(process->token());
+        ProcessDonePacket packet(process->token());
         packet.error = QProcess::Crashed;
         packet.exitCode = -1;
         packet.exitStatus = QProcess::CrashExit;
@@ -281,14 +277,14 @@ void LauncherSocketHandler::sendPacket(const LauncherPacket &packet)
 Process *LauncherSocketHandler::setupProcess(quintptr token)
 {
     const auto p = new Process(token, this);
-    connect(p, &QProcess::errorOccurred, this, &LauncherSocketHandler::handleProcessError);
-    connect(p, &QProcess::started, this, &LauncherSocketHandler::handleProcessStarted);
-    connect(p, &QProcess::readyReadStandardOutput,
-            this, &LauncherSocketHandler::handleReadyReadStandardOutput);
-    connect(p, &QProcess::readyReadStandardError,
-            this, &LauncherSocketHandler::handleReadyReadStandardError);
+    connect(p, &QProcess::started, this, [this, p] { handleProcessStarted(p); });
+    connect(p, &QProcess::errorOccurred, this, [this, p] { handleProcessError(p); });
     connect(p, static_cast<void (QProcess::*)(int, QProcess::ExitStatus)>(&QProcess::finished),
-            this, &LauncherSocketHandler::handleProcessFinished);
+            this, [this, p] { handleProcessFinished(p); });
+    connect(p, &QProcess::readyReadStandardOutput,
+            this, [this, p] { handleReadyReadStandardOutput(p); });
+    connect(p, &QProcess::readyReadStandardError,
+            this, [this, p] { handleReadyReadStandardError(p); });
     return p;
 }
 
@@ -301,11 +297,6 @@ void LauncherSocketHandler::removeProcess(quintptr token)
     Process *process = it.value();
     m_processes.erase(it);
     ProcessReaper::reap(process);
-}
-
-Process *LauncherSocketHandler::senderProcess() const
-{
-    return static_cast<Process *>(sender());
 }
 
 } // namespace Internal

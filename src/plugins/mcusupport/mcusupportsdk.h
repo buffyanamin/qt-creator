@@ -29,7 +29,6 @@
 
 #include <utils/filepath.h>
 
-#include <QPair>
 #include <QSettings>
 
 namespace McuSupport::Internal {
@@ -49,10 +48,10 @@ McuAbstractPackage *createQtForMCUsPackage();
 
 bool checkDeprecatedSdkError(const Utils::FilePath &qulDir, QString &message);
 
-void targetsAndPackages(const Utils::FilePath &qulDir, McuSdkRepository *repo);
+McuSdkRepository targetsAndPackages(const Utils::FilePath &qulDir);
 
 McuTargetDescription parseDescriptionJson(const QByteArray &);
-QPair<Targets, Packages> targetsFromDescriptions(const QList<McuTargetDescription> &, bool isLegacy);
+McuSdkRepository targetsFromDescriptions(const QList<McuTargetDescription> &, bool isLegacy);
 
 Utils::FilePath kitsPath(const Utils::FilePath &dir);
 
@@ -61,10 +60,17 @@ Utils::FilePath packagePathFromSettings(const QString &settingsKey,
                                         const Utils::FilePath &defaultPath);
 
 McuToolChainPackage *createUnsupportedToolChainPackage();
+McuToolChainPackage *createIarToolChainPackage();
+McuToolChainPackage *createGccToolChainPackage();
+McuToolChainPackage *createArmGccToolchainPackage();
+McuToolChainPackage *createMsvcToolChainPackage();
+McuToolChainPackage *createGhsToolchainPackage();
+McuToolChainPackage *createGhsArmToolchainPackage();
+
 McuAbstractPackage *createBoardSdkPackage(const McuTargetDescription &desc);
 McuAbstractPackage *createFreeRTOSSourcesPackage(const QString &envVar,
                                                  const Utils::FilePath &boardSdkDir,
-                                                 const QString &freeRTOSBoardSdkSubDir);
+                                                 const Utils::FilePath &freeRTOSBoardSdkSubDir);
 
 } // namespace Sdk
 } // namespace McuSupport::Internal

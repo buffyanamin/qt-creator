@@ -434,8 +434,8 @@ void ClangdTestLocalReferences::test_data()
             /* QList<Range>{{40, 7, 3}, {43, 9, 3}} */;
     QTest::newRow("instantiated template object") << 52 << 19
                                                   << QList<Range>{{52, 19, 3}, {53, 5, 3}};
-    QTest::newRow("variable in template") << 62 << 13 << QList<Range>()
-            /* QList<Range>{{62, 13, 3}, {63, 11, 3}} */;
+    QTest::newRow("variable in template") << 62 << 13
+                                          << QList<Range>{{62, 13, 3}, {63, 11, 3}};
     QTest::newRow("member in template") << 67 << 7 << QList<Range>()
             /* QList<Range>{{64, 16, 3}, {67, 7, 3}} */;
     QTest::newRow("template type") << 58 << 19 << QList<Range>()
@@ -1315,6 +1315,12 @@ void ClangdTestHighlighting::test_data()
     QTest::newRow("deref operator (object)") << 960 << 10 << 960 << 11 << QList<int>{C_LOCAL} << 0;
     QTest::newRow("deref operator (member)") << 960 << 12 << 960 << 13 << QList<int>{C_FIELD} << 0;
     QTest::newRow("nested call") << 979 << 20 << 979 << 21 << QList<int>{C_LOCAL} << 0;
+    QTest::newRow("member call on dependent (1)") << 996 << 19 << 996 << 22
+                                                  << QList<int>{C_FIELD} << 0;
+    QTest::newRow("member call on dependent (2)") << 996 << 38 << 996 << 41
+                                                  << QList<int>{C_FIELD} << 0;
+    QTest::newRow("member call on dependent (3)") << 999 << 9 << 999 << 12
+                                                  << QList<int>{C_LOCAL} << 0;
 }
 
 void ClangdTestHighlighting::test()

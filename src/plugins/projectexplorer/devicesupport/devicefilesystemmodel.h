@@ -25,76 +25,45 @@
 
 #pragma once
 
-#include "sftpdefs.h"
-
-#include "ssh_global.h"
+#include "idevice.h"
 
 #include <QAbstractItemModel>
 
-namespace QSsh {
-class SshConnectionParameters;
+namespace ProjectExplorer {
 
-namespace Internal { class SftpFileSystemModelPrivate; }
+namespace Internal {
+class DeviceFileSystemModelPrivate;
+class RemoteDirNode;
+}
 
 // Very simple read-only model. Symbolic links are not followed.
-class QSSH_EXPORT SftpFileSystemModel : public QAbstractItemModel
+class PROJECTEXPLORER_EXPORT DeviceFileSystemModel : public QAbstractItemModel
 {
     Q_OBJECT
 public:
-    explicit SftpFileSystemModel(QObject *parent = nullptr);
-    ~SftpFileSystemModel();
+    explicit DeviceFileSystemModel(QObject *parent = nullptr);
+    ~DeviceFileSystemModel();
 
-    /*
-     * Once this is called, an SFTP connection is established and the model is populated.
-     * The effect of additional calls is undefined.
-     */
-    void setSshConnection(const SshConnectionParameters &sshParams);
-
-    void setRootDirectory(const QString &path); // Default is "/".
-    QString rootDirectory() const;
-
-    SftpJobId downloadFile(const QModelIndex &index, const QString &targetFilePath);
+    void setDevice(const IDevice::ConstPtr &device);
 
     // Use this to get the full path of a file or directory.
     static const int PathRole = Qt::UserRole;
     QVariant data(const QModelIndex &index, int role = Qt::DisplayRole) const override;
 
-signals:
-     /*
-      * E.g. "Permission denied". Note that this can happen without direct user intervention,
-      * due to e.g. the view calling rowCount() on a non-readable directory. This signal should
-      * therefore not result in a message box or similar, since it might occur very often.
-      */
-    void sftpOperationFailed(const QString &errorMessage);
-
-    /*
-     * This error is not recoverable. The model will not have any content after
-     * the signal has been emitted.
-     */
-    void connectionError(const QString &errorMessage);
-
-    // Success <=> error.isEmpty().
-    void sftpOperationFinished(QSsh::SftpJobId, const QString &error);
-
 private:
-    void handleSshConnectionEstablished();
-    void handleSshConnectionFailure();
-    void handleSftpChannelInitialized();
-    void handleSftpSessionClosed(const QString &reason);
-    void handleFileInfo(QSsh::SftpJobId jobId, const QList<QSsh::SftpFileInfo> &fileInfoList);
-    void handleSftpJobFinished(QSsh::SftpJobId jobId, const QString &errorMessage);
-
+    bool canFetchMore(const QModelIndex &parent) const override;
     int columnCount(const QModelIndex &parent = QModelIndex()) const override;
+    void fetchMore(const QModelIndex &parent) override;
     Qt::ItemFlags flags(const QModelIndex &index) const override;
+    bool hasChildren(const QModelIndex &parent = QModelIndex()) const override;
     QVariant headerData(int section, Qt::Orientation orientation, int role = Qt::DisplayRole) const override;
     QModelIndex index(int row, int column, const QModelIndex &parent = QModelIndex()) const override;
     QModelIndex parent(const QModelIndex &child) const override;
     int rowCount(const QModelIndex &parent = QModelIndex()) const override;
 
-    void statRootDirectory();
-    void shutDown();
+    void collectEntries(const Utils::FilePath &filePath, Internal::RemoteDirNode *parentNode);
 
-    Internal::SftpFileSystemModelPrivate * const d;
+    Internal::DeviceFileSystemModelPrivate * const d;
 };
 
 } // namespace QSsh;

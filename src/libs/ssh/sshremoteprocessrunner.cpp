@@ -36,6 +36,8 @@
     running a remote process over an SSH connection.
 */
 
+using namespace Utils;
+
 namespace QSsh {
 namespace Internal {
 namespace {
@@ -109,13 +111,13 @@ void SshRemoteProcessRunner::handleConnected()
     setState(Connected);
 
     d->m_process = d->m_connection->createRemoteProcess(d->m_command);
-    connect(d->m_process.get(), &SshRemoteProcess::started,
+    connect(d->m_process.get(), &QtcProcess::started,
             this, &SshRemoteProcessRunner::handleProcessStarted);
-    connect(d->m_process.get(), &SshRemoteProcess::finished,
+    connect(d->m_process.get(), &QtcProcess::done,
             this, &SshRemoteProcessRunner::handleProcessFinished);
-    connect(d->m_process.get(), &SshRemoteProcess::readyReadStandardOutput,
+    connect(d->m_process.get(), &QtcProcess::readyReadStandardOutput,
             this, &SshRemoteProcessRunner::readyReadStandardOutput);
-    connect(d->m_process.get(), &SshRemoteProcess::readyReadStandardError,
+    connect(d->m_process.get(), &QtcProcess::readyReadStandardError,
             this, &SshRemoteProcessRunner::readyReadStandardError);
     d->m_process->start();
 }
@@ -158,11 +160,8 @@ void SshRemoteProcessRunner::setState(int newState)
 
     d->m_state = static_cast<State>(newState);
     if (d->m_state == Inactive) {
-        if (d->m_process) {
-            disconnect(d->m_process.get(), nullptr, this, nullptr);
-            d->m_process->terminate();
-            d->m_process.reset();
-        }
+        if (d->m_process)
+            d->m_process.release()->deleteLater();
         if (d->m_connection) {
             disconnect(d->m_connection, nullptr, this, nullptr);
             SshConnectionManager::releaseConnection(d->m_connection);

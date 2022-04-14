@@ -31,5 +31,5 @@
 
 namespace QmlJS {
 QMLJS_EXPORT QString reformat(const Document::Ptr &doc);
-QMLJS_EXPORT QString reformat(const Document::Ptr &doc, int indentSize, int tabSize);
-}
+QMLJS_EXPORT QString reformat(const Document::Ptr &doc, int indentSize, int tabSize, int lineLength);
+} // namespace QmlJS

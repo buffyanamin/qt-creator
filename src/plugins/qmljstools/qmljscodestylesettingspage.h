@@ -26,6 +26,8 @@
 #pragma once
 
 #include <coreplugin/dialogs/ioptionspage.h>
+#include <texteditor/icodestylepreferencesfactory.h>
+
 #include <QWidget>
 #include <QPointer>
 
@@ -35,17 +37,18 @@ QT_END_NAMESPACE
 
 namespace TextEditor {
     class FontSettings;
-    class TabSettings;
     class CodeStyleEditor;
-    class ICodeStylePreferences;
 }
 
 namespace QmlJSTools {
+class QmlJSCodeStylePreferences;
+class QmlJSCodeStyleSettings;
+
 namespace Internal {
 
 namespace Ui { class QmlJSCodeStyleSettingsPage; }
 
-class QmlJSCodeStylePreferencesWidget : public QWidget
+class QmlJSCodeStylePreferencesWidget : public TextEditor::CodeStyleEditorWidget
 {
     Q_OBJECT
 
@@ -53,7 +56,7 @@ public:
     explicit QmlJSCodeStylePreferencesWidget(QWidget *parent = nullptr);
     ~QmlJSCodeStylePreferencesWidget() override;
 
-    void setPreferences(TextEditor::ICodeStylePreferences *preferences);
+    void setPreferences(QmlJSCodeStylePreferences* preferences);
 
 private:
     void decorateEditor(const TextEditor::FontSettings &fontSettings);
@@ -61,7 +64,7 @@ private:
     void slotSettingsChanged();
     void updatePreview();
 
-    TextEditor::ICodeStylePreferences *m_preferences = nullptr;
+    QmlJSCodeStylePreferences *m_preferences = nullptr;
     Ui::QmlJSCodeStyleSettingsPage *m_ui;
 };
 
@@ -76,7 +79,7 @@ public:
     void finish() override;
 
 private:
-    TextEditor::ICodeStylePreferences *m_pageTabPreferences = nullptr;
+    QmlJSCodeStylePreferences *m_preferences = nullptr;
     QPointer<TextEditor::CodeStyleEditor> m_widget;
 };
 

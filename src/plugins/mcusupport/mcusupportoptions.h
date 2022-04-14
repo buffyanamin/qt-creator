@@ -51,23 +51,21 @@ namespace Internal {
 
 class McuAbstractPackage;
 
-class McuSdkRepository
+class McuSdkRepository final
 {
 public:
-    Packages packages;
     Targets mcuTargets;
-    void deletePackagesAndTargets();
+    Packages packages;
 };
 
-class McuSupportOptions : public QObject
+class McuSupportOptions final : public QObject
 {
     Q_OBJECT
 
 public:
     explicit McuSupportOptions(QObject *parent = nullptr);
-    ~McuSupportOptions() override;
 
-    McuAbstractPackage *qtForMCUsSdkPackage = nullptr;
+    McuPackagePtr qtForMCUsSdkPackage{nullptr};
     McuSdkRepository sdkRepository;
 
     void setQulDir(const Utils::FilePath &dir);
@@ -78,6 +76,7 @@ public:
     static void registerExamples();
 
     static const QVersionNumber &minimalQulVersion();
+    static bool isLegacyVersion(const QVersionNumber &version);
 
     void checkUpgradeableKits();
     void populatePackagesAndTargets();
@@ -90,8 +89,6 @@ public:
     static bool automaticKitCreationFromSettings();
 
 private:
-    void deletePackagesAndTargets();
-
     bool m_automaticKitCreation = true;
 signals:
     void packagesChanged();

@@ -81,43 +81,43 @@ static QString modeOption(TerminalMode m)
 
 static QString msgCommChannelFailed(const QString &error)
 {
-    return TerminalProcess::tr("Cannot set up communication channel: %1").arg(error);
+    return TerminalImpl::tr("Cannot set up communication channel: %1").arg(error);
 }
 
 static QString msgPromptToClose()
 {
     // Shown in a terminal which might have a different character set on Windows.
-    return TerminalProcess::tr("Press <RETURN> to close this window...");
+    return TerminalImpl::tr("Press <RETURN> to close this window...");
 }
 
 static QString msgCannotCreateTempFile(const QString &why)
 {
-    return TerminalProcess::tr("Cannot create temporary file: %1").arg(why);
+    return TerminalImpl::tr("Cannot create temporary file: %1").arg(why);
 }
 
 static QString msgCannotWriteTempFile()
 {
-    return TerminalProcess::tr("Cannot write temporary file. Disk full?");
+    return TerminalImpl::tr("Cannot write temporary file. Disk full?");
 }
 
 static QString msgCannotCreateTempDir(const QString & dir, const QString &why)
 {
-    return TerminalProcess::tr("Cannot create temporary directory \"%1\": %2").arg(dir, why);
+    return TerminalImpl::tr("Cannot create temporary directory \"%1\": %2").arg(dir, why);
 }
 
 static QString msgUnexpectedOutput(const QByteArray &what)
 {
-    return TerminalProcess::tr("Unexpected output from helper program (%1).").arg(QString::fromLatin1(what));
+    return TerminalImpl::tr("Unexpected output from helper program (%1).").arg(QString::fromLatin1(what));
 }
 
 static QString msgCannotChangeToWorkDir(const FilePath &dir, const QString &why)
 {
-    return TerminalProcess::tr("Cannot change to working directory \"%1\": %2").arg(dir.toString(), why);
+    return TerminalImpl::tr("Cannot change to working directory \"%1\": %2").arg(dir.toString(), why);
 }
 
 static QString msgCannotExecute(const QString & p, const QString &why)
 {
-    return TerminalProcess::tr("Cannot execute \"%1\": %2").arg(p, why);
+    return TerminalImpl::tr("Cannot execute \"%1\": %2").arg(p, why);
 }
 
 class TerminalProcessPrivate
@@ -126,19 +126,11 @@ public:
     TerminalProcessPrivate(QObject *parent)
         : m_process(parent) {}
 
-    TerminalMode m_terminalMode = TerminalMode::On;
-    FilePath m_workingDir;
-    Environment m_environment;
     qint64 m_processId = 0;
-    int m_exitCode = 0;
-    CommandLine m_commandLine;
-    QProcess::ExitStatus m_appStatus = QProcess::NormalExit;
+    ProcessResultData m_result;
     QLocalServer m_stubServer;
     QLocalSocket *m_stubSocket = nullptr;
     QTemporaryFile *m_tempFile = nullptr;
-    QProcess::ProcessError m_error = QProcess::UnknownError;
-    QString m_errorString;
-    bool m_abortOnMetaChars = true;
 
     // Used on Unix only
     QtcProcess m_process;
@@ -156,73 +148,39 @@ public:
 #endif
 };
 
-TerminalProcess::TerminalProcess(QObject *parent)
-    : QObject(parent), d(new TerminalProcessPrivate(this))
+TerminalImpl::TerminalImpl()
+    : d(new TerminalProcessPrivate(this))
 {
     connect(&d->m_stubServer, &QLocalServer::newConnection,
-            this, &TerminalProcess::stubConnectionAvailable);
+            this, &TerminalImpl::stubConnectionAvailable);
 
     d->m_process.setProcessChannelMode(QProcess::ForwardedChannels);
 }
 
-TerminalProcess::~TerminalProcess()
+TerminalImpl::~TerminalImpl()
 {
     stopProcess();
     delete d;
 }
 
-void TerminalProcess::setProcessImpl(ProcessImpl processImpl)
-{
-    d->m_process.setProcessImpl(processImpl);
-}
-
-void TerminalProcess::setTerminalMode(TerminalMode mode)
-{
-    QTC_ASSERT(mode != TerminalMode::Off, return);
-    d->m_terminalMode = mode;
-}
-
-void TerminalProcess::setCommand(const CommandLine &command)
-{
-    d->m_commandLine = command;
-}
-
-const CommandLine &TerminalProcess::commandLine() const
-{
-    return d->m_commandLine;
-}
-
-void TerminalProcess::setAbortOnMetaChars(bool abort)
-{
-    d->m_abortOnMetaChars = abort;
-}
-
-qint64 TerminalProcess::applicationMainThreadID() const
-{
-    if (HostOsInfo::isWindowsHost())
-        return d->m_appMainThreadId;
-    return -1;
-}
-
-void TerminalProcess::start()
+void TerminalImpl::start()
 {
     if (isRunning())
         return;
 
-    d->m_errorString.clear();
-    d->m_error = QProcess::UnknownError;
+    d->m_result = {};
 
 #ifdef Q_OS_WIN
 
     QString pcmd;
     QString pargs;
-    if (d->m_terminalMode != TerminalMode::Run) { // The debugger engines already pre-process the arguments.
-        pcmd = d->m_commandLine.executable().toString();
-        pargs = d->m_commandLine.arguments();
+    if (m_setup->m_terminalMode != TerminalMode::Run) { // The debugger engines already pre-process the arguments.
+        pcmd = m_setup->m_commandLine.executable().toString();
+        pargs = m_setup->m_commandLine.arguments();
     } else {
         ProcessArgs outArgs;
-        ProcessArgs::prepareCommand(d->m_commandLine, &pcmd, &outArgs,
-                                    &d->m_environment, &d->m_workingDir);
+        ProcessArgs::prepareCommand(m_setup->m_commandLine, &pcmd, &outArgs,
+                                    &m_setup->m_environment, &m_setup->m_workingDirectory);
         pargs = outArgs.toWindowsArgs();
     }
 
@@ -232,7 +190,7 @@ void TerminalProcess::start()
         return;
     }
 
-    QStringList env = d->m_environment.toStringList();
+    QStringList env = m_setup->m_environment.toStringList();
     if (!env.isEmpty()) {
         d->m_tempFile = new QTemporaryFile();
         if (!d->m_tempFile->open()) {
@@ -279,7 +237,7 @@ void TerminalProcess::start()
     d->m_pid = new PROCESS_INFORMATION;
     ZeroMemory(d->m_pid, sizeof(PROCESS_INFORMATION));
 
-    QString workDir = workingDirectory().toUserOutput();
+    QString workDir = m_setup->m_workingDirectory.toUserOutput();
     if (!workDir.isEmpty() && !workDir.endsWith(QLatin1Char('\\')))
         workDir.append(QLatin1Char('\\'));
 
@@ -335,7 +293,7 @@ void TerminalProcess::start()
     };
 
     QStringList stubArgs;
-    stubArgs << modeOption(d->m_terminalMode)
+    stubArgs << modeOption(m_setup->m_terminalMode)
              << d->m_stubServer.fullServerName()
              << workDir
              << (d->m_tempFile ? d->m_tempFile->fileName() : QString())
@@ -361,27 +319,27 @@ void TerminalProcess::start()
 
     d->processFinishedNotifier = new QWinEventNotifier(d->m_pid->hProcess, this);
     connect(d->processFinishedNotifier, &QWinEventNotifier::activated,
-            this, &TerminalProcess::stubExited);
+            this, &TerminalImpl::stubExited);
 
 #else
 
     ProcessArgs::SplitError perr;
-    ProcessArgs pargs = ProcessArgs::prepareArgs(d->m_commandLine.arguments(),
+    ProcessArgs pargs = ProcessArgs::prepareArgs(m_setup->m_commandLine.arguments(),
                                                  &perr,
                                                  HostOsInfo::hostOs(),
-                                                 &d->m_environment,
-                                                 &d->m_workingDir,
-                                                 d->m_abortOnMetaChars);
+                                                 &m_setup->m_environment,
+                                                 &m_setup->m_workingDirectory,
+                                                 m_setup->m_abortOnMetaChars);
 
     QString pcmd;
     if (perr == ProcessArgs::SplitOk) {
-        pcmd = d->m_commandLine.executable().toString();
+        pcmd = m_setup->m_commandLine.executable().toString();
     } else {
         if (perr != ProcessArgs::FoundMeta) {
             emitError(QProcess::FailedToStart, tr("Quoting error in command."));
             return;
         }
-        if (d->m_terminalMode == TerminalMode::Debug) {
+        if (m_setup->m_terminalMode == TerminalMode::Debug) {
             // FIXME: QTCREATORBUG-2809
             emitError(QProcess::FailedToStart, tr("Debugging complex shell commands in a terminal"
                                  " is currently not supported."));
@@ -389,8 +347,8 @@ void TerminalProcess::start()
         }
         pcmd = qEnvironmentVariable("SHELL", "/bin/sh");
         pargs = ProcessArgs::createUnixArgs(
-                        {"-c", (ProcessArgs::quoteArg(d->m_commandLine.executable().toString())
-                         + ' ' + d->m_commandLine.arguments())});
+                        {"-c", (ProcessArgs::quoteArg(m_setup->m_commandLine.executable().toString())
+                         + ' ' + m_setup->m_commandLine.arguments())});
     }
 
     ProcessArgs::SplitError qerr;
@@ -398,8 +356,8 @@ void TerminalProcess::start()
     const ProcessArgs terminalArgs = ProcessArgs::prepareArgs(terminal.executeArgs,
                                                               &qerr,
                                                               HostOsInfo::hostOs(),
-                                                              &d->m_environment,
-                                                              &d->m_workingDir);
+                                                              &m_setup->m_environment,
+                                                              &m_setup->m_workingDirectory);
     if (qerr != ProcessArgs::SplitOk) {
         emitError(QProcess::FailedToStart, qerr == ProcessArgs::BadQuoting
                           ? tr("Quoting error in terminal command.")
@@ -413,9 +371,9 @@ void TerminalProcess::start()
         return;
     }
 
-    d->m_environment.unset(QLatin1String("TERM"));
+    m_setup->m_environment.unset(QLatin1String("TERM"));
 
-    const QStringList env = d->m_environment.toStringList();
+    const QStringList env = m_setup->m_environment.toStringList();
     if (!env.isEmpty()) {
         d->m_tempFile = new QTemporaryFile();
         if (!d->m_tempFile->open()) {
@@ -439,10 +397,10 @@ void TerminalProcess::start()
     QStringList allArgs = terminalArgs.toUnixArgs();
 
     allArgs << stubPath
-            << modeOption(d->m_terminalMode)
+            << modeOption(m_setup->m_terminalMode)
             << d->m_stubServer.fullServerName()
             << msgPromptToClose()
-            << workingDirectory().path()
+            << m_setup->m_workingDirectory.path()
             << (d->m_tempFile ? d->m_tempFile->fileName() : QString())
             << QString::number(getpid())
             << pcmd
@@ -451,8 +409,9 @@ void TerminalProcess::start()
     if (terminal.needsQuotes)
         allArgs = QStringList { ProcessArgs::joinArgs(allArgs) };
 
-    d->m_process.setEnvironment(d->m_environment);
+    d->m_process.setEnvironment(m_setup->m_environment);
     d->m_process.setCommand({FilePath::fromString(terminal.command), allArgs});
+    d->m_process.setProcessImpl(m_setup->m_processImpl);
     d->m_process.start();
     if (!d->m_process.waitForStarted()) {
         const QString msg = tr("Cannot start the terminal emulator \"%1\", change the setting in the "
@@ -461,14 +420,14 @@ void TerminalProcess::start()
         return;
     }
     d->m_stubConnectTimer = new QTimer(this);
-    connect(d->m_stubConnectTimer, &QTimer::timeout, this, &TerminalProcess::stopProcess);
+    connect(d->m_stubConnectTimer, &QTimer::timeout, this, &TerminalImpl::stopProcess);
     d->m_stubConnectTimer->setSingleShot(true);
     d->m_stubConnectTimer->start(10000);
 
 #endif
 }
 
-void TerminalProcess::cleanupAfterStartFailure(const QString &errorMessage)
+void TerminalImpl::cleanupAfterStartFailure(const QString &errorMessage)
 {
     stubServerShutdown();
     emitError(QProcess::FailedToStart, errorMessage);
@@ -476,39 +435,35 @@ void TerminalProcess::cleanupAfterStartFailure(const QString &errorMessage)
     d->m_tempFile = nullptr;
 }
 
-void TerminalProcess::finish(int exitCode, QProcess::ExitStatus exitStatus)
+void TerminalImpl::sendControlSignal(ControlSignal controlSignal)
 {
-    d->m_processId = 0;
-    d->m_exitCode = exitCode;
-    d->m_appStatus = exitStatus;
-    emit finished();
+    switch (controlSignal) {
+    case Utils::ControlSignal::Terminate:
+    case Utils::ControlSignal::Kill:
+        stopProcess();
+        break;
+    case Utils::ControlSignal::Interrupt:
+        sendCommand('i');
+        break;
+    case Utils::ControlSignal::KickOff:
+        sendCommand('c');
+        break;
+    }
 }
 
-void TerminalProcess::kickoffProcess()
+void TerminalImpl::sendCommand(char c)
 {
 #ifdef Q_OS_WIN
-    // Not used.
+    Q_UNUSED(c)
 #else
     if (d->m_stubSocket && d->m_stubSocket->isWritable()) {
-        d->m_stubSocket->write("c", 1);
+        d->m_stubSocket->write(&c, 1);
         d->m_stubSocket->flush();
     }
 #endif
 }
 
-void TerminalProcess::interrupt()
-{
-#ifdef Q_OS_WIN
-    // Not used.
-#else
-    if (d->m_stubSocket && d->m_stubSocket->isWritable()) {
-        d->m_stubSocket->write("i", 1);
-        d->m_stubSocket->flush();
-    }
-#endif
-}
-
-void TerminalProcess::killProcess()
+void TerminalImpl::killProcess()
 {
 #ifdef Q_OS_WIN
     if (d->m_hInferior != NULL) {
@@ -516,15 +471,12 @@ void TerminalProcess::killProcess()
         cleanupInferior();
     }
 #else
-    if (d->m_stubSocket && d->m_stubSocket->isWritable()) {
-        d->m_stubSocket->write("k", 1);
-        d->m_stubSocket->flush();
-    }
+    sendCommand('k');
 #endif
     d->m_processId = 0;
 }
 
-void TerminalProcess::killStub()
+void TerminalImpl::killStub()
 {
 #ifdef Q_OS_WIN
     if (d->m_pid) {
@@ -533,15 +485,12 @@ void TerminalProcess::killStub()
         cleanupStub();
     }
 #else
-    if (d->m_stubSocket && d->m_stubSocket->isWritable()) {
-        d->m_stubSocket->write("s", 1);
-        d->m_stubSocket->flush();
-    }
+    sendCommand('s');
     stubServerShutdown();
 #endif
 }
 
-void TerminalProcess::stopProcess()
+void TerminalImpl::stopProcess()
 {
     killProcess();
     killStub();
@@ -554,7 +503,7 @@ void TerminalProcess::stopProcess()
     }
 }
 
-bool TerminalProcess::isRunning() const
+bool TerminalImpl::isRunning() const
 {
 #ifdef Q_OS_WIN
     return d->m_pid != nullptr;
@@ -564,7 +513,7 @@ bool TerminalProcess::isRunning() const
 #endif
 }
 
-QProcess::ProcessState TerminalProcess::state() const
+QProcess::ProcessState TerminalImpl::state() const
 {
 #ifdef Q_OS_WIN
     return (d->m_pid != nullptr) ? QProcess::Running : QProcess::NotRunning;
@@ -574,7 +523,7 @@ QProcess::ProcessState TerminalProcess::state() const
 #endif
 }
 
-QString TerminalProcess::stubServerListen()
+QString TerminalImpl::stubServerListen()
 {
 #ifdef Q_OS_WIN
     if (d->m_stubServer.listen(QString::fromLatin1("creator-%1-%2")
@@ -609,7 +558,7 @@ QString TerminalProcess::stubServerListen()
 #endif
 }
 
-void TerminalProcess::stubServerShutdown()
+void TerminalImpl::stubServerShutdown()
 {
 #ifdef Q_OS_WIN
     delete d->m_stubSocket;
@@ -630,7 +579,7 @@ void TerminalProcess::stubServerShutdown()
 #endif
 }
 
-void TerminalProcess::stubConnectionAvailable()
+void TerminalImpl::stubConnectionAvailable()
 {
     if (d->m_stubConnectTimer) {
         delete d->m_stubConnectTimer;
@@ -638,10 +587,10 @@ void TerminalProcess::stubConnectionAvailable()
     }
 
     d->m_stubSocket = d->m_stubServer.nextPendingConnection();
-    connect(d->m_stubSocket, &QIODevice::readyRead, this, &TerminalProcess::readStubOutput);
+    connect(d->m_stubSocket, &QIODevice::readyRead, this, &TerminalImpl::readStubOutput);
 
     if (HostOsInfo::isAnyUnixHost())
-        connect(d->m_stubSocket, &QLocalSocket::disconnected, this, &TerminalProcess::stubExited);
+        connect(d->m_stubSocket, &QLocalSocket::disconnected, this, &TerminalImpl::stubExited);
 }
 
 static QString errorMsg(int code)
@@ -649,17 +598,20 @@ static QString errorMsg(int code)
     return QString::fromLocal8Bit(strerror(code));
 }
 
-void TerminalProcess::readStubOutput()
+void TerminalImpl::readStubOutput()
 {
     while (d->m_stubSocket->canReadLine()) {
         QByteArray out = d->m_stubSocket->readLine();
 #ifdef Q_OS_WIN
         out.chop(2); // \r\n
         if (out.startsWith("err:chdir ")) {
-            emitError(QProcess::FailedToStart, msgCannotChangeToWorkDir(workingDirectory(), winErrorMessage(out.mid(10).toInt())));
+            emitError(QProcess::FailedToStart,
+                      msgCannotChangeToWorkDir(m_setup->m_workingDirectory, winErrorMessage(out.mid(10).toInt())));
         } else if (out.startsWith("err:exec ")) {
-            emitError(QProcess::FailedToStart, msgCannotExecute(d->m_commandLine.executable().toUserOutput(), winErrorMessage(out.mid(9).toInt())));
+            emitError(QProcess::FailedToStart,
+                      msgCannotExecute(m_setup->m_commandLine.executable().toUserOutput(), winErrorMessage(out.mid(9).toInt())));
         } else if (out.startsWith("thread ")) { // Windows only
+            // TODO: ensure that it comes before "pid " comes
             d->m_appMainThreadId = out.mid(7).toLongLong();
         } else if (out.startsWith("pid ")) {
             // Will not need it any more
@@ -684,10 +636,10 @@ void TerminalProcess::readStubOutput()
                 emitError(QProcess::UnknownError, tr("Cannot obtain exit status from inferior: %1")
                           .arg(winErrorMessage(GetLastError())));
                 cleanupInferior();
-                finish(chldStatus, QProcess::NormalExit);
+                emitFinished(chldStatus, QProcess::NormalExit);
             });
 
-            emit started();
+            emit started(d->m_processId, d->m_appMainThreadId);
         } else {
             emitError(QProcess::UnknownError, msgUnexpectedOutput(out));
             TerminateProcess(d->m_pid->hProcess, (unsigned)-1);
@@ -696,19 +648,21 @@ void TerminalProcess::readStubOutput()
 #else
         out.chop(1); // \n
         if (out.startsWith("err:chdir ")) {
-            emitError(QProcess::FailedToStart, msgCannotChangeToWorkDir(workingDirectory(), errorMsg(out.mid(10).toInt())));
+            emitError(QProcess::FailedToStart,
+                      msgCannotChangeToWorkDir(m_setup->m_workingDirectory, errorMsg(out.mid(10).toInt())));
         } else if (out.startsWith("err:exec ")) {
-            emitError(QProcess::FailedToStart, msgCannotExecute(d->m_commandLine.executable().toString(), errorMsg(out.mid(9).toInt())));
+            emitError(QProcess::FailedToStart,
+                      msgCannotExecute(m_setup->m_commandLine.executable().toString(), errorMsg(out.mid(9).toInt())));
         } else if (out.startsWith("spid ")) {
             delete d->m_tempFile;
             d->m_tempFile = nullptr;
         } else if (out.startsWith("pid ")) {
             d->m_processId = out.mid(4).toInt();
-            emit started();
+            emit started(d->m_processId);
         } else if (out.startsWith("exit ")) {
-            finish(out.mid(5).toInt(), QProcess::NormalExit);
+            emitFinished(out.mid(5).toInt(), QProcess::NormalExit);
         } else if (out.startsWith("crash ")) {
-            finish(out.mid(6).toInt(), QProcess::CrashExit);
+            emitFinished(out.mid(6).toInt(), QProcess::CrashExit);
         } else {
             emitError(QProcess::UnknownError, msgUnexpectedOutput(out));
             d->m_process.terminate();
@@ -718,7 +672,7 @@ void TerminalProcess::readStubOutput()
     } // while
 }
 
-void TerminalProcess::stubExited()
+void TerminalImpl::stubExited()
 {
     // The stub exit might get noticed before we read the pid for the kill on Windows
     // or the error status elsewhere.
@@ -730,18 +684,18 @@ void TerminalProcess::stubExited()
     if (d->m_hInferior != NULL) {
         TerminateProcess(d->m_hInferior, (unsigned)-1);
         cleanupInferior();
-        finish(-1, QProcess::CrashExit);
+        emitFinished(-1, QProcess::CrashExit);
     }
 #else
     stubServerShutdown();
     delete d->m_tempFile;
     d->m_tempFile = nullptr;
     if (d->m_processId)
-        finish(-1, QProcess::CrashExit);
+        emitFinished(-1, QProcess::CrashExit);
 #endif
 }
 
-void TerminalProcess::cleanupInferior()
+void TerminalImpl::cleanupInferior()
 {
 #ifdef Q_OS_WIN
     delete d->inferiorFinishedNotifier;
@@ -751,7 +705,7 @@ void TerminalProcess::cleanupInferior()
 #endif
 }
 
-void TerminalProcess::cleanupStub()
+void TerminalImpl::cleanupStub()
 {
 #ifdef Q_OS_WIN
     stubServerShutdown();
@@ -766,57 +720,22 @@ void TerminalProcess::cleanupStub()
 #endif
 }
 
-qint64 TerminalProcess::processId() const
+void TerminalImpl::emitError(QProcess::ProcessError error, const QString &errorString)
 {
-    return d->m_processId;
+    d->m_result.m_error = error;
+    d->m_result.m_errorString = errorString;
+    if (error == QProcess::FailedToStart)
+        emit done(d->m_result);
 }
 
-int TerminalProcess::exitCode() const
+void TerminalImpl::emitFinished(int exitCode, QProcess::ExitStatus exitStatus)
 {
-    return d->m_exitCode;
-} // This will be the signal number if exitStatus == CrashExit
-
-QProcess::ExitStatus TerminalProcess::exitStatus() const
-{
-    return d->m_appStatus;
+    d->m_processId = 0;
+    d->m_result.m_exitCode = exitCode;
+    d->m_result.m_exitStatus = exitStatus;
+    emit done(d->m_result);
 }
 
-void TerminalProcess::setWorkingDirectory(const FilePath &dir)
-{
-    d->m_workingDir = dir;
-}
-
-FilePath TerminalProcess::workingDirectory() const
-{
-    return d->m_workingDir;
-}
-
-void TerminalProcess::setEnvironment(const Environment &env)
-{
-    d->m_environment = env;
-}
-
-const Environment &TerminalProcess::environment() const
-{
-    return d->m_environment;
-}
-
-QProcess::ProcessError TerminalProcess::error() const
-{
-    return d->m_error;
-}
-
-QString TerminalProcess::errorString() const
-{
-    return d->m_errorString;
-}
-
-void TerminalProcess::emitError(QProcess::ProcessError err, const QString &errorString)
-{
-    d->m_error = err;
-    d->m_errorString = errorString;
-    emit errorOccurred(err);
-}
 
 } // Internal
 } // Utils

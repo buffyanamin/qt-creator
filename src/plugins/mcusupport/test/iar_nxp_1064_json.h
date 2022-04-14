@@ -25,14 +25,14 @@
 
 #pragma once
 
-constexpr auto armgcc_nxp_1064_json = R"({
+constexpr auto iar_nxp_1064_json = R"({
     "compatVersion": "1",
     "qulVersion": "2.0.0",
     "boardSdk": {
         "cmakeEntries": [
             {
-                "cmakeOptionName": "QUL_BOARD_SDK_DIR",
-                "description": "Board SDK for MIMXRT1064-EVK",
+                "cmakeVar": "QUL_BOARD_SDK_DIR",
+                "label": "Board SDK for MIMXRT1064-EVK",
                 "id": "NXP_SDK_DIR",
                 "optional": false,
                 "type": "path",
@@ -50,7 +50,7 @@ constexpr auto armgcc_nxp_1064_json = R"({
                 "cmakeVar": "FREERTOS_DIR",
                 "defaultValue": "$QUL_BOARD_SDK_DIR/rtos/freertos/freertos_kernel",
                 "label": "FreeRTOS Sources (IMXRT1064) ",
-                "description": "FreeRTOS SDK for MIMXRT1064-EVK",
+                "label": "FreeRTOS SDK for MIMXRT1064-EVK",
                 "id": "NXP_FREERTOS_DIR",
                 "optional": false,
                 "type": "path"
@@ -61,14 +61,14 @@ constexpr auto armgcc_nxp_1064_json = R"({
     "platform": {
         "cmakeEntries": [
             {
-                "cmakeOptionName": "Qul_ROOT",
-                "description": "Qt for MCUs SDK",
+                "cmakeVar": "Qul_ROOT",
+                "label": "Qt for MCUs SDK",
                 "id": "Qul_DIR",
                 "optional": false,
                 "type": "path"
             },
             {
-                "cmakeOptionName": "MCUXPRESSO_IDE_PATH",
+                "cmakeVar": "MCUXPRESSO_IDE_PATH",
                 "defaultValue": {
                     "unix": "/usr/local/mcuxpressoide/",
                     "windows": "$ROOT/nxp/MCUXpressoIDE*"
@@ -85,9 +85,9 @@ constexpr auto armgcc_nxp_1064_json = R"({
     "toolchain": {
         "cmakeEntries": [
             {
-                "cmakeOptionName": "QUL_TARGET_TOOLCHAIN_DIR",
-                "description": "IAR ARM Compiler",
                 "id": "IAR_DIR",
+                "cmakeVar": "QUL_TARGET_TOOLCHAIN_DIR",
+                "label": "IAR ARM Compiler",
                 "optional": false,
                 "type": "path"
             }

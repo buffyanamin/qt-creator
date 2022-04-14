@@ -42,6 +42,7 @@ public:
 
     void requestX11Forwarding(const QString &displayName);
     void start() override;
+    Utils::ProcessResultData resultData() const override;
 
     Utils::CommandLine fullLocalCommandLine(bool inTerminal = false) const;
 
@@ -49,12 +50,12 @@ public:
 
 protected:
     void emitFinished() override;
-    void emitErrorOccurred(QProcess::ProcessError error) override;
 
 private:
     QString m_remoteCommand;
     QStringList m_connectionArgs;
     QString m_displayName;
+    QString m_errorString;
 };
 
 } // namespace QSsh

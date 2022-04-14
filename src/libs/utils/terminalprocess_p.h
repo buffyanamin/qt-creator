@@ -26,6 +26,8 @@
 #pragma once
 
 #include "processenums.h"
+#include "processinterface.h"
+#include "qtcassert.h"
 
 #include <QProcess>
 
@@ -37,63 +39,43 @@ class FilePath;
 
 namespace Internal {
 
-class TerminalProcess : public QObject
+class TerminalImpl final : public ProcessInterface
 {
-    Q_OBJECT
 public:
-    explicit TerminalProcess(QObject *parent);
-    ~TerminalProcess() override;
+    TerminalImpl();
+    ~TerminalImpl() final;
 
-    void setProcessImpl(ProcessImpl processImpl);
-    void setTerminalMode(TerminalMode mode);
+    void start() final;
+    qint64 write(const QByteArray &) final { QTC_CHECK(false); return -1; }
+    void sendControlSignal(ControlSignal controlSignal) final;
 
-    void setCommand(const CommandLine &command);
-    const CommandLine &commandLine() const;
+    // intentionally no-op without an assert
+    bool waitForStarted(int) final { return false; }
+    bool waitForReadyRead(int) final { QTC_CHECK(false); return false; }
+    // intentionally no-op without an assert
+    bool waitForFinished(int) final { return false; }
 
-    void setWorkingDirectory(const FilePath &dir);
-    FilePath workingDirectory() const;
+    QProcess::ProcessState state() const final;
 
-    void setEnvironment(const Environment &env);
-    const Environment &environment() const;
-
-    QProcess::ProcessError error() const;
-    QString errorString() const;
-
-    void start();
-    void stopProcess();
-
+private:
     // OK, however, impl looks a bit different (!= NotRunning vs == Running).
     // Most probably changing it into (== Running) should be OK.
     bool isRunning() const;
 
-    QProcess::ProcessState state() const;
-    qint64 processId() const;
-    int exitCode() const;
-    QProcess::ExitStatus exitStatus() const;
-
-    void setAbortOnMetaChars(bool abort); // used only in sshDeviceProcess
-    void kickoffProcess(); // only debugger terminal, only non-windows
-    void interrupt(); // only debugger terminal, only non-windows
-    qint64 applicationMainThreadID() const; // only debugger terminal, only windows (-1 otherwise)
-
-signals:
-    void started();
-    void finished();
-    void errorOccurred(QProcess::ProcessError error);
-
-private:
+    void stopProcess();
     void stubConnectionAvailable();
     void readStubOutput();
     void stubExited();
     void cleanupAfterStartFailure(const QString &errorMessage);
-    void finish(int exitCode, QProcess::ExitStatus exitStatus);
     void killProcess();
     void killStub();
-    void emitError(QProcess::ProcessError err, const QString &errorString);
+    void emitError(QProcess::ProcessError error, const QString &errorString);
+    void emitFinished(int exitCode, QProcess::ExitStatus exitStatus);
     QString stubServerListen();
     void stubServerShutdown();
     void cleanupStub();
     void cleanupInferior();
+    void sendCommand(char c);
 
     class TerminalProcessPrivate *d;
 };

@@ -52,7 +52,6 @@
 #include <QJsonObject>
 #include <QVariant>
 
-#include <ciso646>
 #include <memory>
 
 using namespace Utils;
@@ -63,7 +62,6 @@ namespace Sdk {
 
 namespace {
 const char CMAKE_ENTRIES[]{"cmakeEntries"};
-const char ID[]{"id"};
 } // namespace
 
 static FilePath findInProgramFiles(const QString &folder)
@@ -127,7 +125,7 @@ McuAbstractPackage *createBoardSdkPackage(const McuTargetDescription &desc)
             return FilePath::fromUserInput(qEnvironmentVariable(envVar));
         if (!desc.boardSdk.defaultPath.isEmpty()) {
             FilePath defaultPath = FilePath::fromUserInput(QDir::rootPath()
-                                                           + desc.boardSdk.defaultPath);
+                                                           + desc.boardSdk.defaultPath.toString());
             if (defaultPath.exists())
                 return defaultPath;
         }
@@ -148,7 +146,7 @@ McuAbstractPackage *createBoardSdkPackage(const McuTargetDescription &desc)
 
 McuAbstractPackage *createFreeRTOSSourcesPackage(const QString &envVar,
                                                  const FilePath &boardSdkDir,
-                                                 const QString &freeRTOSBoardSdkSubDir)
+                                                 const FilePath &freeRTOSBoardSdkSubDir)
 {
     const QString envVarPrefix = removeRtosSuffix(envVar);
 
@@ -156,7 +154,7 @@ McuAbstractPackage *createFreeRTOSSourcesPackage(const QString &envVar,
     if (qEnvironmentVariableIsSet(envVar.toLatin1()))
         defaultPath = FilePath::fromUserInput(qEnvironmentVariable(envVar.toLatin1()));
     else if (!boardSdkDir.isEmpty() && !freeRTOSBoardSdkSubDir.isEmpty())
-        defaultPath = boardSdkDir / freeRTOSBoardSdkSubDir;
+        defaultPath = boardSdkDir / freeRTOSBoardSdkSubDir.toString();
 
     return new McuPackage(QString::fromLatin1("FreeRTOS Sources (%1)").arg(envVarPrefix),
                           defaultPath,
@@ -172,17 +170,17 @@ McuToolChainPackage *createUnsupportedToolChainPackage()
     return new McuToolChainPackage({}, {}, {}, {}, McuToolChainPackage::ToolChainType::Unsupported);
 }
 
-static McuToolChainPackage *createMsvcToolChainPackage()
+McuToolChainPackage *createMsvcToolChainPackage()
 {
     return new McuToolChainPackage({}, {}, {}, {}, McuToolChainPackage::ToolChainType::MSVC);
 }
 
-static McuToolChainPackage *createGccToolChainPackage()
+McuToolChainPackage *createGccToolChainPackage()
 {
     return new McuToolChainPackage({}, {}, {}, {}, McuToolChainPackage::ToolChainType::GCC);
 }
 
-static McuToolChainPackage *createArmGccToolchainPackage()
+McuToolChainPackage *createArmGccToolchainPackage()
 {
     const char envVar[] = "ARMGCC_DIR";
 
@@ -211,12 +209,12 @@ static McuToolChainPackage *createArmGccToolchainPackage()
                                    detectionPath,
                                    "GNUArmEmbeddedToolchain",                  // settingsKey
                                    McuToolChainPackage::ToolChainType::ArmGcc, // toolchainType
-                                   "QUL_TARGET_TOOLCHAIN_DIR",                 // cmake var
+                                   Constants::TOOLCHAIN_DIR_CMAKE_VARIABLE,    // cmake var
                                    envVar,                                     // env var
                                    versionDetector);
 }
 
-static McuToolChainPackage *createGhsToolchainPackage()
+McuToolChainPackage *createGhsToolchainPackage()
 {
     const char envVar[] = "GHS_COMPILER_DIR";
 
@@ -232,12 +230,12 @@ static McuToolChainPackage *createGhsToolchainPackage()
                                    FilePath("ccv850").withExecutableSuffix(), // detectionPath
                                    "GHSToolchain",                            // settingsKey
                                    McuToolChainPackage::ToolChainType::GHS,   // toolchainType
-                                   "QUL_TARGET_TOOLCHAIN_DIR",                // cmake var
+                                   Constants::TOOLCHAIN_DIR_CMAKE_VARIABLE,   // cmake var
                                    envVar,                                    // env var
                                    versionDetector);
 }
 
-static McuToolChainPackage *createGhsArmToolchainPackage()
+McuToolChainPackage *createGhsArmToolchainPackage()
 {
     const char envVar[] = "GHS_ARM_COMPILER_DIR";
 
@@ -253,12 +251,12 @@ static McuToolChainPackage *createGhsArmToolchainPackage()
                                    FilePath("cxarm").withExecutableSuffix(),   // detectionPath
                                    "GHSArmToolchain",                          // settingsKey
                                    McuToolChainPackage::ToolChainType::GHSArm, // toolchainType
-                                   "QUL_TARGET_TOOLCHAIN_DIR",                 // cmake var
+                                   Constants::TOOLCHAIN_DIR_CMAKE_VARIABLE,    // cmake var
                                    envVar,                                     // env var
                                    versionDetector);
 }
 
-static McuToolChainPackage *createIarToolChainPackage()
+McuToolChainPackage *createIarToolChainPackage()
 {
     const char envVar[] = "IAR_ARM_COMPILER_DIR";
 
@@ -287,7 +285,7 @@ static McuToolChainPackage *createIarToolChainPackage()
                                    detectionPath,
                                    "IARToolchain",                          // settings key
                                    McuToolChainPackage::ToolChainType::IAR, // toolchainType
-                                   "QUL_TARGET_TOOLCHAIN_DIR",              // cmake var
+                                   Constants::TOOLCHAIN_DIR_CMAKE_VARIABLE, // cmake var
                                    envVar,                                  // env var
                                    versionDetector);
 }
@@ -416,22 +414,22 @@ static McuAbstractTargetFactory::Ptr createFactory(bool isLegacy)
 {
     McuAbstractTargetFactory::Ptr result;
     if (isLegacy) {
-        static const QHash<QString, McuToolChainPackage *> tcPkgs = {
-            {{"armgcc"}, createArmGccToolchainPackage()},
-            {{"greenhills"}, createGhsToolchainPackage()},
-            {{"iar"}, createIarToolChainPackage()},
-            {{"msvc"}, createMsvcToolChainPackage()},
-            {{"gcc"}, createGccToolChainPackage()},
-            {{"arm-greenhills"}, createGhsArmToolchainPackage()},
+        static const QHash<QString, McuToolChainPackagePtr> tcPkgs = {
+            {{"armgcc"}, McuToolChainPackagePtr{createArmGccToolchainPackage()}},
+            {{"greenhills"}, McuToolChainPackagePtr{createGhsToolchainPackage()}},
+            {{"iar"}, McuToolChainPackagePtr{createIarToolChainPackage()}},
+            {{"msvc"}, McuToolChainPackagePtr{createMsvcToolChainPackage()}},
+            {{"gcc"}, McuToolChainPackagePtr{createGccToolChainPackage()}},
+            {{"arm-greenhills"}, McuToolChainPackagePtr{createGhsArmToolchainPackage()}},
         };
 
         // Note: the vendor name (the key of the hash) is case-sensitive. It has to match the "platformVendor" key in the
         // json file.
-        static const QHash<QString, McuAbstractPackage *> vendorPkgs = {
-            {{"ST"}, createStm32CubeProgrammerPackage()},
-            {{"NXP"}, createMcuXpressoIdePackage()},
-            {{"CYPRESS"}, createCypressProgrammerPackage()},
-            {{"RENESAS"}, createRenesasProgrammerPackage()},
+        static const QHash<QString, McuPackagePtr> vendorPkgs = {
+            {{"ST"}, McuPackagePtr{createStm32CubeProgrammerPackage()}},
+            {{"NXP"}, McuPackagePtr{createMcuXpressoIdePackage()}},
+            {{"CYPRESS"}, McuPackagePtr{createCypressProgrammerPackage()}},
+            {{"RENESAS"}, McuPackagePtr{createRenesasProgrammerPackage()}},
         };
 
         result = std::make_unique<McuTargetFactoryLegacy>(tcPkgs, vendorPkgs);
@@ -441,8 +439,8 @@ static McuAbstractTargetFactory::Ptr createFactory(bool isLegacy)
     return result;
 }
 
-QPair<Targets, Packages> targetsFromDescriptions(const QList<McuTargetDescription> &descriptions,
-                                                 bool isLegacy)
+McuSdkRepository targetsFromDescriptions(const QList<McuTargetDescription> &descriptions,
+                                         bool isLegacy)
 {
     Targets mcuTargets;
     Packages mcuPackages;
@@ -451,19 +449,19 @@ QPair<Targets, Packages> targetsFromDescriptions(const QList<McuTargetDescriptio
     for (const McuTargetDescription &desc : descriptions) {
         auto [targets, packages] = targetFactory->createTargets(desc);
         mcuTargets.append(targets);
-        mcuPackages.append(packages);
+        mcuPackages.unite(packages);
     }
 
     if (isLegacy) {
         auto [toolchainPkgs, vendorPkgs]{targetFactory->getAdditionalPackages()};
-        for (McuAbstractPackage *package : toolchainPkgs) {
-            mcuPackages.append(package);
+        for (McuToolChainPackagePtr &package : toolchainPkgs) {
+            mcuPackages.insert(package);
         }
-        for (McuAbstractPackage *package : vendorPkgs) {
-            mcuPackages.append(package);
+        for (McuPackagePtr &package : vendorPkgs) {
+            mcuPackages.insert(package);
         }
     }
-    return {mcuTargets, mcuPackages};
+    return McuSdkRepository{mcuTargets, mcuPackages};
 }
 
 Utils::FilePath kitsPath(const Utils::FilePath &dir)
@@ -482,7 +480,7 @@ static QList<PackageDescription> parsePackages(const QJsonArray &cmakeEntries)
     QList<PackageDescription> result;
     for (const auto &cmakeEntryRef : cmakeEntries) {
         const QJsonObject cmakeEntry{cmakeEntryRef.toObject()};
-        result.push_back({cmakeEntry[ID].toString(),
+        result.push_back({cmakeEntry["label"].toString(),
                           cmakeEntry["envVar"].toString(),
                           cmakeEntry["cmakeVar"].toString(),
                           cmakeEntry["description"].toString(),
@@ -506,10 +504,12 @@ McuTargetDescription parseDescriptionJson(const QByteArray &data)
     const QJsonObject boardSdk = target.value("boardSdk").toObject();
     const QJsonObject freeRTOS = target.value("freeRTOS").toObject();
 
-    QJsonArray cmakeEntries = freeRTOS.value(CMAKE_ENTRIES).toArray();
-    cmakeEntries.append(toolchain.value(CMAKE_ENTRIES).toArray());
-    cmakeEntries.append(boardSdk.value(CMAKE_ENTRIES).toArray());
-    const QList<PackageDescription> freeRtosEntries = parsePackages(cmakeEntries);
+    const QList<PackageDescription> toolchainEntries = parsePackages(
+        toolchain.value(CMAKE_ENTRIES).toArray());
+    const QList<PackageDescription> boardSDKEntries = parsePackages(
+        boardSdk.value(CMAKE_ENTRIES).toArray());
+    const QList<PackageDescription> freeRtosEntries = parsePackages(
+        freeRTOS.value(CMAKE_ENTRIES).toArray());
 
     const QVariantList toolchainVersions = toolchain.value("versions").toArray().toVariantList();
     const auto toolchainVersionsList = Utils::transform<QStringList>(toolchainVersions,
@@ -539,17 +539,17 @@ McuTargetDescription parseDescriptionJson(const QByteArray &data)
                 platformName == "Desktop" ? McuTargetDescription::TargetType::Desktop
                                           : McuTargetDescription::TargetType::MCU,
             },
-            {toolchain.value("id").toString(), toolchainVersionsList, {}},
+            {toolchain.value("id").toString(), toolchainVersionsList, toolchainEntries},
             {
                 boardSdk.value("name").toString(),
-                boardSdk.value("defaultPath").toString(),
+                FilePath::fromString(boardSdk.value("defaultPath").toString()),
                 boardSdk.value("envVar").toString(),
                 boardSdkVersionsList,
-                {},
+                boardSDKEntries,
             },
             {
                 freeRTOS.value("envVar").toString(),
-                freeRTOS.value("boardSdkSubDir").toString(),
+                FilePath::fromString(freeRTOS.value("boardSdkSubDir").toString()),
                 freeRtosEntries,
             }};
 }
@@ -587,11 +587,10 @@ bool checkDeprecatedSdkError(const Utils::FilePath &qulDir, QString &message)
     return false;
 }
 
-void targetsAndPackages(const Utils::FilePath &dir, McuSdkRepository *repo)
+McuSdkRepository targetsAndPackages(const Utils::FilePath &dir)
 {
     QList<McuTargetDescription> descriptions;
-
-    bool isLegacy = false;
+    bool isLegacy{false};
 
     auto descriptionFiles = targetDescriptionFiles(dir);
     for (const QFileInfo &fileInfo : descriptionFiles) {
@@ -611,8 +610,7 @@ void targetsAndPackages(const Utils::FilePath &dir, McuSdkRepository *repo)
         }
 
         const auto qulVersion{QVersionNumber::fromString(desc.qulVersion)};
-        if (qulVersion == McuSupportOptions::minimalQulVersion())
-            isLegacy = true;
+        isLegacy = McuSupportOptions::isLegacyVersion(qulVersion);
 
         if (qulVersion < McuSupportOptions::minimalQulVersion()) {
             const QString legacyVersion = legacySupportVersionFor(desc.qulVersion);
@@ -637,26 +635,23 @@ void targetsAndPackages(const Utils::FilePath &dir, McuSdkRepository *repo)
             printMessage(McuTarget::tr("No valid kit descriptions found at %1.")
                              .arg(kitsPath(dir).toUserOutput()),
                          true);
-            return;
+            return McuSdkRepository{};
         } else {
             QString deprecationMessage;
             if (checkDeprecatedSdkError(dir, deprecationMessage)) {
                 printMessage(deprecationMessage, true);
-                return;
+                return McuSdkRepository{};
             }
         }
     }
-    const auto tmpTargetLists = targetsFromDescriptions(descriptions, isLegacy);
-    repo->mcuTargets = tmpTargetLists.first;
-    repo->packages = tmpTargetLists.second;
+    McuSdkRepository repo = targetsFromDescriptions(descriptions, isLegacy);
 
     // Keep targets sorted lexicographically
-    std::sort(repo->mcuTargets.begin(),
-              repo->mcuTargets.end(),
-              [](const McuTarget *lhs, const McuTarget *rhs) {
-                  return McuKitManager::generateKitNameFromTarget(lhs)
-                         < McuKitManager::generateKitNameFromTarget(rhs);
-              });
+    Utils::sort(repo.mcuTargets, [](const McuTargetPtr &lhs, const McuTargetPtr &rhs) {
+        return McuKitManager::generateKitNameFromTarget(lhs.get())
+               < McuKitManager::generateKitNameFromTarget(rhs.get());
+    });
+    return repo;
 }
 
 FilePath packagePathFromSettings(const QString &settingsKey,

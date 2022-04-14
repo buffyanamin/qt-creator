@@ -39,6 +39,7 @@
 #include <utils/pathchooser.h>
 #include <utils/qtcprocess.h>
 #include <utils/treemodel.h>
+#include <utils/utilsicons.h>
 
 #include <QDir>
 #include <QLabel>
@@ -57,12 +58,16 @@ using namespace Layouting;
 
 class InterpreterDetailsWidget : public QWidget
 {
+    Q_OBJECT
 public:
     InterpreterDetailsWidget()
         : m_name(new QLineEdit)
-        , m_executable(new Utils::PathChooser())
+        , m_executable(new PathChooser())
     {
-        m_executable->setExpectedKind(Utils::PathChooser::ExistingCommand);
+        m_executable->setExpectedKind(PathChooser::ExistingCommand);
+
+        connect(m_name, &QLineEdit::textChanged, this, &InterpreterDetailsWidget::changed);
+        connect(m_executable, &PathChooser::filePathChanged, this, &InterpreterDetailsWidget::changed);
 
         Form {
             PythonSettings::tr("Name:"), m_name, Break(),
@@ -72,23 +77,30 @@ public:
 
     void updateInterpreter(const Interpreter &interpreter)
     {
+        QSignalBlocker blocker(this); // do not emit changed when we change the controls here
+        m_currentInterpreter = interpreter;
         m_name->setText(interpreter.name);
         m_executable->setFilePath(interpreter.command);
-        m_currentId = interpreter.id;
     }
 
     Interpreter toInterpreter()
     {
-        return {m_currentId, m_name->text(), m_executable->filePath()};
+        m_currentInterpreter.command = m_executable->filePath();
+        m_currentInterpreter.name = m_name->text();
+        return m_currentInterpreter;
     }
     QLineEdit *m_name = nullptr;
     PathChooser *m_executable = nullptr;
-    QString m_currentId;
+    Interpreter m_currentInterpreter;
+
+signals:
+    void changed();
 };
 
 
 class InterpreterOptionsWidget : public QWidget
 {
+    Q_DECLARE_TR_FUNCTIONS(Python::Internal::InterpreterOptionsWidget)
 public:
     InterpreterOptionsWidget(const QList<Interpreter> &interpreters,
                              const QString &defaultInterpreter);
@@ -101,25 +113,45 @@ private:
     InterpreterDetailsWidget *m_detailsWidget = nullptr;
     QPushButton *m_deleteButton = nullptr;
     QPushButton *m_makeDefaultButton = nullptr;
+    QPushButton *m_cleanButton = nullptr;
     QString m_defaultId;
 
     void currentChanged(const QModelIndex &index, const QModelIndex &previous);
+    void detailsChanged();
+    void updateCleanButton();
     void addItem();
     void deleteItem();
     void makeDefault();
+    void cleanUp();
 };
 
 InterpreterOptionsWidget::InterpreterOptionsWidget(const QList<Interpreter> &interpreters, const QString &defaultInterpreter)
     : m_detailsWidget(new InterpreterDetailsWidget())
     , m_defaultId(defaultInterpreter)
 {
-    m_model.setDataAccessor([this](const Interpreter &interpreter, int, int role) -> QVariant {
-        if (role == Qt::DisplayRole)
+    m_model.setDataAccessor([this](const Interpreter &interpreter, int column, int role) -> QVariant {
+        switch (role) {
+        case Qt::DisplayRole:
             return interpreter.name;
-        if (role == Qt::FontRole) {
+        case Qt::FontRole: {
             QFont f = font();
             f.setBold(interpreter.id == m_defaultId);
             return f;
+        }
+        case Qt::ToolTipRole:
+            if (interpreter.command.isEmpty())
+                return tr("Executable is empty.");
+            if (!interpreter.command.exists())
+                return tr("%1 does not exist.").arg(interpreter.command.toUserOutput());
+            if (!interpreter.command.isExecutableFile())
+                return tr("%1 is not an executable file.").arg(interpreter.command.toUserOutput());
+            break;
+        case Qt::DecorationRole:
+            if (column == 0 && !interpreter.command.isExecutableFile())
+                return Utils::Icons::CRITICAL.icon();
+            break;
+        default:
+            break;
         }
         return {};
     });
@@ -145,12 +177,24 @@ InterpreterOptionsWidget::InterpreterOptionsWidget(const QList<Interpreter> &int
     m_makeDefaultButton->setEnabled(false);
     connect(m_makeDefaultButton, &QPushButton::pressed, this, &InterpreterOptionsWidget::makeDefault);
 
+    m_cleanButton = new QPushButton(PythonSettings::tr("&Clean Up"));
+    connect(m_cleanButton, &QPushButton::pressed, this, &InterpreterOptionsWidget::cleanUp);
+    m_cleanButton->setToolTip(
+        PythonSettings::tr("Remove all python interpreters without a valid executable."));
+
+    updateCleanButton();
+
     m_detailsWidget->hide();
+    connect(m_detailsWidget,
+            &InterpreterDetailsWidget::changed,
+            this,
+            &InterpreterOptionsWidget::detailsChanged);
 
     Column buttons {
         addButton,
         m_deleteButton,
         m_makeDefaultButton,
+        m_cleanButton,
         Stretch()
     };
 
@@ -162,12 +206,6 @@ InterpreterOptionsWidget::InterpreterOptionsWidget(const QList<Interpreter> &int
 
 void InterpreterOptionsWidget::apply()
 {
-    const QModelIndex &index = m_view.currentIndex();
-    if (index.isValid()) {
-        m_model.itemAt(index.row())->itemData = m_detailsWidget->toInterpreter();
-        emit m_model.dataChanged(index, index);
-    }
-
     QList<Interpreter> interpreters;
     for (const TreeItem *treeItem : m_model)
         interpreters << static_cast<const ListItem<Interpreter> *>(treeItem)->itemData;
@@ -190,12 +228,30 @@ void InterpreterOptionsWidget::currentChanged(const QModelIndex &index, const QM
     m_makeDefaultButton->setEnabled(index.isValid());
 }
 
+void InterpreterOptionsWidget::detailsChanged()
+{
+    const QModelIndex &index = m_view.currentIndex();
+    if (index.isValid()) {
+        m_model.itemAt(index.row())->itemData = m_detailsWidget->toInterpreter();
+        emit m_model.dataChanged(index, index);
+    }
+    updateCleanButton();
+}
+
+void InterpreterOptionsWidget::updateCleanButton()
+{
+    m_cleanButton->setEnabled(Utils::anyOf(m_model.allData(), [](const Interpreter &interpreter) {
+        return !interpreter.command.isExecutableFile();
+    }));
+}
+
 void InterpreterOptionsWidget::addItem()
 {
     const QModelIndex &index = m_model.indexForItem(
-                m_model.appendItem({QUuid::createUuid().toString(), QString("Python"), FilePath()}));
+        m_model.appendItem({QUuid::createUuid().toString(), QString("Python"), FilePath(), false}));
     QTC_ASSERT(index.isValid(), return);
     m_view.setCurrentIndex(index);
+    updateCleanButton();
 }
 
 void InterpreterOptionsWidget::deleteItem()
@@ -203,6 +259,7 @@ void InterpreterOptionsWidget::deleteItem()
     const QModelIndex &index = m_view.currentIndex();
     if (index.isValid())
         m_model.destroyItem(m_model.itemAt(index.row()));
+    updateCleanButton();
 }
 
 class InterpreterOptionsPage : public Core::IOptionsPage
@@ -294,10 +351,14 @@ Interpreter::Interpreter(const FilePath &python, const QString &defaultName, boo
         name += QString(" (%1 Virtual Environment)").arg(pythonDir.dirName());
 }
 
-Interpreter::Interpreter(const QString &_id, const QString &_name, const FilePath &_command)
+Interpreter::Interpreter(const QString &_id,
+                         const QString &_name,
+                         const FilePath &_command,
+                         bool _autoDetected)
     : id(_id)
     , name(_name)
     , command(_command)
+    , autoDetected(_autoDetected)
 {}
 
 static InterpreterOptionsPage &interpreterOptionsPage()
@@ -320,6 +381,13 @@ void InterpreterOptionsWidget::makeDefault()
     }
 }
 
+void InterpreterOptionsWidget::cleanUp()
+{
+    m_model.destroyItems(
+        [](const Interpreter &interpreter) { return !interpreter.command.isExecutableFile(); });
+    updateCleanButton();
+}
+
 constexpr char settingsGroupKey[] = "Python";
 constexpr char interpreterKey[] = "Interpeter";
 constexpr char defaultKey[] = "DefaultInterpeter";
@@ -335,14 +403,28 @@ static SavedSettings fromSettings(QSettings *settings)
     QList<Interpreter> pythons;
     settings->beginGroup(settingsGroupKey);
     const QVariantList interpreters = settings->value(interpreterKey).toList();
+    QList<Interpreter> oldSettings;
     for (const QVariant &interpreterVar : interpreters) {
         auto interpreterList = interpreterVar.toList();
-        if (interpreterList.size() != 3)
-            continue;
-        pythons << Interpreter{interpreterList.value(0).toString(),
-                               interpreterList.value(1).toString(),
-                               FilePath::fromVariant(interpreterList.value(2))};
+        const Interpreter interpreter{interpreterList.value(0).toString(),
+                                      interpreterList.value(1).toString(),
+                                      FilePath::fromVariant(interpreterList.value(2)),
+                                      interpreterList.value(3, true).toBool()};
+        if (interpreterList.size() == 3)
+            oldSettings << interpreter;
+        else if (interpreterList.size() == 4)
+            pythons << interpreter;
     }
+
+    for (const Interpreter &interpreter : qAsConst(oldSettings)) {
+        if (Utils::anyOf(pythons, Utils::equal(&Interpreter::id, interpreter.id)))
+            continue;
+        pythons << interpreter;
+    }
+
+    pythons = Utils::filtered(pythons, [](const Interpreter &interpreter){
+        return !interpreter.autoDetected || interpreter.command.isExecutableFile();
+    });
 
     const QString defaultId = settings->value(defaultKey).toString();
 
@@ -354,10 +436,15 @@ static SavedSettings fromSettings(QSettings *settings)
 static void toSettings(QSettings *settings, const SavedSettings &savedSettings)
 {
     settings->beginGroup(settingsGroupKey);
-    const QVariantList interpretersVar
-        = Utils::transform(savedSettings.pythons, [](const Interpreter &interpreter) {
-              return QVariant({interpreter.id, interpreter.name, interpreter.command.toVariant()});
-          });
+    QVariantList interpretersVar;
+    for (const Interpreter &interpreter : savedSettings.pythons) {
+        QVariantList interpreterVar{interpreter.id,
+                                    interpreter.name,
+                                    interpreter.command.toVariant()};
+        interpretersVar.append(QVariant(interpreterVar)); // old settings
+        interpreterVar.append(interpreter.autoDetected);
+        interpretersVar.append(QVariant(interpreterVar)); // new settings
+    }
     settings->setValue(interpreterKey, interpretersVar);
     settings->setValue(defaultKey, savedSettings.defaultId);
     settings->endGroup();

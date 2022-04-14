@@ -25,7 +25,6 @@
 
 #include "sshconnection.h"
 
-#include "sftpsession.h"
 #include "sftptransfer.h"
 #include "sshlogging_p.h"
 #include "sshremoteprocess.h"
@@ -186,21 +185,12 @@ SshConnection::SshConnection(const SshConnectionParameters &serverInfo, QObject 
         if (reply == "\n")
             emitConnected();
     });
-    connect(&d->masterProcess, &QtcProcess::errorOccurred, [this] (QProcess::ProcessError error) {
-        switch (error) {
-        case QProcess::FailedToStart:
+    connect(&d->masterProcess, &QtcProcess::done, this, [this] {
+        if (d->masterProcess.error() == QProcess::FailedToStart) {
             emitError(tr("Cannot establish SSH connection: Control process failed to start: %1")
                       .arg(d->fullProcessError()));
-            break;
-        case QProcess::Crashed: // Handled by finished() handler.
-        case QProcess::Timedout:
-        case QProcess::ReadError:
-        case QProcess::WriteError:
-        case QProcess::UnknownError:
-            break; // Cannot happen.
+            return;
         }
-    });
-    connect(&d->masterProcess, &QtcProcess::finished, [this] {
         if (d->state == Disconnecting) {
             emitDisconnected();
             return;
@@ -331,12 +321,6 @@ SftpTransferPtr SshConnection::createDownload(const FilesToTransfer &files,
                                               FileTransferErrorHandling errorHandlingMode)
 {
     return setupTransfer(files, Internal::FileTransferType::Download, errorHandlingMode);
-}
-
-SftpSessionPtr SshConnection::createSftpSession()
-{
-    QTC_ASSERT(state() == Connected, return SftpSessionPtr());
-    return SftpSessionPtr(new SftpSession(d->connectionArgs(SshSettings::sftpFilePath())));
 }
 
 void SshConnection::doConnectToHost()

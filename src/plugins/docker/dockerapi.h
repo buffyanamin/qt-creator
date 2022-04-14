@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2022 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of Qt Creator.
@@ -23,24 +23,46 @@
 **
 ****************************************************************************/
 
-#include "window.h"
+#pragma once
 
-#include <ssh/sftpfilesystemmodel.h>
-#include <ssh/sshconnection.h>
-#include <utils/launcherinterface.h>
-#include <utils/temporarydirectory.h>
+#include <QMutex>
+#include <QObject>
 
-#include <QApplication>
-#include <QTreeView>
+#include <utils/filepath.h>
+#include <utils/guard.h>
+#include <utils/optional.h>
 
-int main(int argc, char *argv[])
+namespace Docker {
+namespace Internal {
+
+class DockerApi : public QObject
 {
-    QApplication app(argc, argv);
-    Utils::LauncherInterface::setPathToLauncher(qApp->applicationDirPath() + '/'
-                                                + QLatin1String(TEST_RELATIVE_LIBEXEC_PATH));
-    Utils::TemporaryDirectory::setMasterTemporaryDirectory(QDir::tempPath()
-                                                           + "/qtc-ssh-shelltest-XXXXXX");
-    SftpFsWindow w;
-    w.show();
-    return app.exec();
-}
+    Q_OBJECT
+
+public:
+    DockerApi();
+
+    static DockerApi *instance();
+
+    bool canConnect();
+    void checkCanConnect(bool async = true);
+    static void recheckDockerDaemon();
+
+signals:
+    void dockerDaemonAvailableChanged();
+
+public:
+    Utils::optional<bool> dockerDaemonAvailable(bool async = true);
+    static Utils::optional<bool> isDockerDaemonAvailable(bool async = true);
+
+private:
+    Utils::FilePath findDockerClient();
+
+private:
+    Utils::FilePath m_dockerExecutable;
+    Utils::optional<bool> m_dockerDaemonAvailable;
+    QMutex m_daemonCheckGuard;
+};
+
+} // namespace Internal
+} // namespace Docker

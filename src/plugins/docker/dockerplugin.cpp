@@ -27,6 +27,7 @@
 
 #include "dockerconstants.h"
 
+#include "dockerapi.h"
 #include "dockerbuildstep.h"
 #include "dockerdevice.h"
 #include "dockersettings.h"
@@ -43,13 +44,15 @@ namespace Internal {
 class DockerPluginPrivate
 {
 public:
-//    DockerSettings settings;
-//    DockerOptionsPage optionsPage{&settings};
+    // DockerSettings settings;
+    // DockerOptionsPage optionsPage{&settings};
 
     DockerDeviceFactory deviceFactory;
 
-//    DockerBuildStepFactory buildStepFactory;
+    // DockerBuildStepFactory buildStepFactory;
     Utils::optional<bool> daemonRunning;
+
+    DockerApi dockerApi;
 };
 
 static DockerPlugin *s_instance = nullptr;
@@ -59,16 +62,10 @@ DockerPlugin::DockerPlugin()
     s_instance = this;
 }
 
-// Utils::null_opt for not evaluated, true or false if it had been evaluated already
-Utils::optional<bool> DockerPlugin::isDaemonRunning()
+DockerApi *DockerPlugin::dockerApi()
 {
-    return s_instance ? s_instance->d->daemonRunning : Utils::nullopt;
-}
-
-void DockerPlugin::setGlobalDaemonState(Utils::optional<bool> state)
-{
-    QTC_ASSERT(s_instance, return);
-    s_instance->d->daemonRunning = state;
+    QTC_ASSERT(s_instance, return nullptr);
+    return &s_instance->d->dockerApi;
 }
 
 DockerPlugin::~DockerPlugin()

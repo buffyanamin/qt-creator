@@ -29,6 +29,7 @@
 #include "sshsettings.h"
 
 #include <utils/commandline.h>
+#include <utils/processinterface.h>
 #include <utils/qtcassert.h>
 
 #include <QTimer>
@@ -61,20 +62,14 @@ SshRemoteProcess::SshRemoteProcess(const QString &command, const QStringList &co
 void SshRemoteProcess::emitFinished()
 {
     if (exitStatus() == QProcess::CrashExit)
-        setErrorString(tr("The ssh process crashed: %1").arg(errorString()));
-    emit finished();
-}
-
-void SshRemoteProcess::emitErrorOccurred(QProcess::ProcessError error)
-{
-    if (error == QProcess::FailedToStart)
-        emit finished();
-    emit errorOccurred(error);
+        m_errorString = tr("The ssh process crashed: %1").arg(errorString());
+    QtcProcess::emitFinished();
 }
 
 void SshRemoteProcess::start()
 {
     QTC_ASSERT(!isRunning(), return);
+    m_errorString.clear();
     const CommandLine cmd = fullLocalCommandLine();
     if (!m_displayName.isEmpty()) {
         Environment env = environment();
@@ -84,6 +79,14 @@ void SshRemoteProcess::start()
     qCDebug(sshLog) << "starting remote process:" << cmd.toUserOutput();
     setCommand(cmd);
     QtcProcess::start();
+}
+
+ProcessResultData SshRemoteProcess::resultData() const
+{
+    ProcessResultData result = QtcProcess::resultData();
+    if (!m_errorString.isEmpty())
+        result.m_errorString = m_errorString;
+    return result;
 }
 
 void SshRemoteProcess::requestX11Forwarding(const QString &displayName)
