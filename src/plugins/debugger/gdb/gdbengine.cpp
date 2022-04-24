@@ -54,6 +54,7 @@
 #include <coreplugin/icore.h>
 #include <coreplugin/messagebox.h>
 
+#include <projectexplorer/devicesupport/idevice.h>
 #include <projectexplorer/projectexplorer.h>
 #include <projectexplorer/taskhub.h>
 
@@ -167,10 +168,8 @@ GdbEngine::GdbEngine()
     connect(&s.useDynamicType, &BaseAspect::changed,
             this, &GdbEngine::reloadLocals);
 
-    connect(&m_gdbProc, &QtcProcess::errorOccurred,
-            this, &GdbEngine::handleGdbError);
-    connect(&m_gdbProc, &QtcProcess::finished,
-            this, &GdbEngine::handleGdbFinished);
+    connect(&m_gdbProc, &QtcProcess::done,
+            this, &GdbEngine::handleGdbDone);
     connect(&m_gdbProc, &QtcProcess::readyReadStandardOutput,
             this, &GdbEngine::readGdbStandardOutput);
     connect(&m_gdbProc, &QtcProcess::readyReadStandardError,
@@ -4074,35 +4073,22 @@ void GdbEngine::reloadDebuggingHelpers()
     reloadLocals();
 }
 
-void GdbEngine::handleGdbError(QProcess::ProcessError error)
+void GdbEngine::handleGdbDone()
 {
-    QString msg = RunWorker::userMessageForProcessError(error, runParameters().debugger.command.executable());
-    QString errorString = m_gdbProc.errorString();
-    if (!errorString.isEmpty())
-        msg += '\n' + errorString;
-    showMessage("HANDLE GDB ERROR: " + msg);
-    // Show a message box for asynchronously reported issues.
-    switch (error) {
-    case QProcess::FailedToStart:
-        // This should be handled by the code trying to start the process.
-        break;
-    case QProcess::Crashed:
-        // At this time, m_gdbProc.state() can still return Running.
-        // Wait for finished() instead.
-        break;
-    case QProcess::ReadError:
-    case QProcess::WriteError:
-    case QProcess::Timedout:
-    default:
-        //m_gdbProc->kill();
-        //notifyEngineIll();
-        AsynchronousMessageBox::critical(tr("GDB I/O Error"), msg);
-        break;
-    }
-}
+    const QProcess::ProcessError error = m_gdbProc.error();
+    if (error != QProcess::UnknownError) {
+        QString msg = RunWorker::userMessageForProcessError(error,
+                      runParameters().debugger.command.executable());
+        const QString errorString = m_gdbProc.errorString();
+        if (!errorString.isEmpty())
+            msg += '\n' + errorString;
+        showMessage("HANDLE GDB ERROR: " + msg);
 
-void GdbEngine::handleGdbFinished()
-{
+        if (error == QProcess::FailedToStart)
+            return; // This should be handled by the code trying to start the process.
+
+        AsynchronousMessageBox::critical(tr("GDB I/O Error"), msg);
+    }
     if (m_commandTimer.isActive())
         m_commandTimer.stop();
 

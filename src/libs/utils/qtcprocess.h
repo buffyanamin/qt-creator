@@ -59,7 +59,7 @@ public:
 
     // ProcessInterface related
 
-    virtual void start();
+    void start();
 
     virtual void terminate();
     virtual void kill();
@@ -74,7 +74,7 @@ public:
     virtual qint64 processId() const;
     qint64 applicationMainThreadId() const;
 
-    virtual QProcess::ProcessState state() const;
+    QProcess::ProcessState state() const;
     virtual ProcessResultData resultData() const;
 
     int exitCode() const;
@@ -201,12 +201,11 @@ signals:
 
 protected:
     // TODO: remove these methods on QtcProcess de-virtualization
+    virtual void startImpl();
     virtual void emitStarted();
     virtual void emitFinished();
 
 private:
-    void setProcessInterface(ProcessInterface *interface);
-
     friend QTCREATOR_UTILS_EXPORT QDebug operator<<(QDebug str, const QtcProcess &r);
 
     friend class Internal::QtcProcessPrivate;

@@ -42,6 +42,7 @@
 #include <coreplugin/messagemanager.h>
 
 #include <projectexplorer/deploymentdata.h>
+#include <projectexplorer/devicesupport/idevice.h>
 #include <projectexplorer/kitinformation.h>
 #include <projectexplorer/kitmanager.h>
 #include <projectexplorer/target.h>
@@ -623,6 +624,20 @@ bool QmlBuildSystem::widgetApp() const
     if (m_projectItem)
         return m_projectItem->widgetApp();
     return false;
+}
+
+QStringList QmlBuildSystem::shaderToolArgs() const
+{
+    if (m_projectItem)
+        return m_projectItem->shaderToolArgs();
+    return {};
+}
+
+QStringList QmlBuildSystem::shaderToolFiles() const
+{
+    if (m_projectItem)
+        return m_projectItem->shaderToolFiles();
+    return {};
 }
 
 bool QmlBuildSystem::addFiles(Node *context, const FilePaths &filePaths, FilePaths *)

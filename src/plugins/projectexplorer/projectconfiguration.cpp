@@ -28,6 +28,7 @@
 #include "kitinformation.h"
 #include "target.h"
 
+#include <projectexplorer/devicesupport/idevice.h>
 #include <utils/algorithm.h>
 #include <utils/qtcassert.h>
 
@@ -137,12 +138,6 @@ bool ProjectConfiguration::fromMap(const QVariantMap &map)
 Utils::BaseAspect *ProjectConfiguration::aspect(Utils::Id id) const
 {
     return m_aspects.aspect(id);
-}
-
-void ProjectConfiguration::acquaintAspects()
-{
-    for (Utils::BaseAspect *aspect : m_aspects)
-        aspect->acquaintSiblings(m_aspects);
 }
 
 void ProjectConfiguration::doPostInit()

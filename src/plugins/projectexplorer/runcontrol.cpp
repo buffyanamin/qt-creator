@@ -26,6 +26,7 @@
 #include "runcontrol.h"
 
 #include "devicesupport/desktopdevice.h"
+#include "devicesupport/idevice.h"
 #include "abi.h"
 #include "buildconfiguration.h"
 #include "customparser.h"
@@ -301,7 +302,38 @@ static QString stateName(RunControlState s)
 #    undef SN
 }
 
-class RunControlPrivate : public QObject
+class RunControlPrivateData
+{
+public:
+    QString displayName;
+    Runnable runnable;
+    IDevice::ConstPtr device;
+    Utils::Icon icon;
+    const MacroExpander *macroExpander = nullptr;
+    QPointer<RunConfiguration> runConfiguration; // Not owned. Avoid use.
+    AspectContainerData aspectData;
+    QString buildKey;
+    QMap<Utils::Id, QVariantMap> settingsData;
+    Utils::Id runConfigId;
+    BuildTargetInfo buildTargetInfo;
+    BuildConfiguration::BuildType buildType = BuildConfiguration::Unknown;
+    FilePath buildDirectory;
+    Environment buildEnvironment;
+    Kit *kit = nullptr; // Not owned.
+    QPointer<Target> target; // Not owned.
+    QPointer<Project> project; // Not owned.
+    std::function<bool(bool*)> promptToStop;
+    std::vector<RunWorkerFactory> m_factories;
+
+    // A handle to the actual application process.
+    Utils::ProcessHandle applicationProcessHandle;
+
+    RunControlState state = RunControlState::Initialized;
+
+    QList<QPointer<RunWorker>> m_workers;
+};
+
+class RunControlPrivate : public QObject, public RunControlPrivateData
 {
 public:
     RunControlPrivate(RunControl *parent, Utils::Id mode)
@@ -318,6 +350,8 @@ public:
         qDeleteAll(m_workers);
         m_workers.clear();
     }
+
+    void copyData(RunControlPrivateData *other) { RunControlPrivateData::operator=(*other); }
 
     Q_ENUM(RunControlState)
 
@@ -344,33 +378,7 @@ public:
     bool supportsReRunning() const;
 
     RunControl *q;
-    QString displayName;
-    Runnable runnable;
-    IDevice::ConstPtr device;
     Utils::Id runMode;
-    Utils::Icon icon;
-    const MacroExpander *macroExpander = nullptr;
-    QPointer<RunConfiguration> runConfiguration; // Not owned. Avoid use.
-    AspectContainerData aspectData;
-    QString buildKey;
-    QMap<Utils::Id, QVariantMap> settingsData;
-    Utils::Id runConfigId;
-    BuildTargetInfo buildTargetInfo;
-    BuildConfiguration::BuildType buildType = BuildConfiguration::Unknown;
-    FilePath buildDirectory;
-    Environment buildEnvironment;
-    Kit *kit = nullptr; // Not owned.
-    QPointer<Target> target; // Not owned.
-    QPointer<Project> project; // Not owned.
-    std::function<bool(bool*)> promptToStop;
-    std::vector<RunWorkerFactory> m_factories;
-
-    // A handle to the actual application process.
-    Utils::ProcessHandle applicationProcessHandle;
-
-    RunControlState state = RunControlState::Initialized;
-
-    QList<QPointer<RunWorker>> m_workers;
 };
 
 } // Internal
@@ -380,6 +388,12 @@ using namespace Internal;
 RunControl::RunControl(Utils::Id mode) :
     d(std::make_unique<RunControlPrivate>(this,  mode))
 {
+}
+
+void RunControl::copyFromRunControl(RunControl *runControl)
+{
+    QTC_ASSERT(runControl, return);
+    d->copyData(runControl->d.get());
 }
 
 void RunControl::setRunConfiguration(RunConfiguration *runConfig)
@@ -392,8 +406,7 @@ void RunControl::setRunConfiguration(RunConfiguration *runConfig)
     d->displayName = runConfig->expandedDisplayName();
     d->buildKey = runConfig->buildKey();
     d->settingsData = runConfig->settingsData();
-
-    runConfig->storeAspectData(&d->aspectData);
+    d->aspectData = runConfig->aspectData();
 
     setTarget(runConfig->target());
 

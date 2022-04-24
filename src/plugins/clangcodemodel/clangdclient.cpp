@@ -677,6 +677,7 @@ public:
 
     void update();
     void finalize();
+    void resetData(bool resetFollowSymbolData);
 
 private:
     IAssistProposal *perform(const AssistInterface *) override
@@ -688,8 +689,6 @@ private:
     {
         return createProposal(false);
     }
-
-    void resetData();
 
     IAssistProposal *immediateProposalImpl() const;
     IAssistProposal *createProposal(bool final) const;
@@ -726,7 +725,7 @@ public:
     {
         closeTempDocuments();
         if (virtualFuncAssistProcessor)
-            virtualFuncAssistProcessor->cancel();
+            virtualFuncAssistProcessor->resetData(false);
         for (const MessageId &id : qAsConst(pendingSymbolInfoRequests))
             q->cancelRequest(id);
         for (const MessageId &id : qAsConst(pendingGotoImplRequests))
@@ -1118,6 +1117,20 @@ private:
     Utils::optional<MessageId> m_currentRequest;
 };
 
+class HighlightingData
+{
+public:
+    // For all QPairs, the int member is the corresponding document version.
+    QPair<QList<ExpandedSemanticToken>, int> previousTokens;
+
+    // The ranges of symbols referring to virtual functions,
+    // as extracted by the highlighting procedure.
+    QPair<QList<Range>, int> virtualRanges;
+
+    // The highlighter is owned by its document.
+    CppEditor::SemanticHighlighter *highlighter = nullptr;
+};
+
 class ClangdClient::Private
 {
 public:
@@ -1170,15 +1183,8 @@ public:
     Utils::optional<LocalRefsData> localRefsData;
     Utils::optional<QVersionNumber> versionNumber;
 
-    //  The highlighters are owned by their respective documents.
-    std::unordered_map<TextDocument *, CppEditor::SemanticHighlighter *> highlighters;
-
-    QHash<TextDocument *, QPair<QList<ExpandedSemanticToken>, int>> previousTokens;
+    QHash<TextDocument *, HighlightingData> highlightingData;
     QHash<Utils::FilePath, CppEditor::BaseEditorDocumentParser::Configuration> parserConfigs;
-
-    // The ranges of symbols referring to virtual functions, with document version,
-    // as extracted by the highlighting procedure.
-    QHash<TextDocument *, QPair<QList<Range>, int>> virtualRanges;
 
     VersionedDataCache<const TextDocument *, AstNode> astCache;
     VersionedDataCache<Utils::FilePath, AstNode> externalAstCache;
@@ -1583,10 +1589,8 @@ void ClangdClient::handleDocumentOpened(TextDocument *doc)
 
 void ClangdClient::handleDocumentClosed(TextDocument *doc)
 {
-    d->highlighters.erase(doc);
+    d->highlightingData.remove(doc);
     d->astCache.remove(doc);
-    d->previousTokens.remove(doc);
-    d->virtualRanges.remove(doc);
     d->parserConfigs.remove(doc->filePath());
 }
 
@@ -2333,7 +2337,7 @@ void ClangdClient::setVirtualRanges(const Utils::FilePath &filePath, const QList
 {
     TextDocument * const doc = documentForFilePath(filePath);
     if (doc && doc->document()->revision() == revision)
-        d->virtualRanges.insert(doc, {ranges, revision});
+        d->highlightingData[doc].virtualRanges = {ranges, revision};
 }
 
 void ClangdClient::Private::handleGotoDefinitionResult()
@@ -2715,6 +2719,7 @@ private:
     const AstNode &m_ast;
     const QTextDocument * const m_doc;
     const QString &m_docContent;
+    AstNode::FileStatus m_currentFileStatus = AstNode::FileStatus::Unknown;
 };
 
 // clangd reports also the #ifs, #elses and #endifs around the disabled code as disabled,
@@ -2839,11 +2844,16 @@ static void semanticHighlighter(QFutureInterface<HighlightingResult> &future,
                 return true;
 
             if (it->kind() == "Call") {
-                // In class templates, member calls can result in "Call" nodes rather than
-                // "CXXMemberCall". We try to detect this by checking for a certain kind of
-                // child node.
+                // The first child is e.g. a called lambda or an object on which
+                // the call happens, and should not be highlighted as an output argument.
+                // If the call is not fully resolved (as in templates), we don't
+                // know whether the argument is passed as const or not.
+                if (it->arcanaContains("dependent type"))
+                    return false;
                 const QList<AstNode> children = it->children().value_or(QList<AstNode>());
-                return children.isEmpty() || children.first().kind() != "CXXDependentScopeMember";
+                return children.isEmpty()
+                        || (children.first().range() != (it - 1)->range()
+                                && children.first().kind() != "UnresolvedLookup");
             }
 
             // The token should get marked for e.g. lambdas, but not for assignment operators,
@@ -2863,7 +2873,7 @@ static void semanticHighlighter(QFutureInterface<HighlightingResult> &future,
                 // The callable is never displayed as an output parameter.
                 // TODO: A good argument can be made to display objects on which a non-const
                 //       operator or function is called as output parameters.
-                if (children.at(1).range() == range)
+                if (children.at(1).range().contains(range))
                     return false;
 
                 QList<AstNode> firstChildTree{children.first()};
@@ -2882,6 +2892,8 @@ static void semanticHighlighter(QFutureInterface<HighlightingResult> &future,
             }
 
             if (it->kind() == "Lambda")
+                return false;
+            if (it->kind() == "BinaryOperator")
                 return false;
             if (it->hasConstType())
                 return false;
@@ -3048,16 +3060,19 @@ void ClangdClient::Private::handleSemanticTokens(TextDocument *doc,
         return;
     }
     force = force || isTesting;
-    const auto previous = previousTokens.find(doc);
-    if (previous != previousTokens.end()) {
-        if (!force && previous->first == tokens && previous->second == version) {
+    const auto data = highlightingData.find(doc);
+    if (data != highlightingData.end()) {
+        if (!force && data->previousTokens.first == tokens
+                && data->previousTokens.second == version) {
             qCInfo(clangdLogHighlight) << "tokens and version same as last time; nothing to do";
             return;
         }
-        previous->first = tokens;
-        previous->second = version;
+        data->previousTokens.first = tokens;
+        data->previousTokens.second = version;
     } else {
-        previousTokens.insert(doc, qMakePair(tokens, version));
+        HighlightingData data;
+        data.previousTokens = qMakePair(tokens, version);
+        highlightingData.insert(doc, data);
     }
     for (const ExpandedSemanticToken &t : tokens)
         qCDebug(clangdLogHighlight()) << '\t' << t.line << t.column << t.length << t.type
@@ -3095,22 +3110,20 @@ void ClangdClient::Private::handleSemanticTokens(TextDocument *doc,
             return;
         }
 
-        auto it = highlighters.find(doc);
-        if (it == highlighters.end()) {
-            it = highlighters.insert(std::make_pair(doc, new CppEditor::SemanticHighlighter(doc)))
-                    .first;
-        } else {
-            it->second->updateFormatMapFromFontSettings();
-        }
-        it->second->setHighlightingRunner(runner);
-        it->second->run();
+        auto &data = highlightingData[doc];
+        if (!data.highlighter)
+            data.highlighter = new CppEditor::SemanticHighlighter(doc);
+        else
+            data.highlighter->updateFormatMapFromFontSettings();
+        data.highlighter->setHighlightingRunner(runner);
+        data.highlighter->run();
     };
     getAndHandleAst(doc, astHandler, AstCallbackMode::SyncIfPossible);
 }
 
 void ClangdClient::VirtualFunctionAssistProcessor::cancel()
 {
-    resetData();
+    resetData(true);
 }
 
 void ClangdClient::VirtualFunctionAssistProcessor::update()
@@ -3132,15 +3145,16 @@ void ClangdClient::VirtualFunctionAssistProcessor::finalize()
     } else {
         setAsyncProposalAvailable(proposal);
     }
-    resetData();
+    resetData(true);
 }
 
-void ClangdClient::VirtualFunctionAssistProcessor::resetData()
+void ClangdClient::VirtualFunctionAssistProcessor::resetData(bool resetFollowSymbolData)
 {
     if (!m_data)
         return;
     m_data->followSymbolData->virtualFuncAssistProcessor = nullptr;
-    m_data->followSymbolData.reset();
+    if (resetFollowSymbolData)
+        m_data->followSymbolData.reset();
     m_data = nullptr;
 }
 
@@ -3503,6 +3517,8 @@ QIcon ClangdCompletionItem::icon() const
     case SpecialQtType::None:
         break;
     }
+    if (item().kind().value_or(CompletionItemKind::Text) == CompletionItemKind::Property)
+        return Utils::CodeModelIcon::iconForType(Utils::CodeModelIcon::VarPublicStatic);
     return LanguageClientCompletionItem::icon();
 }
 
@@ -3957,10 +3973,18 @@ void ExtraHighlightingResultsCollector::collectFromNode(const AstNode &node)
     QString detail = node.detail().value_or(QString());
     const bool isCallToNew = node.kind() == "CXXNew";
     const bool isCallToDelete = node.kind() == "CXXDelete";
-    if (!isCallToNew && !isCallToDelete
-            && (!detail.startsWith(operatorPrefix) || detail == operatorPrefix)) {
+    const auto isProperOperator = [&] {
+        if (isCallToNew || isCallToDelete)
+            return true;
+        if (!detail.startsWith(operatorPrefix))
+            return false;
+        if (detail == operatorPrefix)
+            return false;
+        const QChar nextChar = detail.at(operatorPrefix.length());
+        return !nextChar.isLetterOrNumber() && nextChar != '_';
+    };
+    if (!isProperOperator())
         return;
-    }
 
     if (!isCallToNew && !isCallToDelete)
         detail.remove(0, operatorPrefix.length());
@@ -4080,7 +4104,13 @@ void ExtraHighlightingResultsCollector::visitNode(const AstNode &node)
 {
     if (m_future.isCanceled())
         return;
-    switch (node.fileStatus(m_filePath)) {
+    const AstNode::FileStatus prevFileStatus = m_currentFileStatus;
+    m_currentFileStatus = node.fileStatus(m_filePath);
+    if (m_currentFileStatus == AstNode::FileStatus::Unknown
+            && prevFileStatus != AstNode::FileStatus::Ours) {
+        m_currentFileStatus = prevFileStatus;
+    }
+    switch (m_currentFileStatus) {
     case AstNode::FileStatus::Ours:
     case AstNode::FileStatus::Unknown:
         collectFromNode(node);
@@ -4095,6 +4125,7 @@ void ExtraHighlightingResultsCollector::visitNode(const AstNode &node)
         break;
     }
     }
+    m_currentFileStatus = prevFileStatus;
 }
 
 bool ClangdClient::FollowSymbolData::defLinkIsAmbiguous() const
@@ -4107,13 +4138,14 @@ bool ClangdClient::FollowSymbolData::defLinkIsAmbiguous() const
     // If we have up-to-date highlighting info, we know whether we are dealing with
     // a virtual call.
     if (editorWidget) {
-        const auto virtualRanges = q->d->virtualRanges.constFind(editorWidget->textDocument());
-        if (virtualRanges != q->d->virtualRanges.constEnd()
-                && virtualRanges->second == docRevision) {
+        const auto highlightingData =
+                q->d->highlightingData.constFind(editorWidget->textDocument());
+        if (highlightingData != q->d->highlightingData.constEnd()
+                && highlightingData->virtualRanges.second == docRevision) {
             const auto matcher = [cursorRange = cursorNode->range()](const Range &r) {
                 return cursorRange.overlaps(r);
             };
-            return Utils::contains(virtualRanges->first, matcher);
+            return Utils::contains(highlightingData->virtualRanges.first, matcher);
         }
     }
 

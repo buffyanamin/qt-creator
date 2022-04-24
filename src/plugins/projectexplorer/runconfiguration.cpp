@@ -40,6 +40,9 @@
 #include "target.h"
 #include "toolchain.h"
 
+#include <coreplugin/icontext.h>
+#include <coreplugin/icore.h>
+#include <projectexplorer/devicesupport/idevice.h>
 #include <utils/algorithm.h>
 #include <utils/checkablemessagebox.h>
 #include <utils/detailswidget.h>
@@ -48,9 +51,6 @@
 #include <utils/qtcassert.h>
 #include <utils/utilsicons.h>
 #include <utils/variablechooser.h>
-
-#include <coreplugin/icontext.h>
-#include <coreplugin/icore.h>
 
 #include <QDir>
 #include <QFormLayout>
@@ -275,10 +275,12 @@ QMap<Utils::Id, QVariantMap> RunConfiguration::settingsData() const
     return data;
 }
 
-void RunConfiguration::storeAspectData(AspectContainerData *storage) const
+AspectContainerData RunConfiguration::aspectData() const
 {
+    AspectContainerData data;
     for (BaseAspect *aspect : m_aspects)
-        storage->append(aspect->extractData(&m_expander));
+        data.append(aspect->extractData(&m_expander));
+    return data;
 }
 
 BuildSystem *RunConfiguration::activeBuildSystem() const
@@ -582,7 +584,6 @@ RunConfiguration *RunConfigurationFactory::create(Target *target) const
     for (const RunConfiguration::AspectFactory &factory : theAspectFactories)
         rc->m_aspects.registerAspect(factory(target));
 
-    rc->acquaintAspects();
     rc->doPostInit();
     return rc;
 }

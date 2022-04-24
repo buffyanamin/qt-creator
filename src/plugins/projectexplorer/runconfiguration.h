@@ -26,7 +26,6 @@
 #pragma once
 
 #include "buildtargetinfo.h"
-#include "devicesupport/idevice.h"
 #include "projectconfiguration.h"
 #include "projectexplorerconstants.h"
 #include "task.h"
@@ -169,7 +168,7 @@ public:
     }
 
     QMap<Utils::Id, QVariantMap> settingsData() const; // FIXME: Merge into aspectData?
-    void storeAspectData(Utils::AspectContainerData *storage) const;
+    Utils::AspectContainerData aspectData() const;
 
     void update();
 

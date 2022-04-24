@@ -45,6 +45,7 @@ public:
     TerminalImpl();
     ~TerminalImpl() final;
 
+private:
     void start() final;
     qint64 write(const QByteArray &) final { QTC_CHECK(false); return -1; }
     void sendControlSignal(ControlSignal controlSignal) final;
@@ -55,9 +56,6 @@ public:
     // intentionally no-op without an assert
     bool waitForFinished(int) final { return false; }
 
-    QProcess::ProcessState state() const final;
-
-private:
     // OK, however, impl looks a bit different (!= NotRunning vs == Running).
     // Most probably changing it into (== Running) should be OK.
     bool isRunning() const;

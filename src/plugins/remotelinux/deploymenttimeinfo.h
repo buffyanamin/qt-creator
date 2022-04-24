@@ -26,7 +26,6 @@
 #pragma once
 
 #include <QVariantMap>
-#include <projectexplorer/devicesupport/idevice.h>
 
 namespace ProjectExplorer {
 class DeployableFile;

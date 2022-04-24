@@ -42,6 +42,7 @@
 
 #include <projectexplorer/buildconfiguration.h>
 #include <projectexplorer/devicesupport/deviceprocessesdialog.h>
+#include <projectexplorer/devicesupport/idevice.h>
 #include <projectexplorer/environmentaspect.h> // For the environment
 #include <projectexplorer/project.h>
 #include <projectexplorer/projectexplorer.h>
@@ -131,7 +132,13 @@ private:
         }
 
         m_coreUnpackProcess.setWorkingDirectory(TemporaryDirectory::masterDirectoryFilePath());
-        connect(&m_coreUnpackProcess, &QtcProcess::finished, this, &CoreUnpacker::reportStarted);
+        connect(&m_coreUnpackProcess, &QtcProcess::done, this, [this] {
+            if (m_coreUnpackProcess.error() == QProcess::UnknownError) {
+                reportStopped();
+                return;
+            }
+            reportFailure("Error unpacking " + m_coreFilePath.toUserOutput());
+        });
 
         const QString msg = DebuggerRunTool::tr("Unpacking core file to %1");
         appendMessage(msg.arg(m_tempCoreFilePath.toUserOutput()), LogMessageFormat);
@@ -139,6 +146,7 @@ private:
         if (m_coreFilePath.endsWith(".lzo")) {
             m_coreUnpackProcess.setCommand({"lzop", {"-o", m_tempCoreFilePath.path(),
                                                      "-x", m_coreFilePath.path()}});
+            reportStarted();
             m_coreUnpackProcess.start();
             return;
         }
@@ -151,6 +159,7 @@ private:
                 m_tempCoreFile.write(m_coreUnpackProcess.readAllStandardOutput());
             });
             m_coreUnpackProcess.setCommand({"gzip", {"-c", "-d", m_coreFilePath.path()}});
+            reportStarted();
             m_coreUnpackProcess.start();
             return;
         }
@@ -574,10 +583,8 @@ void DebuggerRunTool::start()
     ++d->engineStopsNeeded;
 
     connect(m_engine, &DebuggerEngine::attachToCoreRequested, this, [this](const QString &coreFile) {
-        auto runConfig = runControl()->runConfiguration();
-        QTC_ASSERT(runConfig, return);
         auto rc = new RunControl(ProjectExplorer::Constants::DEBUG_RUN_MODE);
-        rc->setRunConfiguration(runConfig);
+        rc->copyFromRunControl(runControl());
         auto name = QString(tr("%1 - Snapshot %2").arg(runControl()->displayName()).arg(++d->snapshotCounter));
         auto debugger = new DebuggerRunTool(rc);
         debugger->setStartMode(AttachToCore);
