@@ -27,7 +27,6 @@
 
 #include "baseeditordocumentprocessor.h"
 #include "cppcompletionassistprovider.h"
-#include "cppminimizableinfobars.h"
 #include "cppmodelmanager.h"
 #include "cppparsecontext.h"
 #include "cppsemanticinfo.h"
@@ -65,7 +64,6 @@ public:
 
     void scheduleProcessDocument();
 
-    const MinimizableInfoBars &minimizableInfoBars() const;
     ParseContextModel &parseContextModel();
 
     QFuture<CursorInfo> cursorInfo(const CursorInfoParams &params);
@@ -135,7 +133,6 @@ private:
     // (Un)Registration in CppModelManager
     QScopedPointer<CppEditorDocumentHandle> m_editorDocumentHandle;
 
-    MinimizableInfoBars m_minimizableInfoBars;
     ParseContextModel m_parseContextModel;
 };
 

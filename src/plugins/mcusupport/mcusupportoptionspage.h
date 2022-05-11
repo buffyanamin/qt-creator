@@ -25,15 +25,19 @@
 
 #pragma once
 
+#include "settingshandler.h"
+
 #include <coreplugin/dialogs/ioptionspage.h>
 
 namespace McuSupport {
 namespace Internal {
 
+class McuSupportOptions;
+
 class McuSupportOptionsPage final : public Core::IOptionsPage
 {
 public:
-    McuSupportOptionsPage();
+    McuSupportOptionsPage(McuSupportOptions &, const SettingsHandler::Ptr &);
 };
 
 } // namespace Internal

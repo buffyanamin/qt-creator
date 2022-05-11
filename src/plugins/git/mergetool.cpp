@@ -31,6 +31,7 @@
 #include <coreplugin/icore.h>
 #include <coreplugin/messagebox.h>
 #include <utils/commandline.h>
+#include <utils/environment.h>
 #include <utils/qtcprocess.h>
 #include <vcsbase/vcsoutputwindow.h>
 
@@ -176,7 +177,6 @@ void MergeTool::chooseAction()
     }
 
     msgBox.exec();
-    QByteArray ba;
     QVariant key;
     QAbstractButton *button = msgBox.clickedButton();
     if (button)
@@ -184,9 +184,8 @@ void MergeTool::chooseAction()
     // either the message box was closed without clicking anything, or abort was clicked
     if (!key.isValid())
         key = QVariant('a'); // abort
-    ba.append(key.toChar().toLatin1());
-    ba.append('\n');
-    write(ba);
+
+    write(QString(key.toChar()) + '\n');
 }
 
 void MergeTool::addButton(QMessageBox *msgBox, const QString &text, char key)
@@ -268,10 +267,10 @@ void MergeTool::done()
     deleteLater();
 }
 
-void MergeTool::write(const QByteArray &bytes)
+void MergeTool::write(const QString &str)
 {
-    m_process->write(bytes);
-    VcsOutputWindow::append(QString::fromLocal8Bit(bytes));
+    m_process->write(str);
+    VcsOutputWindow::append(str);
 }
 
 } // namespace Internal

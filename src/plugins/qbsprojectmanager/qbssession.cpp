@@ -34,6 +34,7 @@
 #include <projectexplorer/projectexplorerconstants.h>
 #include <projectexplorer/taskhub.h>
 #include <utils/algorithm.h>
+#include <utils/environment.h>
 #include <utils/qtcassert.h>
 #include <utils/qtcprocess.h>
 
@@ -183,8 +184,6 @@ void QbsSession::initialize()
     });
     connect(d->qbsProcess, &QtcProcess::errorOccurred, this, [this](QProcess::ProcessError e) {
         d->eventLoop.exit(1);
-        if (state() == State::ShuttingDown || state() == State::Inactive)
-            return;
         switch (e) {
         case QProcess::FailedToStart:
             setError(Error::QbsFailedToStart);
@@ -201,11 +200,9 @@ void QbsSession::initialize()
     });
     connect(d->qbsProcess, &QtcProcess::finished, this, [this] {
         d->qbsProcess->deleteLater();
-        switch (state()) {
+        switch (d->state) {
         case State::Inactive:
-            break;
-        case State::ShuttingDown:
-            setInactive();
+            QTC_CHECK(false);
             break;
         case State::Active:
             setError(Error::QbsQuit);
@@ -214,7 +211,6 @@ void QbsSession::initialize()
             setError(Error::ProtocolError);
             break;
         }
-        d->qbsProcess = nullptr;
     });
     connect(d->packetReader, &PacketReader::errorOccurred, this, [this](const QString &msg) {
         qCDebug(qbsPmLog) << "session error" << msg;
@@ -233,8 +229,8 @@ void QbsSession::initialize()
 
 void QbsSession::sendQuitPacket()
 {
-    d->qbsProcess->write(Packet::createPacket(QJsonObject{qMakePair(QString("type"),
-                                                          QJsonValue("quit"))}));
+    d->qbsProcess->writeRaw(Packet::createPacket(QJsonObject{qMakePair(QString("type"),
+                                                             QJsonValue("quit"))}));
 }
 
 QbsSession::~QbsSession()
@@ -243,17 +239,12 @@ QbsSession::~QbsSession()
         d->packetReader->disconnect(this);
     if (d->qbsProcess) {
         d->qbsProcess->disconnect(this);
-        quit();
+        sendQuitPacket();
         if (d->qbsProcess->state() == QProcess::Running)
             d->qbsProcess->waitForFinished(10000);
         delete d->qbsProcess;
     }
     delete d;
-}
-
-QbsSession::State QbsSession::state() const
-{
-    return d->state;
 }
 
 optional<QbsSession::Error> QbsSession::lastError() const
@@ -303,14 +294,6 @@ void QbsSession::cancelCurrentJob()
 {
     if (d->state == State::Active)
         sendRequest(QJsonObject{qMakePair(QString("type"), QJsonValue("cancel-job"))});
-}
-
-void QbsSession::quit()
-{
-    if (d->state == State::ShuttingDown || d->state == State::Inactive)
-        return;
-    d->state = State::ShuttingDown;
-    sendQuitPacket();
 }
 
 void QbsSession::requestFilesGeneratedFrom(const QHash<QString, QStringList> &sourceFilesPerProduct)
@@ -562,7 +545,7 @@ void QbsSession::sendRequestNow(const QJsonObject &request)
 {
     QTC_ASSERT(d->state == State::Active, return);
     if (!request.isEmpty())
-        d->qbsProcess->write(Packet::createPacket(request));
+        d->qbsProcess->writeRaw(Packet::createPacket(request));
 }
 
 ErrorInfo QbsSession::getErrorInfo(const QJsonObject &packet)

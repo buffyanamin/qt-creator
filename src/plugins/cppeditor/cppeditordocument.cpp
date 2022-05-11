@@ -50,10 +50,13 @@
 #include <utils/executeondestruction.h>
 #include <utils/infobar.h>
 #include <utils/mimeutils.h>
+#include <utils/minimizableinfobars.h>
 #include <utils/qtcassert.h>
 #include <utils/runextensions.h>
 
 #include <QTextDocument>
+
+const char NO_PROJECT_CONFIGURATION[] = "NoProject";
 
 namespace {
 
@@ -104,7 +107,6 @@ private:
 };
 
 CppEditorDocument::CppEditorDocument()
-    : m_minimizableInfoBars(*infoBar())
 {
     setId(CppEditor::Constants::CPPEDITOR_ID);
     setSyntaxHighlighter(new CppHighlighter);
@@ -127,6 +129,12 @@ CppEditorDocument::CppEditorDocument()
 
     connect(&m_parseContextModel, &ParseContextModel::preferredParseContextChanged,
             this, &CppEditorDocument::reparseWithPreferredParseContext);
+
+    minimizableInfoBars()->setSettingsGroup(Constants::CPPEDITOR_SETTINGSGROUP);
+    minimizableInfoBars()->setPossibleInfoBarEntries(
+        {{NO_PROJECT_CONFIGURATION,
+          tr("<b>Warning</b>: This file is not part of any project. "
+             "The code model might have issues parsing this file properly.")}});
 
     // See also onFilePathChanged() for more initialization
 }
@@ -282,7 +290,6 @@ void CppEditorDocument::scheduleProcessDocument()
 
     m_processorRevision = document()->revision();
     m_processorTimer.start();
-    processor()->editorDocumentTimerRestarted();
 }
 
 void CppEditorDocument::processDocument()
@@ -291,7 +298,6 @@ void CppEditorDocument::processDocument()
 
     if (processor()->isParserRunning() || m_processorRevision != contentsRevision()) {
         m_processorTimer.start();
-        processor()->editorDocumentTimerRestarted();
         return;
     }
 
@@ -407,32 +413,25 @@ QFuture<CursorInfo> CppEditorDocument::cursorInfo(const CursorInfoParams &params
     return processor()->cursorInfo(params);
 }
 
-const MinimizableInfoBars &CppEditorDocument::minimizableInfoBars() const
-{
-    return m_minimizableInfoBars;
-}
-
 BaseEditorDocumentProcessor *CppEditorDocument::processor()
 {
     if (!m_processor) {
         m_processor.reset(mm()->createEditorDocumentProcessor(this));
-        connect(m_processor.data(), &BaseEditorDocumentProcessor::projectPartInfoUpdated,
-                [this] (const ProjectPartInfo &info)
-        {
-            const bool hasProjectPart = !(info.hints & ProjectPartInfo::IsFallbackMatch);
-            m_minimizableInfoBars.processHasProjectPart(hasProjectPart);
-            m_parseContextModel.update(info);
-            const bool isAmbiguous = info.hints & ProjectPartInfo::IsAmbiguousMatch;
-            const bool isProjectFile = info.hints & ProjectPartInfo::IsFromProjectMatch;
-            showHideInfoBarAboutMultipleParseContexts(isAmbiguous && isProjectFile);
-        });
+        connect(m_processor.data(),
+                &BaseEditorDocumentProcessor::projectPartInfoUpdated,
+                [this](const ProjectPartInfo &info) {
+                    const bool hasProjectPart = !(info.hints & ProjectPartInfo::IsFallbackMatch);
+                    minimizableInfoBars()->setInfoVisible(NO_PROJECT_CONFIGURATION, !hasProjectPart);
+                    m_parseContextModel.update(info);
+                    const bool isAmbiguous = info.hints & ProjectPartInfo::IsAmbiguousMatch;
+                    const bool isProjectFile = info.hints & ProjectPartInfo::IsFromProjectMatch;
+                    showHideInfoBarAboutMultipleParseContexts(isAmbiguous && isProjectFile);
+                });
         connect(m_processor.data(), &BaseEditorDocumentProcessor::codeWarningsUpdated,
                 [this] (unsigned revision,
                         const QList<QTextEdit::ExtraSelection> selections,
-                        const std::function<QWidget*()> &creator,
                         const TextEditor::RefactorMarkers &refactorMarkers) {
             emit codeWarningsUpdated(revision, selections, refactorMarkers);
-            m_minimizableInfoBars.processHeaderDiagnostics(creator);
         });
         connect(m_processor.data(), &BaseEditorDocumentProcessor::ifdefedOutBlocksUpdated,
                 this, &CppEditorDocument::ifdefedOutBlocksUpdated);

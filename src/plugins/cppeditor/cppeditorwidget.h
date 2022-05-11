@@ -38,7 +38,6 @@ class IAssistProvider;
 }
 
 namespace CppEditor {
-class FollowSymbolInterface;
 class SemanticInfo;
 class ProjectPart;
 
@@ -137,8 +136,6 @@ private:
     void onIfdefedOutBlocksUpdated(unsigned revision,
                                    const QList<TextEditor::BlockRange> ifdefedOutBlocks);
 
-    void onShowInfoBarAction(const Utils::Id &id, bool show);
-
     void updateSemanticInfo(const SemanticInfo &semanticInfo,
                             bool updateUseSelectionSynchronously = false);
     void updatePreprocessorButtonTooltip();
@@ -151,8 +148,6 @@ private:
     unsigned documentRevision() const;
 
     QMenu *createRefactorMenu(QWidget *parent) const;
-
-    FollowSymbolInterface &followSymbolInterface() const;
 
     const ProjectPart *projectPart() const;
 

@@ -38,8 +38,9 @@
 
 #include <memory>
 
+namespace Utils { class QtcProcess; }
+
 namespace QSsh {
-class SshRemoteProcess;
 
 enum SshHostKeyCheckingMode {
     SshHostKeyCheckingNone,
@@ -73,27 +74,12 @@ public:
     int timeout = 0; // In seconds.
     AuthenticationType authenticationType = AuthenticationTypeAll;
     SshHostKeyCheckingMode hostKeyCheckingMode = SshHostKeyCheckingAllowNoMatch;
+
+    static bool setupSshEnvironment(Utils::QtcProcess *process);
 };
 
 QSSH_EXPORT bool operator==(const SshConnectionParameters &p1, const SshConnectionParameters &p2);
 QSSH_EXPORT bool operator!=(const SshConnectionParameters &p1, const SshConnectionParameters &p2);
-
-class QSSH_EXPORT SshConnectionInfo
-{
-public:
-    SshConnectionInfo() = default;
-    SshConnectionInfo(const QHostAddress &la, quint16 lp, const QHostAddress &pa, quint16 pp)
-        : localAddress(la), localPort(lp), peerAddress(pa), peerPort(pp) {}
-
-    bool isValid() const { return peerPort != 0; }
-
-    QHostAddress localAddress;
-    quint16 localPort = 0;
-    QHostAddress peerAddress;
-    quint16 peerPort = 0;
-};
-
-using SshRemoteProcessPtr = std::unique_ptr<SshRemoteProcess>;
 
 class QSSH_EXPORT SshConnection : public QObject
 {
@@ -109,17 +95,12 @@ public:
     State state() const;
     QString errorString() const;
     SshConnectionParameters connectionParameters() const;
-    SshConnectionInfo connectionInfo() const;
     QStringList connectionOptions(const Utils::FilePath &binary) const;
     bool sharingEnabled() const;
     ~SshConnection();
 
-    SshRemoteProcessPtr createRemoteProcess(const QString &command);
-    SshRemoteProcessPtr createRemoteShell();
-    SftpTransferPtr createUpload(const FilesToTransfer &files,
-                                 FileTransferErrorHandling errorHandlingMode);
-    SftpTransferPtr createDownload(const FilesToTransfer &files,
-                                   FileTransferErrorHandling errorHandlingMode);
+    SftpTransferPtr createUpload(const FilesToTransfer &files);
+    SftpTransferPtr createDownload(const FilesToTransfer &files);
 
 signals:
     void connected();
@@ -131,8 +112,7 @@ private:
     void emitError(const QString &reason);
     void emitConnected();
     void emitDisconnected();
-    SftpTransferPtr setupTransfer(const FilesToTransfer &files, Internal::FileTransferType type,
-                                  FileTransferErrorHandling errorHandlingMode);
+    SftpTransferPtr setupTransfer(const FilesToTransfer &files, Internal::FileTransferType type);
 
     struct SshConnectionPrivate;
     SshConnectionPrivate * const d;

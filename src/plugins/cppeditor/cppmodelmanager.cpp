@@ -40,7 +40,6 @@
 #include "cpplocatorfilter.h"
 #include "cppbuiltinmodelmanagersupport.h"
 #include "cpprefactoringchanges.h"
-#include "cpprefactoringengine.h"
 #include "cppsourceprocessor.h"
 #include "cpptoolsjsextension.h"
 #include "cpptoolsreuse.h"
@@ -48,7 +47,6 @@
 #include "stringtable.h"
 #include "symbolfinder.h"
 #include "symbolsfindfilter.h"
-#include "followsymbolinterface.h"
 
 #include <coreplugin/documentmanager.h>
 #include <coreplugin/editormanager/editormanager.h>
@@ -137,8 +135,6 @@ protected:
 
 namespace CppEditor {
 
-using REType = RefactoringEngineType;
-
 namespace Internal {
 
 static CppModelManager *m_instance;
@@ -197,10 +193,6 @@ public:
     bool m_enableGC;
     QTimer m_delayedGcTimer;
     QTimer m_fallbackProjectPartTimer;
-
-    // Refactoring
-    using REHash = QMap<REType, RefactoringEngineInterface *>;
-    REHash m_refactoringEngines;
 
     CppLocatorData m_locatorData;
     std::unique_ptr<Core::ILocatorFilter> m_locatorFilter;
@@ -267,7 +259,7 @@ QSet<QString> CppModelManager::timeStampModifiedFiles(const QList<Document::Ptr>
 {
     QSet<QString> sourceFiles;
 
-    foreach (const Document::Ptr doc, documentsToCheck) {
+    for (const Document::Ptr &doc : documentsToCheck) {
         const QDateTime lastModified = doc->lastModified();
 
         if (!lastModified.isNull()) {
@@ -309,57 +301,32 @@ QString CppModelManager::editorConfigurationFileName()
     return QLatin1String("<per-editor-defines>");
 }
 
-static RefactoringEngineInterface *getRefactoringEngine(CppModelManagerPrivate::REHash &engines)
+ModelManagerSupport *CppModelManager::modelManagerSupport(Backend backend) const
 {
-    QTC_ASSERT(!engines.empty(), return nullptr;);
-    RefactoringEngineInterface *currentEngine = engines[REType::BuiltIn];
-    if (engines.find(REType::ClangCodeModel) != engines.end()) {
-        currentEngine = engines[REType::ClangCodeModel];
-    } else if (engines.find(REType::ClangRefactoring) != engines.end()) {
-        RefactoringEngineInterface *engine = engines[REType::ClangRefactoring];
-        if (engine->isRefactoringEngineAvailable())
-            currentEngine = engine;
-    }
-    return currentEngine;
+    return (backend == Backend::Builtin
+            ? d->m_builtinModelManagerSupport : d->m_activeModelManagerSupport).data();
 }
 
 void CppModelManager::startLocalRenaming(const CursorInEditor &data,
                                          const ProjectPart *projectPart,
-                                         RenameCallback &&renameSymbolsCallback)
+                                         RenameCallback &&renameSymbolsCallback,
+                                         Backend backend)
 {
-    RefactoringEngineInterface *engine = getRefactoringEngine(d->m_refactoringEngines);
-    QTC_ASSERT(engine, return;);
-    engine->startLocalRenaming(data, projectPart, std::move(renameSymbolsCallback));
+    instance()->modelManagerSupport(backend)
+            ->startLocalRenaming(data, projectPart, std::move(renameSymbolsCallback));
 }
 
 void CppModelManager::globalRename(const CursorInEditor &data, UsagesCallback &&renameCallback,
-                                   const QString &replacement)
+                                   const QString &replacement, Backend backend)
 {
-    RefactoringEngineInterface *engine = getRefactoringEngine(d->m_refactoringEngines);
-    QTC_ASSERT(engine, return;);
-    engine->globalRename(data, std::move(renameCallback), replacement);
+    instance()->modelManagerSupport(backend)
+            ->globalRename(data, std::move(renameCallback), replacement);
 }
 
 void CppModelManager::findUsages(const CursorInEditor &data,
-                                 UsagesCallback &&showUsagesCallback) const
+                                 UsagesCallback &&showUsagesCallback, Backend backend)
 {
-    RefactoringEngineInterface *engine = getRefactoringEngine(d->m_refactoringEngines);
-    QTC_ASSERT(engine, return;);
-    engine->findUsages(data, std::move(showUsagesCallback));
-}
-
-void CppModelManager::globalFollowSymbol(
-        const CursorInEditor &data,
-        Utils::ProcessLinkCallback &&processLinkCallback,
-        const CPlusPlus::Snapshot &snapshot,
-        const CPlusPlus::Document::Ptr &documentFromSemanticInfo,
-        SymbolFinder *symbolFinder,
-        bool inNextSplit) const
-{
-    RefactoringEngineInterface *engine = getRefactoringEngine(d->m_refactoringEngines);
-    QTC_ASSERT(engine, return;);
-    engine->globalFollowSymbol(data, std::move(processLinkCallback), snapshot, documentFromSemanticInfo,
-                               symbolFinder, inNextSplit);
+    instance()->modelManagerSupport(backend)->findUsages(data, std::move(showUsagesCallback));
 }
 
 bool CppModelManager::positionRequiresSignal(const QString &filePath, const QByteArray &content,
@@ -471,25 +438,10 @@ bool CppModelManager::positionRequiresSignal(const QString &filePath, const QByt
     return false;
 }
 
-void CppModelManager::addRefactoringEngine(RefactoringEngineType type,
-                                           RefactoringEngineInterface *refactoringEngine)
+FollowSymbolUnderCursor &CppModelManager::builtinFollowSymbol()
 {
-    instance()->d->m_refactoringEngines[type] = refactoringEngine;
-}
-
-void CppModelManager::removeRefactoringEngine(RefactoringEngineType type)
-{
-    instance()->d->m_refactoringEngines.remove(type);
-}
-
-RefactoringEngineInterface *CppModelManager::builtinRefactoringEngine()
-{
-    return instance()->d->m_refactoringEngines.value(RefactoringEngineType::BuiltIn);
-}
-
-FollowSymbolInterface &CppModelManager::builtinFollowSymbol()
-{
-    return instance()->d->m_builtinModelManagerSupport->followSymbolInterface();
+    return instance()->d->m_builtinModelManagerSupport.staticCast<BuiltinModelManagerSupport>()
+            ->followSymbolInterface();
 }
 
 template<class FilterClass>
@@ -560,14 +512,9 @@ Core::ILocatorFilter *CppModelManager::currentDocumentFilter() const
     return d->m_currentDocumentFilter.get();
 }
 
-FollowSymbolInterface &CppModelManager::followSymbolInterface() const
-{
-    return d->m_activeModelManagerSupport->followSymbolInterface();
-}
-
 std::unique_ptr<AbstractOverviewModel> CppModelManager::createOverviewModel() const
 {
-    return d->m_activeModelManagerSupport->createOverviewModel();
+    return d->m_builtinModelManagerSupport->createOverviewModel();
 }
 
 QString CppModelManager::configurationFileName()
@@ -579,7 +526,7 @@ void CppModelManager::updateModifiedSourceFiles()
 {
     const Snapshot snapshot = this->snapshot();
     QList<Document::Ptr> documentsToCheck;
-    foreach (const Document::Ptr document, snapshot)
+    for (const Document::Ptr &document : snapshot)
         documentsToCheck << document;
 
     updateSourceFiles(timeStampModifiedFiles(documentsToCheck));
@@ -641,8 +588,6 @@ void CppModelManager::initializeBuiltinModelManagerSupport()
     d->m_builtinModelManagerSupport
             = BuiltinModelManagerSupportProvider().createModelManagerSupport();
     d->m_activeModelManagerSupport = d->m_builtinModelManagerSupport;
-    d->m_refactoringEngines[RefactoringEngineType::BuiltIn] =
-            &d->m_activeModelManagerSupport->refactoringEngineInterface();
 }
 
 CppModelManager::CppModelManager()
@@ -933,7 +878,8 @@ WorkingCopy CppModelManager::buildWorkingCopyList()
 {
     WorkingCopy workingCopy;
 
-    foreach (const CppEditorDocumentHandle *cppEditorDocument, cppEditorDocuments()) {
+    const QList<CppEditorDocumentHandle *> cppEditorDocumentList = cppEditorDocuments();
+    for (const CppEditorDocumentHandle *cppEditorDocument : cppEditorDocumentList) {
         workingCopy.insert(cppEditorDocument->filePath(),
                            cppEditorDocument->contents(),
                            cppEditorDocument->revision());
@@ -1012,9 +958,10 @@ ProjectInfo::ConstPtr CppModelManager::projectInfo(ProjectExplorer::Project *pro
 void CppModelManager::removeProjectInfoFilesAndIncludesFromSnapshot(const ProjectInfo &projectInfo)
 {
     QMutexLocker snapshotLocker(&d->m_snapshotMutex);
-    foreach (const ProjectPart::ConstPtr &projectPart, projectInfo.projectParts()) {
-        foreach (const ProjectFile &cxxFile, projectPart->files) {
-            foreach (const QString &fileName, d->m_snapshot.allIncludesForDocument(cxxFile.path))
+    for (const ProjectPart::ConstPtr &projectPart : projectInfo.projectParts()) {
+        for (const ProjectFile &cxxFile : qAsConst(projectPart->files)) {
+            const QSet<QString> fileNames = d->m_snapshot.allIncludesForDocument(cxxFile.path);
+            for (const QString &fileName : fileNames)
                 d->m_snapshot.remove(fileName);
             d->m_snapshot.remove(cxxFile.path);
         }
@@ -1091,7 +1038,7 @@ private:
     {
         QSet<QString> ids;
 
-        foreach (const ProjectPart::ConstPtr &projectPart, projectParts)
+        for (const ProjectPart::ConstPtr &projectPart : projectParts)
             ids.insert(projectPart->id());
 
         return ids;
@@ -1145,7 +1092,8 @@ void CppModelManager::updateCppEditorDocuments(bool projectsUpdated) const
 {
     // Refresh visible documents
     QSet<Core::IDocument *> visibleCppEditorDocuments;
-    foreach (Core::IEditor *editor, Core::EditorManager::visibleEditors()) {
+    const QList<Core::IEditor *> editors = Core::EditorManager::visibleEditors();
+    for (Core::IEditor *editor: editors) {
         if (Core::IDocument *document = editor->document()) {
             const QString filePath = document->filePath().toString();
             if (CppEditorDocumentHandle *theCppEditorDocument = cppEditorDocument(filePath)) {
@@ -1159,7 +1107,7 @@ void CppModelManager::updateCppEditorDocuments(bool projectsUpdated) const
     QSet<Core::IDocument *> invisibleCppEditorDocuments
         = Utils::toSet(Core::DocumentModel::openedDocuments());
     invisibleCppEditorDocuments.subtract(visibleCppEditorDocuments);
-    foreach (Core::IDocument *document, invisibleCppEditorDocuments) {
+    for (Core::IDocument *document : qAsConst(invisibleCppEditorDocuments)) {
         const QString filePath = document->filePath().toString();
         if (CppEditorDocumentHandle *theCppEditorDocument = cppEditorDocument(filePath)) {
             const CppEditorDocumentHandle::RefreshReason refreshReason = projectsUpdated
@@ -1316,14 +1264,9 @@ bool CppModelManager::isCppEditor(Core::IEditor *editor)
     return editor->context().contains(ProjectExplorer::Constants::CXX_LANGUAGE_ID);
 }
 
-bool CppModelManager::supportsOutline(const TextEditor::TextDocument *document)
+bool CppModelManager::usesClangd(const TextEditor::TextDocument *document)
 {
-    return instance()->d->m_activeModelManagerSupport->supportsOutline(document);
-}
-
-bool CppModelManager::supportsLocalUses(const TextEditor::TextDocument *document)
-{
-    return instance()->d->m_activeModelManagerSupport->supportsLocalUses(document);
+    return instance()->d->m_activeModelManagerSupport->usesClangd(document);
 }
 
 bool CppModelManager::isClangCodeModelActive() const
@@ -1481,8 +1424,9 @@ void CppModelManager::renameIncludes(const Utils::FilePath &oldFilePath,
 
     const TextEditor::RefactoringChanges changes;
 
-    foreach (Snapshot::IncludeLocation loc,
-             snapshot().includeLocationsOfDocument(oldFilePath.toString())) {
+    const QList<Snapshot::IncludeLocation> locations = snapshot().includeLocationsOfDocument(
+        oldFilePath.toString());
+    for (const Snapshot::IncludeLocation &loc : locations) {
         TextEditor::RefactoringFilePtr file = changes.file(
             Utils::FilePath::fromString(loc.first->fileName()));
         const QTextBlock &block = file->document()->findBlockByNumber(loc.second - 1);
@@ -1605,10 +1549,12 @@ void CppModelManager::GC()
 
     // Collect files of opened editors and editor supports (e.g. ui code model)
     QStringList filesInEditorSupports;
-    foreach (const CppEditorDocumentHandle *editorDocument, cppEditorDocuments())
+    const QList<CppEditorDocumentHandle *> editorDocuments = cppEditorDocuments();
+    for (const CppEditorDocumentHandle *editorDocument : editorDocuments)
         filesInEditorSupports << editorDocument->filePath();
 
-    foreach (AbstractEditorSupport *abstractEditorSupport, abstractEditorSupports())
+    const QSet<AbstractEditorSupport *> abstractEditorSupportList = abstractEditorSupports();
+    for (AbstractEditorSupport *abstractEditorSupport : abstractEditorSupportList)
         filesInEditorSupports << abstractEditorSupport->fileName();
 
     Snapshot currentSnapshot = snapshot();
@@ -1661,23 +1607,43 @@ void CppModelManager::activateClangCodeModel(
     QTC_ASSERT(modelManagerSupportProvider, return);
 
     d->m_activeModelManagerSupport = modelManagerSupportProvider->createModelManagerSupport();
-    d->m_refactoringEngines[RefactoringEngineType::ClangCodeModel] =
-            &d->m_activeModelManagerSupport->refactoringEngineInterface();
 }
 
 CppCompletionAssistProvider *CppModelManager::completionAssistProvider() const
 {
-    return d->m_activeModelManagerSupport->completionAssistProvider();
+    return d->m_builtinModelManagerSupport->completionAssistProvider();
 }
 
 CppCompletionAssistProvider *CppModelManager::functionHintAssistProvider() const
 {
-    return d->m_activeModelManagerSupport->functionHintAssistProvider();
+    return d->m_builtinModelManagerSupport->functionHintAssistProvider();
 }
 
 TextEditor::BaseHoverHandler *CppModelManager::createHoverHandler() const
 {
-    return d->m_activeModelManagerSupport->createHoverHandler();
+    return d->m_builtinModelManagerSupport->createHoverHandler();
+}
+
+void CppModelManager::followSymbol(const CursorInEditor &data,
+                                   Utils::ProcessLinkCallback &&processLinkCallback,
+                                   bool resolveTarget, bool inNextSplit, Backend backend)
+{
+    instance()->modelManagerSupport(backend)->followSymbol(data, std::move(processLinkCallback),
+                                                           resolveTarget, inNextSplit);
+}
+
+void CppModelManager::switchDeclDef(const CursorInEditor &data,
+                                    Utils::ProcessLinkCallback &&processLinkCallback,
+                                    Backend backend)
+{
+    instance()->modelManagerSupport(backend)->switchDeclDef(data, std::move(processLinkCallback));
+}
+
+Core::ILocatorFilter *CppModelManager::createAuxiliaryCurrentDocumentFilter()
+{
+    const auto filter = new Internal::CppCurrentDocumentFilter(instance());
+    filter->makeAuxiliary();
+    return filter;
 }
 
 BaseEditorDocumentProcessor *CppModelManager::createEditorDocumentProcessor(

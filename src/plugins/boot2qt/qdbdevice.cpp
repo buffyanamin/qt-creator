@@ -31,11 +31,10 @@
 
 #include <coreplugin/icore.h>
 
-#include <projectexplorer/applicationlauncher.h>
 #include <projectexplorer/devicesupport/idevice.h>
 #include <projectexplorer/runcontrol.h>
 
-#include <remotelinux/linuxdeviceprocess.h>
+#include <remotelinux/linuxprocessinterface.h>
 
 #include <ssh/sshconnection.h>
 
@@ -49,87 +48,70 @@
 #include <QWizard>
 
 using namespace ProjectExplorer;
+using namespace RemoteLinux;
 using namespace Utils;
 
 namespace Qdb {
 namespace Internal {
 
-class QdbDeviceProcess : public RemoteLinux::LinuxDeviceProcess
+class QdbProcessImpl : public LinuxProcessInterface
 {
 public:
-    QdbDeviceProcess(const QSharedPointer<const IDevice> &device, QObject *parent)
-        : RemoteLinux::LinuxDeviceProcess(device, parent)
-    {
-    }
+    QdbProcessImpl(const LinuxDevice *linuxDevice)
+        : LinuxProcessInterface(linuxDevice) {}
+    ~QdbProcessImpl() { killIfRunning(); }
 
-    void terminate() override
+private:
+    void sendControlSignal(ControlSignal controlSignal) final
     {
-        ProjectExplorer::Runnable r;
-        r.command = {Constants::AppcontrollerFilepath, {"--stop"}};
-        r.device = device();
-
-        auto launcher = new ApplicationLauncher(this);
-        launcher->setRunnable(r);
-        launcher->start();
+        QTC_ASSERT(controlSignal != ControlSignal::Interrupt, return);
+        QTC_ASSERT(controlSignal != ControlSignal::KickOff, return);
+        runInShell({Constants::AppcontrollerFilepath, {"--stop"}});
     }
 };
 
-
-class DeviceApplicationObserver : public ApplicationLauncher
+class DeviceApplicationObserver : public QObject
 {
 public:
     DeviceApplicationObserver(const IDevice::ConstPtr &device, const CommandLine &command)
     {
-        connect(&m_appRunner, &ApplicationLauncher::appendMessage, this,
-                &DeviceApplicationObserver::handleAppendMessage);
-        connect(&m_appRunner, &ApplicationLauncher::errorOccurred, this,
-                [this] { m_error = m_appRunner.errorString(); });
-        connect(&m_appRunner, &ApplicationLauncher::finished, this,
-                &DeviceApplicationObserver::handleFinished);
+        connect(&m_appRunner, &QtcProcess::done, this, &DeviceApplicationObserver::handleDone);
 
         QTC_ASSERT(device, return);
         m_deviceName = device->displayName();
 
-        Runnable r;
-        r.command = command;
-        r.device = device;
-        m_appRunner.setRunnable(r);
+        m_appRunner.setCommand(command);
         m_appRunner.start();
         showMessage(QdbDevice::tr("Starting command \"%1\" on device \"%2\".")
                     .arg(command.toUserOutput(), m_deviceName));
     }
 
 private:
-    void handleAppendMessage(const QString &data, Utils::OutputFormat format)
+    void handleDone()
     {
-        if (format == Utils::StdOutFormat)
-            m_stdout += data;
-        else if (format == Utils::StdErrFormat)
-            m_stderr += data;
-    }
+        const QString stdOut = m_appRunner.stdOut();
+        const QString stdErr = m_appRunner.stdErr();
 
-    void handleFinished()
-    {
         // FIXME: Needed in a post-adb world?
         // adb does not forward exit codes and all stderr goes to stdout.
-        const bool failure = m_appRunner.exitStatus() == QProcess::CrashExit
-                || m_stdout.contains("fail")
-                || m_stdout.contains("error")
-                || m_stdout.contains("not found");
+        const bool failure = m_appRunner.result() != ProcessResult::FinishedWithSuccess
+                || stdOut.contains("fail")
+                || stdOut.contains("error")
+                || stdOut.contains("not found");
 
         if (failure) {
             QString errorString;
-            if (!m_error.isEmpty()) {
+            if (!m_appRunner.errorString().isEmpty()) {
                 errorString = QdbDevice::tr("Command failed on device \"%1\": %2")
-                        .arg(m_deviceName, m_error);
+                        .arg(m_deviceName, m_appRunner.errorString());
             } else {
                 errorString = QdbDevice::tr("Command failed on device \"%1\".").arg(m_deviceName);
             }
             showMessage(errorString, true);
-            if (!m_stdout.isEmpty())
-                showMessage(QdbDevice::tr("stdout was: \"%1\"").arg(m_stdout));
-            if (!m_stderr.isEmpty())
-                showMessage(QdbDevice::tr("stderr was: \"%1\"").arg(m_stderr));
+            if (!stdOut.isEmpty())
+                showMessage(QdbDevice::tr("stdout was: \"%1\"").arg(stdOut));
+            if (!stdErr.isEmpty())
+                showMessage(QdbDevice::tr("stderr was: \"%1\"").arg(stdErr));
         } else {
             showMessage(QdbDevice::tr("Commands on device \"%1\" finished successfully.")
                         .arg(m_deviceName));
@@ -137,11 +119,8 @@ private:
         deleteLater();
     }
 
-    QString m_stdout;
-    QString m_stderr;
-    ProjectExplorer::ApplicationLauncher m_appRunner;
+    QtcProcess m_appRunner;
     QString m_deviceName;
-    QString m_error;
 };
 
 
@@ -151,12 +130,12 @@ QdbDevice::QdbDevice()
 {
     setDisplayType(tr("Boot2Qt Device"));
 
-    addDeviceAction({tr("Reboot Device"), [](const IDevice::Ptr &device, QWidget *) {
-        (void) new DeviceApplicationObserver(device, CommandLine{"reboot"});
+    addDeviceAction({tr("Reboot Device"), [this](const IDevice::Ptr &device, QWidget *) {
+                         (void) new DeviceApplicationObserver(device, {filePath("reboot"), {}});
     }});
 
-    addDeviceAction({tr("Restore Default App"), [](const IDevice::Ptr &device, QWidget *) {
-        (void) new DeviceApplicationObserver(device, CommandLine{"appcontroller", {"--remove-default"}});
+    addDeviceAction({tr("Restore Default App"), [this](const IDevice::Ptr &device, QWidget *) {
+        (void) new DeviceApplicationObserver(device, {filePath("appcontroller"), {"--remove-default"}});
     }});
 }
 
@@ -167,9 +146,9 @@ ProjectExplorer::IDeviceWidget *QdbDevice::createWidget()
     return w;
 }
 
-QtcProcess *QdbDevice::createProcess(QObject *parent) const
+ProcessInterface *QdbDevice::createProcessInterface() const
 {
-    return new QdbDeviceProcess(sharedFromThis(), parent);
+    return new QdbProcessImpl(this);
 }
 
 void QdbDevice::setSerialNumber(const QString &serial)

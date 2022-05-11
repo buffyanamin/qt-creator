@@ -26,6 +26,7 @@
 #include "aspects.h"
 
 #include "algorithm.h"
+#include "environment.h"
 #include "fancylineedit.h"
 #include "layoutbuilder.h"
 #include "pathchooser.h"
@@ -874,6 +875,11 @@ void StringAspect::setFilePath(const FilePath &value)
     setValue(value.toUserOutput());
 }
 
+void StringAspect::setDefaultFilePath(const FilePath &value)
+{
+    setDefaultValue(value.toUserOutput());
+}
+
 PathChooser *StringAspect::pathChooser() const
 {
     return d->m_pathChooserDisplay.data();
@@ -1085,19 +1091,24 @@ void StringAspect::addToLayout(LayoutBuilder &builder)
         d->m_pathChooserDisplay->setEnvironmentChange(d->m_environmentChange);
         d->m_pathChooserDisplay->setBaseDirectory(d->m_baseFileName);
         d->m_pathChooserDisplay->setOpenTerminalHandler(d->m_openTerminal);
-        d->m_pathChooserDisplay->setFilePath(FilePath::fromUserInput(displayedString));
+        if (defaultValue() == value())
+            d->m_pathChooserDisplay->setDefaultValue(defaultValue().toString());
+        else
+            d->m_pathChooserDisplay->setFilePath(FilePath::fromUserInput(displayedString));
         d->updateWidgetFromCheckStatus(this, d->m_pathChooserDisplay.data());
         addLabeledItem(builder, d->m_pathChooserDisplay);
         useMacroExpander(d->m_pathChooserDisplay->lineEdit());
         if (isAutoApply()) {
             if (d->m_autoApplyOnEditingFinished) {
-                connect(d->m_pathChooserDisplay, &PathChooser::editingFinished, this, [this] {
+                const auto setPathChooserValue = [this] {
                     if (d->m_blockAutoApply)
                         return;
                     d->m_blockAutoApply = true;
                     setValue(d->m_pathChooserDisplay->filePath().toString());
                     d->m_blockAutoApply = false;
-                });
+                };
+                connect(d->m_pathChooserDisplay, &PathChooser::editingFinished, this, setPathChooserValue);
+                connect(d->m_pathChooserDisplay, &PathChooser::browsingFinished, this, setPathChooserValue);
             } else {
                 connect(d->m_pathChooserDisplay, &PathChooser::pathChanged,
                         this, [this](const QString &path) {

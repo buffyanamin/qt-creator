@@ -29,10 +29,10 @@
 #include "remotelinux_constants.h"
 
 #include <projectexplorer/deploymentdata.h>
+#include <projectexplorer/devicesupport/idevice.h>
 #include <projectexplorer/runconfigurationaspects.h>
 #include <projectexplorer/target.h>
 #include <ssh/sshconnection.h>
-#include <ssh/sshremoteprocess.h>
 #include <ssh/sshsettings.h>
 #include <utils/algorithm.h>
 #include <utils/qtcprocess.h>
@@ -49,7 +49,7 @@ class RsyncDeployService : public AbstractRemoteLinuxDeployService
     Q_OBJECT
 public:
     RsyncDeployService(QObject *parent = nullptr) : AbstractRemoteLinuxDeployService(parent)
-        { SshRemoteProcess::setupSshEnvironment(&m_rsync); }
+        { SshConnectionParameters::setupSshEnvironment(&m_rsync); }
 
     void setDeployableFiles(const QList<DeployableFile> &files) { m_deployableFiles = files; }
     void setIgnoreMissingFiles(bool ignore) { m_ignoreMissingFiles = ignore; }
@@ -71,7 +71,7 @@ private:
     bool m_ignoreMissingFiles = false;
     QString m_flags;
     QtcProcess m_rsync;
-    SshRemoteProcessPtr m_mkdir;
+    std::unique_ptr<QtcProcess> m_mkdir;
 };
 
 bool RsyncDeployService::isDeploymentNecessary() const
@@ -101,21 +101,18 @@ void RsyncDeployService::createRemoteDirectories()
         remoteDirs << f.remoteDirectory();
     remoteDirs.sort();
     remoteDirs.removeDuplicates();
-    m_mkdir = connection()->createRemoteProcess("mkdir -p " +
-                                                ProcessArgs::createUnixArgs(remoteDirs).toString());
+    m_mkdir.reset(new QtcProcess);
+    m_mkdir->setCommand({deviceConfiguration()->filePath("mkdir"),
+             {"-p", ProcessArgs::createUnixArgs(remoteDirs).toString()}});
     connect(m_mkdir.get(), &QtcProcess::done, this, [this] {
-        QString userError;
-        const QString error = m_mkdir->errorString();
-        if (!error.isEmpty())
-            userError = error;
-        if (m_mkdir->exitCode() != 0)
-            userError = QString::fromUtf8(m_mkdir->readAllStandardError());
-        if (!userError.isEmpty()) {
-            emit errorMessage(tr("Failed to create remote directories: %1").arg(userError));
+        if (m_mkdir->result() != ProcessResult::FinishedWithSuccess) {
+            emit errorMessage(tr("Failed to create remote directories: %1")
+                              .arg(QString::fromUtf8(m_mkdir->readAllStandardError())));
             setFinished();
             return;
         }
         deployFiles();
+        m_mkdir.release()->deleteLater();
     });
     m_mkdir->start();
 }
@@ -173,12 +170,9 @@ void RsyncDeployService::deployNextFile()
 
 void RsyncDeployService::setFinished()
 {
-    if (m_mkdir) {
-        m_mkdir->disconnect();
-        m_mkdir->kill();
-    }
-    m_rsync.disconnect();
-    m_rsync.kill();
+    if (m_mkdir)
+        m_mkdir.release()->deleteLater();
+    m_rsync.close();
     handleDeploymentDone();
 }
 

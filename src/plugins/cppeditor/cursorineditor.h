@@ -26,13 +26,19 @@
 #pragma once
 
 #include <utils/fileutils.h>
+#include <utils/link.h>
 
 #include <QTextCursor>
+
+#include <functional>
 
 namespace TextEditor { class TextDocument; }
 
 namespace CppEditor {
 class CppEditorWidget;
+
+// TODO: Move to a better place.
+using RenameCallback = std::function<void(const QString &, const Utils::Links &, int)>;
 
 class CursorInEditor
 {

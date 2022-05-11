@@ -70,10 +70,6 @@ BaseEditorDocumentProcessor::extraRefactoringOperations(const TextEditor::Assist
     return TextEditor::QuickFixOperations();
 }
 
-void BaseEditorDocumentProcessor::editorDocumentTimerRestarted()
-{
-}
-
 void BaseEditorDocumentProcessor::invalidateDiagnostics()
 {
 }
@@ -82,13 +78,6 @@ void BaseEditorDocumentProcessor::setParserConfig(
         const BaseEditorDocumentParser::Configuration &config)
 {
     parser()->setConfiguration(config);
-}
-
-QFuture<ToolTipInfo> BaseEditorDocumentProcessor::toolTipInfo(const QByteArray &/*codecName*/,
-                                                              int /*line*/,
-                                                              int /*column*/)
-{
-    return QFuture<ToolTipInfo>();
 }
 
 void BaseEditorDocumentProcessor::runParser(QFutureInterface<void> &future,

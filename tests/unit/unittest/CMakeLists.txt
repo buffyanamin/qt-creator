@@ -42,19 +42,14 @@ add_qtc_test(unittest GTEST
     DONT_CHECK_MESSAGE_COUNTER
     QTC_RESOURCE_DIR="${CMAKE_CURRENT_LIST_DIR}/../../../share/qtcreator"
     TESTDATA_DIR="${CMAKE_CURRENT_BINARY_DIR}/data"
-    ECHOSERVER="$<TARGET_FILE_DIR:echo>/echo"
     TEST_RELATIVE_LIBEXEC_PATH="${TEST_RELATIVE_LIBEXEC_PATH}"
   SOURCES
     abstractviewmock.h
-    clientserverinprocess-test.cpp
-    clientserveroutsideprocess-test.cpp
     compare-operators.h
     conditionally-disabled-tests.h
-    dummyclangipcclient.h
     dynamicastmatcherdiagnosticcontainer-matcher.h
     eventspy.cpp eventspy.h
     fakeprocess.cpp fakeprocess.h
-    filesystem-utilities.h
     googletest.h
     google-using-declarations.h
     gtest-creator-printing.cpp gtest-creator-printing.h
@@ -62,23 +57,16 @@ add_qtc_test(unittest GTEST
     gtest-qt-printing.cpp gtest-qt-printing.h
     gtest-std-printing.h
     lastchangedrowid-test.cpp
-    lineprefixer-test.cpp
     matchingtext-test.cpp
-    mockclangcodemodelclient.h
-    mockclangcodemodelserver.h
     mockfutureinterface.h
     mockmutex.h
     mockqfilesystemwatcher.h
-    mockqueue.h
     mocksqlitestatement.h
     mocksqlitetransactionbackend.h
     mocksyntaxhighligher.h
     mocktimer.cpp mocktimer.h
     nodelistproperty-test.cpp
-    processcreator-test.cpp
     processevents-utilities.cpp processevents-utilities.h
-    readandwritemessageblock-test.cpp
-    rundocumentparse-utility.h
     sizedarray-test.cpp
     smallstring-test.cpp
     sourcerangecontainer-matcher.h
@@ -89,7 +77,6 @@ add_qtc_test(unittest GTEST
     sqlitetransaction-test.cpp
     unittests-main.cpp
     unittest-utility-functions.h
-    utf8-test.cpp
     sqlitecolumn-test.cpp
     sqlitedatabasebackend-test.cpp
     sqlitedatabase-test.cpp
@@ -143,16 +130,11 @@ function(extend_qtc_test_with_target_sources target)
   )
 endfunction()
 
-if (HAVE_LIBCLANG AND NOT TARGET clangbackend_lib)
-  add_subdirectory(../../../src/tools/clangbackend/source ${CMAKE_CURRENT_BINARY_DIR}/clangbackend)
-endif()
-extend_qtc_test(unittest DEPENDS clangbackend_lib CONDITION HAVE_LIBCLANG)
-
 if (NOT TARGET Sqlite)
   add_subdirectory(../../../src/libs/sqlite ${CMAKE_CURRENT_BINARY_DIR}/sqlite)
 endif()
 extend_qtc_test_with_target_sources(Sqlite
-  DEFINES SQLITE_CUSTOM_INCLUDE=config.h
+  DEFINES SQLITE_CUSTOM_INCLUDE=config.h SQLITE_STATIC_LIBRARY
 )
 
 if (APPLE)
@@ -174,58 +156,8 @@ extend_qtc_test(unittest
   DEFINES CLANG_UNIT_TESTS
   DEPENDS libclang
   SOURCES
-    activationsequencecontextprocessor-test.cpp
     activationsequenceprocessor-test.cpp
-    chunksreportedmonitor.cpp
-    clangasyncjob-base.cpp
-    clangcodecompleteresults-test.cpp
-    clangcodemodelserver-test.cpp
-    clangcompletecodejob-test.cpp
-    clangcompletioncontextanalyzer-test.cpp
-    clangdiagnosticfilter-test.cpp
-    clangdocumentprocessors-test.cpp
-    clangdocumentprocessor-test.cpp
-    clangdocuments-test.cpp
-    clangdocumentsuspenderresumer-test.cpp
-    clangdocument-test.cpp
-    clangfixitoperation-test.cpp
-    clangfollowsymbol-test.cpp
-    clangisdiagnosticrelatedtolocation-test.cpp
-    clangjobqueue-test.cpp
-    clangjobs-test.cpp
-    clangparsesupportivetranslationunitjob-test.cpp
-    clangreferencescollector-test.cpp
-    clangrequestannotationsjob-test.cpp
-    clangrequestreferencesjob-test.cpp
-    clangresumedocumentjob-test.cpp
-    clangstring-test.cpp
-    clangsupportivetranslationunitinitializer-test.cpp
-    clangsuspenddocumentjob-test.cpp
-    clangtooltipinfo-test.cpp
-    clangtranslationunits-test.cpp
-    clangtranslationunit-test.cpp
-    clangupdateannotationsjob-test.cpp
-    codecompleter-test.cpp
-    codecompletionsextractor-test.cpp
-    completionchunkstotextconverter-test.cpp
-    cursor-test.cpp
-    diagnosticset-test.cpp
-    diagnostic-test.cpp
-    fixit-test.cpp
-    gtest-clang-printing.cpp gtest-clang-printing.h
-    highlightingresultreporter-test.cpp
     readexporteddiagnostics-test.cpp
-    skippedsourceranges-test.cpp
-    sourcelocation-test.cpp
-    sourcerange-test.cpp
-    token-test.cpp
-    tokenprocessor-test.cpp
-    translationunitupdater-test.cpp
-    unsavedfile-test.cpp
-    unsavedfiles-test.cpp
-    utf8positionfromlinecolumn-test.cpp
-    chunksreportedmonitor.h
-    clangasyncjob-base.h
     clangcompareoperators.h
     diagnosticcontainer-matcher.h
 )
@@ -242,7 +174,6 @@ finalize_qtc_gtest(unittest ".c$")
 # Path needs to be before CppEditor
 target_include_directories(unittest
   PRIVATE
-    BEFORE ../../../src/tools/clangbackend/source
     BEFORE ../../../src/plugins
 )
 
@@ -258,7 +189,7 @@ extend_qtc_test(unittest
     "${QmlDesignerDir}/../../../share/qtcreator/qml/qmlpuppet/interfaces"
     "${QmlDesignerDir}/../../../share/qtcreator/qml/qmlpuppet/types"
   DEFINES
-    QMLDESIGNER_TEST DESIGNER_STATIC_CORE_LIBRARY
+    QMLDESIGNER_TEST QMLDESIGNER_STATIC_LIBRARY
   SOURCES_PREFIX
     "${QmlDesignerDir}"
   SOURCES
@@ -409,24 +340,14 @@ if (NOT TARGET CPlusPlus)
   add_subdirectory(../../../src/libs/3rdparty/cplusplus ${CMAKE_CURRENT_BINARY_DIR}/3rd_cplusplus)
   add_subdirectory(../../../src/libs/cplusplus ${CMAKE_CURRENT_BINARY_DIR}/cplusplus)
 endif()
-if (NOT TARGET ClangSupport)
-  add_subdirectory(../../../src/libs/clangsupport ${CMAKE_CURRENT_BINARY_DIR}/clangsupport)
-endif()
 
-extend_qtc_test(unittest DEPENDS Utils CPlusPlus ClangSupport)
+extend_qtc_test(unittest DEPENDS Utils CPlusPlus)
 
 extend_qtc_test(unittest
   SOURCES_PREFIX ../../../src/plugins/clangcodemodel
   SOURCES
-    clangactivationsequencecontextprocessor.cpp clangactivationsequencecontextprocessor.h
     clangactivationsequenceprocessor.cpp clangactivationsequenceprocessor.h
-    clangcompletionchunkstotextconverter.cpp clangcompletionchunkstotextconverter.h
-    clangcompletioncontextanalyzer.cpp clangcompletioncontextanalyzer.h
-    clangdiagnosticfilter.cpp clangdiagnosticfilter.h
-    clangfixitoperation.cpp clangfixitoperation.h
-    clanghighlightingresultreporter.cpp clanghighlightingresultreporter.h
     clanguiheaderondiskmanager.cpp clanguiheaderondiskmanager.h
-    clangisdiagnosticrelatedtolocation.h
 )
 
 find_package(yaml-cpp QUIET MODULE)

@@ -22,7 +22,6 @@
 ** be met: https://www.gnu.org/licenses/gpl-3.0.html.
 **
 ****************************************************************************/
-
 import QtQuick 2.3
 
 Rectangle {
@@ -30,6 +29,7 @@ Rectangle {
     width: 460
     height: 480
     color: "transparent"
+    scale: 1.2
 
     layer.enabled: true
     layer.textureSize: Qt.size(width * 2, height * 2)
@@ -40,21 +40,27 @@ Rectangle {
         anchors.centerIn: parent
         width: 460
         height: 480
+        visible: true
+        anchors.verticalCenterOffset: -1
+        anchors.horizontalCenterOffset: 14
+        clip: true
 
         layer.enabled: true
         layer.textureSize: Qt.size(width * 2, height * 2)
         layer.smooth: true
 
         Splash_Image2d_png {
-            x: 25
-            y: 15
-            antialiasing: false
-            scale: 1.4
-            transform: Matrix4x4 {
-                matrix: Qt.matrix4x4(1.12606, 0.06371, 0, 0, 0.26038, 0.90592,
-                                     0, 0, 0.00000, 0.0000, 1.0, 0,
-                                     0.00121, -0.00009, 0.0, 1)
+            x: -22
+            y: -33
+            width: 461
+            height: 427
+            layer.enabled: true
+            layer.effect: ColorOverlayEffect {
+                id: colorOverlay
+                visible: true
+                color: "#41cd52"
             }
+            scale: 1
         }
     }
 }

@@ -37,7 +37,6 @@ namespace TextEditor { class TextDocument; }
 namespace Python {
 namespace Internal {
 
-class Interpreter;
 struct PythonLanguageServerState;
 
 class PyLSSettings : public LanguageClient::StdIOSettings
@@ -72,9 +71,11 @@ public:
 
     static const LanguageClient::StdIOSettings *languageServerForPython(
         const Utils::FilePath &python);
-    static void updateEditorInfoBars(const Utils::FilePath &python, LanguageClient::Client *client);
 
-    void openDocumentWithPython(const Utils::FilePath &python, TextEditor::TextDocument *document);
+    static void updateEditorInfoBars(const Utils::FilePath &python,
+                                     LanguageClient::Client *client);
+    static void openDocumentWithPython(const Utils::FilePath &python,
+                                       TextEditor::TextDocument *document);
 
 private:
     explicit PyLSConfigureAssistant(QObject *parent);

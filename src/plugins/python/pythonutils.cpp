@@ -39,6 +39,7 @@
 #include <utils/mimeutils.h>
 #include <utils/qtcprocess.h>
 
+using namespace ProjectExplorer;
 using namespace Utils;
 
 namespace Python {
@@ -51,15 +52,15 @@ FilePath detectPython(const FilePath &documentPath)
     PythonProject *project = documentPath.isEmpty()
                                  ? nullptr
                                  : qobject_cast<PythonProject *>(
-                                     ProjectExplorer::SessionManager::projectForFile(documentPath));
+                                     SessionManager::projectForFile(documentPath));
     if (!project)
-        project = qobject_cast<PythonProject *>(ProjectExplorer::SessionManager::startupProject());
+        project = qobject_cast<PythonProject *>(SessionManager::startupProject());
 
     if (project) {
         if (auto target = project->activeTarget()) {
-            if (auto runConfig = qobject_cast<PythonRunConfiguration *>(
-                    target->activeRunConfiguration())) {
-                python = runConfig->interpreter().command;
+            if (auto runConfig = target->activeRunConfiguration()) {
+                if (auto interpreter = runConfig->aspect<InterpreterAspect>())
+                    python = interpreter->currentInterpreter().command;
             }
         }
     }
@@ -99,7 +100,7 @@ void openPythonRepl(QObject *parent, const FilePath &file, ReplType type)
 {
     static const auto workingDir = [](const FilePath &file) {
         if (file.isEmpty()) {
-            if (ProjectExplorer::Project *project = ProjectExplorer::SessionManager::startupProject())
+            if (Project *project = SessionManager::startupProject())
                 return project->projectDirectory();
             return FilePath::fromString(QDir::currentPath());
         }
@@ -113,17 +114,16 @@ void openPythonRepl(QObject *parent, const FilePath &file, ReplType type)
     process->setCommand({pythonCommand, args});
     process->setWorkingDirectory(workingDir(file));
     const QString commandLine = process->commandLine().toUserOutput();
-    QObject::connect(process,
-                     &QtcProcess::errorOccurred,
-                     process,
-                     [process, commandLine] {
-                         Core::MessageManager::writeDisrupting(
-                             QCoreApplication::translate("Python",
-                                                         "Failed to run Python (%1): \"%2\".")
-                                 .arg(commandLine, process->errorString()));
-                         process->deleteLater();
-                     });
-    QObject::connect(process, &QtcProcess::finished, process, &QObject::deleteLater);
+    QObject::connect(process, &QtcProcess::done, process, [process, commandLine] {
+        if (process->error() != QProcess::UnknownError) {
+            Core::MessageManager::writeDisrupting(QCoreApplication::translate("Python",
+                  (process->error() == QProcess::FailedToStart)
+                      ? "Failed to run Python (%1): \"%2\"."
+                      : "Error while running Python (%1): \"%2\".")
+                  .arg(commandLine, process->errorString()));
+        }
+        process->deleteLater();
+    });
     process->start();
 }
 
@@ -148,7 +148,7 @@ QString pythonName(const FilePath &pythonPath)
 
 PythonProject *pythonProjectForFile(const FilePath &pythonFile)
 {
-    for (ProjectExplorer::Project *project : ProjectExplorer::SessionManager::projects()) {
+    for (Project *project : SessionManager::projects()) {
         if (auto pythonProject = qobject_cast<PythonProject *>(project)) {
             if (pythonProject->isKnownFile(pythonFile))
                 return pythonProject;

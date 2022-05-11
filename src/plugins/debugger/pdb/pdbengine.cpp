@@ -86,7 +86,7 @@ void PdbEngine::postDirectCommand(const QString &command)
 {
     QTC_ASSERT(m_proc.isRunning(), notifyEngineIll());
     showMessage(command, LogInput);
-    m_proc.write(command.toUtf8() + '\n');
+    m_proc.write(command + '\n');
 }
 
 void PdbEngine::runCommand(const DebuggerCommand &cmd)
@@ -98,7 +98,7 @@ void PdbEngine::runCommand(const DebuggerCommand &cmd)
     QTC_ASSERT(m_proc.isRunning(), notifyEngineIll());
     QString command = "qdebug('" + cmd.function + "'," + cmd.argsToPython() + ")";
     showMessage(command, LogInput);
-    m_proc.write(command.toUtf8() + '\n');
+    m_proc.write(command + '\n');
 }
 
 void PdbEngine::shutdownInferior()
@@ -120,33 +120,28 @@ void PdbEngine::setupEngine()
     m_interpreter = runParameters().interpreter;
     QString bridge = ICore::resourcePath("debugger/pdbbridge.py").toString();
 
-    connect(&m_proc, &QtcProcess::errorOccurred, this, &PdbEngine::handlePdbError);
-    connect(&m_proc, &QtcProcess::finished, this, &PdbEngine::handlePdbFinished);
+    connect(&m_proc, &QtcProcess::finished, this, &PdbEngine::handlePdbDone);
     connect(&m_proc, &QtcProcess::readyReadStandardOutput, this, &PdbEngine::readPdbStandardOutput);
     connect(&m_proc, &QtcProcess::readyReadStandardError, this, &PdbEngine::readPdbStandardError);
 
-    QFile scriptFile(runParameters().mainScript);
-    if (!scriptFile.open(QIODevice::ReadOnly|QIODevice::Text)) {
+    const FilePath scriptFile = runParameters().mainScript;
+    if (!scriptFile.isReadableFile()) {
         AsynchronousMessageBox::critical(tr("Python Error"),
-            QString("Cannot open script file %1:\n%2").
-               arg(scriptFile.fileName(), scriptFile.errorString()));
+            QString("Cannot open script file %1").arg(scriptFile.toUserOutput()));
         notifyEngineSetupFailed();
     }
 
-    QStringList args = {bridge, scriptFile.fileName()};
-    args.append(ProcessArgs::splitArgs(runParameters().inferior.workingDirectory.path()));
-    showMessage("STARTING " + m_interpreter + ' ' + args.join(' '));
+    CommandLine cmd{m_interpreter, {bridge, scriptFile.path()}};
+    cmd.addArg(runParameters().inferior.workingDirectory.path());
+    showMessage("STARTING " + cmd.toUserOutput());
     m_proc.setEnvironment(runParameters().debugger.environment);
-    m_proc.setCommand({ FilePath::fromString(m_interpreter), args });
+    m_proc.setCommand(cmd);
     m_proc.start();
 
     if (!m_proc.waitForStarted()) {
-        const QString msg = tr("Unable to start pdb \"%1\": %2")
-            .arg(m_interpreter, m_proc.errorString());
         notifyEngineSetupFailed();
         showMessage("ADAPTER START FAILED");
-        if (!msg.isEmpty())
-            ICore::showWarningWithOptions(tr("Adapter start failed"), msg);
+        ICore::showWarningWithOptions(tr("Adapter start failed"), m_proc.exitMessage());
         notifyEngineSetupFailed();
         return;
     }
@@ -391,24 +386,6 @@ void PdbEngine::updateItem(const QString &iname)
     updateAll();
 }
 
-void PdbEngine::handlePdbError(QProcess::ProcessError error)
-{
-    showMessage("HANDLE PDB ERROR");
-    switch (error) {
-    case QProcess::Crashed:
-        break; // will get a processExited() as well
-    // impossible case QProcess::FailedToStart:
-    case QProcess::ReadError:
-    case QProcess::WriteError:
-    case QProcess::Timedout:
-    default:
-        //setState(EngineShutdownRequested, true);
-        m_proc.kill();
-        AsynchronousMessageBox::critical(tr("Pdb I/O Error"), errorMessage(error));
-        break;
-    }
-}
-
 QString PdbEngine::errorMessage(QProcess::ProcessError error) const
 {
     switch (error) {
@@ -416,7 +393,7 @@ QString PdbEngine::errorMessage(QProcess::ProcessError error) const
             return tr("The Pdb process failed to start. Either the "
                 "invoked program \"%1\" is missing, or you may have insufficient "
                 "permissions to invoke the program.")
-                .arg(m_interpreter);
+                .arg(m_interpreter.toUserOutput());
         case QProcess::Crashed:
             return tr("The Pdb process crashed some time after starting "
                 "successfully.");
@@ -436,8 +413,16 @@ QString PdbEngine::errorMessage(QProcess::ProcessError error) const
     }
 }
 
-void PdbEngine::handlePdbFinished()
+void PdbEngine::handlePdbDone()
 {
+    const QProcess::ProcessError error = m_proc.error();
+    if (error != QProcess::UnknownError) {
+        showMessage("HANDLE PDB ERROR");
+        if (error != QProcess::Crashed)
+            AsynchronousMessageBox::critical(tr("Pdb I/O Error"), errorMessage(error));
+        if (error == QProcess::FailedToStart)
+            return;
+    }
     showMessage(QString("PDB PROCESS FINISHED, status %1, code %2")
                 .arg(m_proc.exitStatus()).arg(m_proc.exitCode()));
     notifyEngineSpontaneousShutdown();

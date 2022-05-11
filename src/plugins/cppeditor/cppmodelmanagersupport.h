@@ -26,6 +26,10 @@
 #pragma once
 
 #include "cppeditor_global.h"
+#include "cursorineditor.h"
+#include "usages.h"
+
+#include <utils/link.h>
 
 #include <QSharedPointer>
 #include <QString>
@@ -42,7 +46,7 @@ namespace CppEditor {
 class AbstractOverviewModel;
 class BaseEditorDocumentProcessor;
 class CppCompletionAssistProvider;
-class FollowSymbolInterface;
+class ProjectPart;
 class RefactoringEngineInterface;
 
 class CPPEDITOR_EXPORT ModelManagerSupport
@@ -58,11 +62,22 @@ public:
     virtual TextEditor::BaseHoverHandler *createHoverHandler() = 0;
     virtual BaseEditorDocumentProcessor *createEditorDocumentProcessor(
                 TextEditor::TextDocument *baseTextDocument) = 0;
-    virtual FollowSymbolInterface &followSymbolInterface() = 0;
-    virtual RefactoringEngineInterface &refactoringEngineInterface() = 0;
     virtual std::unique_ptr<AbstractOverviewModel> createOverviewModel() = 0;
-    virtual bool supportsOutline(const TextEditor::TextDocument *) const { return true; }
-    virtual bool supportsLocalUses(const TextEditor::TextDocument *) const { return true; }
+    virtual bool usesClangd(const TextEditor::TextDocument *) const { return false; }
+
+    virtual void followSymbol(const CursorInEditor &data,
+                              Utils::ProcessLinkCallback &&processLinkCallback,
+                              bool resolveTarget, bool inNextSplit) = 0;
+    virtual void switchDeclDef(const CursorInEditor &data,
+                               Utils::ProcessLinkCallback &&processLinkCallback) = 0;
+    virtual void startLocalRenaming(const CursorInEditor &data,
+                                    const ProjectPart *projectPart,
+                                    RenameCallback &&renameSymbolsCallback) = 0;
+    virtual void globalRename(const CursorInEditor &data,
+                              UsagesCallback &&renameCallback,
+                              const QString &replacement) = 0;
+    virtual void findUsages(const CursorInEditor &data,
+                            UsagesCallback &&showUsagesCallback) const = 0;
 };
 
 class CPPEDITOR_EXPORT ModelManagerSupportProvider

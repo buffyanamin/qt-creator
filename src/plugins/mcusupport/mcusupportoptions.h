@@ -27,6 +27,7 @@
 
 #include "mcukitmanager.h"
 #include "mcusupport_global.h"
+#include "settingshandler.h"
 
 #include <utils/environmentfwd.h>
 
@@ -63,17 +64,18 @@ class McuSupportOptions final : public QObject
     Q_OBJECT
 
 public:
-    explicit McuSupportOptions(QObject *parent = nullptr);
+    explicit McuSupportOptions(const SettingsHandler::Ptr &, QObject *parent = nullptr);
 
     McuPackagePtr qtForMCUsSdkPackage{nullptr};
     McuSdkRepository sdkRepository;
 
     void setQulDir(const Utils::FilePath &dir);
-    static Utils::FilePath qulDirFromSettings();
+    Utils::FilePath qulDirFromSettings() const;
+    Utils::FilePath qulDocsDir() const;
     static McuKitManager::UpgradeOption askForKitUpgrades();
 
-    static void registerQchFiles();
-    static void registerExamples();
+    void registerQchFiles();
+    void registerExamples();
 
     static const QVersionNumber &minimalQulVersion();
     static bool isLegacyVersion(const QVersionNumber &version);
@@ -85,10 +87,10 @@ public:
 
     bool automaticKitCreationEnabled() const;
     void setAutomaticKitCreationEnabled(const bool enabled);
-    void writeGeneralSettings() const;
-    static bool automaticKitCreationFromSettings();
 
 private:
+    SettingsHandler::Ptr settingsHandler;
+
     bool m_automaticKitCreation = true;
 signals:
     void packagesChanged();

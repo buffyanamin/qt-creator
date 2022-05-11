@@ -32,24 +32,26 @@
 #include <QTextDocument>
 
 namespace TextEditor { class TextDocument; }
+namespace ProjectExplorer { class RunConfiguration; }
+
 namespace Python {
 namespace Internal {
-
-class PythonRunConfiguration;
 
 class PySideInstaller : public QObject
 {
     Q_DECLARE_TR_FUNCTIONS(Python::Internal::PySideInstaller)
+
 public:
     static PySideInstaller *instance();
-    void checkPySideInstallation(const Utils::FilePath &python, TextEditor::TextDocument *document);
+    static void checkPySideInstallation(const Utils::FilePath &python,
+                                        TextEditor::TextDocument *document);
 
 private:
     PySideInstaller();
 
     void installPyside(const Utils::FilePath &python,
                        const QString &pySide, TextEditor::TextDocument *document);
-    void changeInterpreter(const QString &interpreterId, PythonRunConfiguration *runConfig);
+    void changeInterpreter(const QString &interpreterId, ProjectExplorer::RunConfiguration *runConfig);
     void handlePySideMissing(const Utils::FilePath &python,
                              const QString &pySide,
                              TextEditor::TextDocument *document);

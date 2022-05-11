@@ -34,26 +34,35 @@
 #include <utils/fileutils.h>
 #include <QVersionNumber>
 
-namespace McuSupport::Internal::Sdk {
+namespace McuSupport::Internal {
 
-QPair<Targets, Packages> McuTargetFactoryLegacy::createTargets(const McuTargetDescription &desc)
+McuTargetFactoryLegacy::McuTargetFactoryLegacy(
+    const QHash<QString, ToolchainCompilerCreator> &toolchainCreators,
+    const QHash<QString, McuPackagePtr> &toolchainFiles,
+    const QHash<QString, McuPackagePtr> &vendorPkgs,
+    const SettingsHandler::Ptr &settingsHandler)
+    : toolchainCreators(toolchainCreators)
+    , toolchainFiles(toolchainFiles)
+    , vendorPkgs(vendorPkgs)
+    , settingsHandler(settingsHandler)
+{}
+
+QPair<Targets, Packages> McuTargetFactoryLegacy::createTargets(const Sdk::McuTargetDescription &desc,
+                                                               const Utils::FilePath &qtForMcuPath)
 {
     QHash<QString, McuPackagePtr> boardSdkPkgs;
     QHash<QString, McuPackagePtr> freeRTOSPkgs;
     Targets mcuTargets;
     Packages packages;
-    McuToolChainPackagePtr tcPkg = tcPkgs.value(desc.toolchain.id);
-    if (tcPkg) {
-        tcPkg->setVersions(desc.toolchain.versions);
-    } else {
-        tcPkg.reset(createUnsupportedToolChainPackage());
-    }
+    McuToolChainPackagePtr toolchainPackage = getToolchainCompiler(desc.toolchain);
+    McuPackagePtr toolchainFilePackage = getToolchainFile(qtForMcuPath, desc.toolchain.id);
     for (int colorDepth : desc.platform.colorDepths) {
         Packages required3rdPartyPkgs;
         // Desktop toolchains don't need any additional settings
-        if (tcPkg && !tcPkg->isDesktopToolchain()
-            && tcPkg->toolchainType() != McuToolChainPackage::ToolChainType::Unsupported) {
-            required3rdPartyPkgs.insert(tcPkg);
+        if (toolchainPackage && !toolchainPackage->isDesktopToolchain()
+            && toolchainPackage->toolchainType()
+                   != McuToolChainPackage::ToolChainType::Unsupported) {
+            required3rdPartyPkgs.insert(toolchainPackage);
         }
 
         //  Add setting specific to platform IDE.
@@ -65,7 +74,7 @@ QPair<Targets, Packages> McuTargetFactoryLegacy::createTargets(const McuTargetDe
         Utils::FilePath boardSdkDefaultPath;
         if (!desc.boardSdk.envVar.isEmpty()) {
             if (!boardSdkPkgs.contains(desc.boardSdk.envVar)) {
-                McuPackagePtr boardSdkPkg{createBoardSdkPackage(desc)};
+                McuPackagePtr boardSdkPkg{createBoardSdkPackage(settingsHandler, desc)};
                 boardSdkPkgs.insert(desc.boardSdk.envVar, boardSdkPkg);
             }
             McuPackagePtr boardSdkPkg{boardSdkPkgs.value(desc.boardSdk.envVar)};
@@ -77,11 +86,13 @@ QPair<Targets, Packages> McuTargetFactoryLegacy::createTargets(const McuTargetDe
         // Free RTOS specific settings.
         if (!desc.freeRTOS.envVar.isEmpty()) {
             if (!freeRTOSPkgs.contains(desc.freeRTOS.envVar)) {
-                freeRTOSPkgs.insert(desc.freeRTOS.envVar,
-                                    McuPackagePtr{
-                                        createFreeRTOSSourcesPackage(desc.freeRTOS.envVar,
-                                                                     boardSdkDefaultPath,
-                                                                     desc.freeRTOS.boardSdkSubDir)});
+                freeRTOSPkgs
+                    .insert(desc.freeRTOS.envVar,
+                            McuPackagePtr{
+                                Sdk::createFreeRTOSSourcesPackage(settingsHandler,
+                                                                  desc.freeRTOS.envVar,
+                                                                  boardSdkDefaultPath,
+                                                                  desc.freeRTOS.boardSdkSubDir)});
             }
             required3rdPartyPkgs.insert(freeRTOSPkgs.value(desc.freeRTOS.envVar));
         }
@@ -93,7 +104,8 @@ QPair<Targets, Packages> McuTargetFactoryLegacy::createTargets(const McuTargetDe
                                                      platform,
                                                      deduceOperatingSystem(desc),
                                                      required3rdPartyPkgs,
-                                                     tcPkg,
+                                                     toolchainPackage,
+                                                     toolchainFilePackage,
                                                      colorDepth}});
     }
     return {mcuTargets, packages};
@@ -101,6 +113,28 @@ QPair<Targets, Packages> McuTargetFactoryLegacy::createTargets(const McuTargetDe
 
 McuAbstractTargetFactory::AdditionalPackages McuTargetFactoryLegacy::getAdditionalPackages() const
 {
-    return {tcPkgs, vendorPkgs};
+    return {{}, vendorPkgs};
 }
-} // namespace McuSupport::Internal::Sdk
+
+McuToolChainPackagePtr McuTargetFactoryLegacy::getToolchainCompiler(
+    const Sdk::McuTargetDescription::Toolchain &desc) const
+{
+    auto compilerCreator = toolchainCreators.value(desc.id, [this] {
+        return McuToolChainPackagePtr{Sdk::createUnsupportedToolChainPackage(settingsHandler)};
+    });
+    McuToolChainPackagePtr toolchainPackage = compilerCreator();
+    toolchainPackage->setVersions(desc.versions);
+    return toolchainPackage;
+}
+
+McuPackagePtr McuTargetFactoryLegacy::getToolchainFile(const Utils::FilePath &qtForMCUSdkPath,
+                                                       const QString &toolchainName) const
+{
+    if (McuPackagePtr toolchainFile = toolchainFiles.value(toolchainName); toolchainFile) {
+        return toolchainFile;
+    } else {
+        return McuPackagePtr{
+            Sdk::createUnsupportedToolChainFilePackage(settingsHandler, qtForMCUSdkPath)};
+    }
+}
+} // namespace McuSupport::Internal

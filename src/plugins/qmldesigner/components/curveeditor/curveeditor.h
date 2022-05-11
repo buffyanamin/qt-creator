@@ -27,10 +27,12 @@
 
 #include <QToolBar>
 #include <QWidget>
+#include <QLabel>
 
 namespace QmlDesigner {
 
 class CurveEditorModel;
+class CurveEditorToolBar;
 class GraphicsView;
 class TreeView;
 
@@ -57,7 +59,9 @@ protected:
     void hideEvent(QHideEvent *event) override;
 
 private:
-    QToolBar *createToolBar(CurveEditorModel *model);
+    QLabel *m_infoText;
+
+    CurveEditorToolBar *m_toolbar;
 
     TreeView *m_tree;
 

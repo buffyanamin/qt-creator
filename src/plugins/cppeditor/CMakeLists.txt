@@ -1,7 +1,6 @@
 add_qtc_plugin(CppEditor
-  DEFINES CPPEDITOR_LIBRARY
   DEPENDS Qt5::Network Qt5::Xml
-  PUBLIC_DEPENDS CPlusPlus ClangSupport Qt5::Widgets
+  PUBLIC_DEPENDS CPlusPlus Qt5::Widgets
   PLUGIN_DEPENDS Core ProjectExplorer TextEditor
   PLUGIN_TEST_DEPENDS QbsProjectManager QmakeProjectManager
   SOURCES
@@ -61,7 +60,6 @@ add_qtc_plugin(CppEditor
     cpplocalsymbols.cpp cpplocalsymbols.h
     cpplocatordata.cpp cpplocatordata.h
     cpplocatorfilter.cpp cpplocatorfilter.h
-    cppminimizableinfobars.cpp cppminimizableinfobars.h
     cppmodelmanager.cpp cppmodelmanager.h
     cppmodelmanagersupport.cpp cppmodelmanagersupport.h
     cppoutline.cpp cppoutline.h
@@ -86,7 +84,6 @@ add_qtc_plugin(CppEditor
     cppquickfixsettingspage.cpp cppquickfixsettingspage.h
     cppquickfixsettingswidget.cpp cppquickfixsettingswidget.h cppquickfixsettingswidget.ui
     cpprefactoringchanges.cpp cpprefactoringchanges.h
-    cpprefactoringengine.cpp cpprefactoringengine.h
     cppselectionchanger.cpp cppselectionchanger.h
     cppsemanticinfo.h
     cppsemanticinfoupdater.cpp cppsemanticinfoupdater.h
@@ -102,7 +99,6 @@ add_qtc_plugin(CppEditor
     cursorineditor.h
     doxygengenerator.cpp doxygengenerator.h
     editordocumenthandle.cpp editordocumenthandle.h
-    followsymbolinterface.h
     functionutils.cpp functionutils.h
     generatedcodemodelsupport.cpp generatedcodemodelsupport.h
     headerpathfilter.cpp headerpathfilter.h
@@ -111,7 +107,6 @@ add_qtc_plugin(CppEditor
     insertionpointlocator.cpp insertionpointlocator.h
     projectinfo.cpp projectinfo.h
     projectpart.cpp projectpart.h
-    refactoringengineinterface.h
     resourcepreviewhoverhandler.cpp resourcepreviewhoverhandler.h
     searchsymbols.cpp searchsymbols.h
     semantichighlighter.cpp semantichighlighter.h

@@ -181,8 +181,6 @@ public:
     virtual bool hasDeviceTester() const { return false; }
     virtual DeviceTester *createDeviceTester() const;
 
-    virtual bool canCreateProcess() const { return false; }
-    virtual Utils::QtcProcess *createProcess(QObject *parent) const;
     virtual DeviceProcessSignalOperation::Ptr signalOperation() const = 0;
     virtual DeviceEnvironmentFetcher::Ptr environmentFetcher() const;
 
@@ -210,6 +208,7 @@ public:
     void setMachineType(MachineType machineType);
 
     Utils::FilePath rootPath() const;
+    Utils::FilePath filePath(const QString &pathOnDevice) const;
 
     Utils::FilePath debugServerPath() const;
     void setDebugServerPath(const Utils::FilePath &path);
@@ -270,7 +269,6 @@ public:
     virtual QFile::Permissions permissions(const Utils::FilePath &filePath) const;
     virtual bool setPermissions(const Utils::FilePath &filePath, QFile::Permissions) const;
     virtual Utils::ProcessInterface *createProcessInterface() const;
-    virtual void runProcess(Utils::QtcProcess &process) const;
     virtual Utils::Environment systemEnvironment() const;
     virtual qint64 fileSize(const Utils::FilePath &filePath) const;
     virtual qint64 bytesAvailable(const Utils::FilePath &filePath) const;

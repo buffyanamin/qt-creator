@@ -213,7 +213,7 @@ void DebuggerRunTool::setStartMode(DebuggerStartMode startMode)
             projects.removeOne(startupProject);
             projects.insert(0, startupProject);
         }
-        foreach (Project *project, projects)
+        for (Project *project : qAsConst(projects))
             m_runParameters.projectSourceFiles.append(project->files(Project::SourceFiles));
         if (!projects.isEmpty())
             m_runParameters.projectSourceDirectory = projects.first()->projectDirectory();
@@ -584,7 +584,7 @@ void DebuggerRunTool::start()
 
     connect(m_engine, &DebuggerEngine::attachToCoreRequested, this, [this](const QString &coreFile) {
         auto rc = new RunControl(ProjectExplorer::Constants::DEBUG_RUN_MODE);
-        rc->copyFromRunControl(runControl());
+        rc->copyDataFromRunControl(runControl());
         auto name = QString(tr("%1 - Snapshot %2").arg(runControl()->displayName()).arg(++d->snapshotCounter));
         auto debugger = new DebuggerRunTool(rc);
         debugger->setStartMode(AttachToCore);
@@ -939,16 +939,17 @@ DebuggerRunTool::DebuggerRunTool(RunControl *runControl, AllowTerminal allowTerm
         m_runParameters.nativeMixedEnabled = bool(nativeMixedOverride);
 
 
-    RunConfiguration *runConfig = runControl->runConfiguration();
-    if (runConfig && runConfig->property("supportsDebugger").toBool()) {
-        const QString mainScript = runConfig->property("mainScript").toString();
-        const QString interpreter = runConfig->property("interpreter").toString();
-        if (!interpreter.isEmpty() && mainScript.endsWith(".py")) {
-            m_runParameters.mainScript = mainScript;
-            m_runParameters.interpreter = interpreter;
-            const QString args = runConfig->property("arguments").toString();
-            m_runParameters.inferior.command.addArgs(args, CommandLine::Raw);
-            m_engine = createPdbEngine();
+    if (auto interpreterAspect = runControl->aspect<InterpreterAspect>()) {
+        if (auto mainScriptAspect = runControl->aspect<MainScriptAspect>()) {
+            const FilePath mainScript = mainScriptAspect->filePath;
+            const FilePath interpreter = interpreterAspect->interpreter.command;
+            if (!interpreter.isEmpty() && mainScript.endsWith(".py")) {
+                m_runParameters.mainScript = mainScript;
+                m_runParameters.interpreter = interpreter;
+                if (auto args = runControl->aspect<ArgumentsAspect>())
+                    m_runParameters.inferior.command.addArgs(args->arguments, CommandLine::Raw);
+                m_engine = createPdbEngine();
+            }
         }
     }
 

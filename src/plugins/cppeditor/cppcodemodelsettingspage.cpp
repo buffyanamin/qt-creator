@@ -381,9 +381,9 @@ ClangdSettingsWidget::ClangdSettingsWidget(const ClangdSettings::Data &settingsD
                                       "Unexpected clangd output."));
             return;
         }
-        if (clangdVersion < QVersionNumber(13)) {
+        if (clangdVersion < QVersionNumber(14)) {
             labelSetter.setWarning(tr("The clangd version is %1, but %2 or greater is required.")
-                                   .arg(clangdVersion.toString()).arg(13));
+                                   .arg(clangdVersion.toString()).arg(14));
             return;
         }
     };
@@ -401,6 +401,8 @@ ClangdSettingsWidget::ClangdSettingsWidget(const ClangdSettings::Data &settingsD
     connect(&d->sizeThresholdCheckBox, &QCheckBox::toggled,
             this, &ClangdSettingsWidget::settingsDataChanged);
     connect(&d->sizeThresholdSpinBox, qOverload<int>(&QSpinBox::valueChanged),
+            this, &ClangdSettingsWidget::settingsDataChanged);
+    connect(&d->documentUpdateThreshold, qOverload<int>(&QSpinBox::valueChanged),
             this, &ClangdSettingsWidget::settingsDataChanged);
     connect(&d->clangdChooser, &Utils::PathChooser::pathChanged,
             this, &ClangdSettingsWidget::settingsDataChanged);

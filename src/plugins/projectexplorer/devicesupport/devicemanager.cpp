@@ -32,6 +32,7 @@
 
 #include <projectexplorer/projectexplorerconstants.h>
 #include <utils/algorithm.h>
+#include <utils/environment.h>
 #include <utils/fileutils.h>
 #include <utils/persistentsettings.h>
 #include <utils/portlist.h>
@@ -519,12 +520,6 @@ DeviceManager::DeviceManager(bool isInstance) : d(std::make_unique<DeviceManager
         return device->symLinkTarget(filePath);
     };
 
-    deviceHooks.mapToGlobalPath = [](const FilePath &filePath) {
-        auto device = DeviceManager::deviceForPath(filePath);
-        QTC_ASSERT(device, return FilePath{});
-        return device->mapToGlobalPath(filePath);
-    };
-
     deviceHooks.mapToDevicePath = [](const FilePath &filePath) {
         auto device = DeviceManager::deviceForPath(filePath);
         QTC_ASSERT(device, return QString{});
@@ -603,14 +598,6 @@ DeviceManager::DeviceManager(bool isInstance) : d(std::make_unique<DeviceManager
     FileUtils::setDeviceFileHooks(deviceHooks);
 
     DeviceProcessHooks processHooks;
-
-    // TODO: remove this hook
-    processHooks.startProcessHook = [](QtcProcess &process) {
-        FilePath filePath = process.commandLine().executable();
-        auto device = DeviceManager::deviceForPath(filePath);
-        QTC_ASSERT(device, return);
-        device->runProcess(process);
-    };
 
     processHooks.processImplHook = [](const FilePath &filePath) -> ProcessInterface * {
         auto device = DeviceManager::deviceForPath(filePath);

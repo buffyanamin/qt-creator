@@ -72,13 +72,11 @@
 #include <coreplugin/icore.h>
 #include <coreplugin/modemanager.h>
 
-#include <ssh/sshconnection.h>
-#include <ssh/sshconnectionmanager.h>
-
 #include <utils/checkablemessagebox.h>
 #include <utils/fancymainwindow.h>
 #include <utils/pathchooser.h>
 #include <utils/qtcassert.h>
+#include <utils/qtcprocess.h>
 #include <utils/utilsicons.h>
 
 #include <QAction>
@@ -156,37 +154,38 @@ public:
 
     void start() override
     {
-        m_connection = QSsh::SshConnectionManager::acquireConnection(device()->sshParameters());
-        if (!m_connection) {
-            reportFailure();
-            return;
-        }
-
-        connect(m_connection, &QSsh::SshConnection::errorOccurred, this, [this] {
-            reportFailure();
-        });
-
-        auto connected = [this] {
-            *m_localServerAddress = m_connection->connectionInfo().localAddress;
+        QTC_ASSERT(!m_process, return);
+        m_process.reset(new QtcProcess);
+        m_process->setCommand({device()->filePath("echo"), "-n $SSH_CLIENT", CommandLine::Raw});
+        connect(m_process.get(), &QtcProcess::done, this, [this] {
+            if (m_process->error() != QProcess::UnknownError) {
+                reportFailure();
+                return;
+            }
+            const QByteArrayList data = m_process->readAllStandardOutput().split(' ');
+            if (data.size() != 3) {
+                reportFailure();
+                return;
+            }
+            QHostAddress hostAddress;
+            if (!hostAddress.setAddress(QString::fromLatin1(data.first()))) {
+                reportFailure();
+                return;
+            }
+            *m_localServerAddress = hostAddress;
             reportStarted();
-        };
-        if (m_connection->state() == QSsh::SshConnection::Connected) {
-            connected();
-        } else {
-            connect(m_connection, &QSsh::SshConnection::connected, this, connected);
-            m_connection->connectToHost();
-        }
+            m_process.release()->deleteLater();
+        });
+        m_process->start();
     }
 
     void stop() override
     {
-        if (m_connection)
-            QSsh::SshConnectionManager::releaseConnection(m_connection);
         reportStopped();
     }
 
 private:
-    QSsh::SshConnection *m_connection = nullptr;
+    std::unique_ptr<QtcProcess> m_process = nullptr;
     QHostAddress *m_localServerAddress = nullptr;
 };
 
@@ -709,7 +708,7 @@ MemcheckToolPrivate::MemcheckToolPrivate()
         TaskHub::clearTasks(Debugger::Constants::ANALYZERTASK_ID);
         m_perspective.select();
         RunControl *rc = new RunControl(MEMCHECK_RUN_MODE);
-        rc->setRunConfiguration(runConfig);
+        rc->copyDataFromRunConfiguration(runConfig);
         rc->createMainWorker();
         const auto runnable = dlg.runnable();
         rc->setRunnable(runnable);

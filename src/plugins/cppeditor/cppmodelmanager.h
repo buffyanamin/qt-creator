@@ -27,14 +27,16 @@
 
 #include "cppeditor_global.h"
 
-#include "refactoringengineinterface.h"
+#include "cursorineditor.h"
 #include "projectinfo.h"
 #include "projectpart.h"
-#include <projectexplorer/headerpath.h>
+#include "usages.h"
 
 #include <cplusplus/cppmodelmanagerbase.h>
 #include <coreplugin/find/ifindfilter.h>
 #include <coreplugin/locator/ilocatorfilter.h>
+#include <projectexplorer/headerpath.h>
+#include <utils/link.h>
 
 #include <QFuture>
 #include <QObject>
@@ -60,8 +62,9 @@ class CppCompletionAssistProvider;
 class CppEditorDocumentHandle;
 class CppIndexingSupport;
 class CppLocatorData;
+class FollowSymbolUnderCursor;
 class ModelManagerSupportProvider;
-class FollowSymbolInterface;
+class ModelManagerSupport;
 class SymbolFinder;
 class WorkingCopy;
 
@@ -73,15 +76,7 @@ class CppModelManagerPrivate;
 
 namespace Tests { class ModelManagerTestHelper; }
 
-enum class RefactoringEngineType : int
-{
-    BuiltIn = 0,
-    ClangCodeModel = 1,
-    ClangRefactoring = 2
-};
-
-class CPPEDITOR_EXPORT CppModelManager final : public CPlusPlus::CppModelManagerBase,
-        public RefactoringEngineInterface
+class CPPEDITOR_EXPORT CppModelManager final : public CPlusPlus::CppModelManagerBase
 {
     Q_OBJECT
 
@@ -139,8 +134,7 @@ public:
     void emitAbstractEditorSupportRemoved(const QString &filePath);
 
     static bool isCppEditor(Core::IEditor *editor);
-    static bool supportsOutline(const TextEditor::TextDocument *document);
-    static bool supportsLocalUses(const TextEditor::TextDocument *document);
+    static bool usesClangd(const TextEditor::TextDocument *document);
     bool isClangCodeModelActive() const;
 
     QSet<AbstractEditorSupport*> abstractEditorSupports() const;
@@ -154,20 +148,6 @@ public:
     void unregisterCppEditorDocument(const QString &filePath);
 
     QList<int> references(CPlusPlus::Symbol *symbol, const CPlusPlus::LookupContext &context);
-
-    void startLocalRenaming(const CursorInEditor &data,
-                            const ProjectPart *projectPart,
-                            RenameCallback &&renameSymbolsCallback) final;
-    void globalRename(const CursorInEditor &data, UsagesCallback &&renameCallback,
-                      const QString &replacement) final;
-    void findUsages(const CursorInEditor &data,
-                    UsagesCallback &&showUsagesCallback) const final;
-    void globalFollowSymbol(const CursorInEditor &data,
-                            Utils::ProcessLinkCallback &&processLinkCallback,
-                            const CPlusPlus::Snapshot &snapshot,
-                            const Document::Ptr &documentFromSemanticInfo,
-                            SymbolFinder *symbolFinder,
-                            bool inNextSplit) const final;
 
     bool positionRequiresSignal(const QString &filePath, const QByteArray &content,
                                 int position) const;
@@ -187,7 +167,25 @@ public:
     BaseEditorDocumentProcessor *createEditorDocumentProcessor(
                     TextEditor::TextDocument *baseTextDocument) const;
     TextEditor::BaseHoverHandler *createHoverHandler() const;
-    FollowSymbolInterface &followSymbolInterface() const;
+    static FollowSymbolUnderCursor &builtinFollowSymbol();
+
+    enum class Backend { Builtin, Best };
+    static void followSymbol(const CursorInEditor &data,
+                             Utils::ProcessLinkCallback &&processLinkCallback,
+                             bool resolveTarget, bool inNextSplit, Backend backend = Backend::Best);
+    static void switchDeclDef(const CursorInEditor &data,
+                              Utils::ProcessLinkCallback &&processLinkCallback,
+                              Backend backend = Backend::Best);
+    static void startLocalRenaming(const CursorInEditor &data, const ProjectPart *projectPart,
+                                   RenameCallback &&renameSymbolsCallback,
+                                   Backend backend = Backend::Best);
+    static void globalRename(const CursorInEditor &data, UsagesCallback &&renameCallback,
+                             const QString &replacement, Backend backend = Backend::Best);
+    static void findUsages(const CursorInEditor &data, UsagesCallback &&showUsagesCallback,
+                           Backend backend = Backend::Best);
+
+    static Core::ILocatorFilter *createAuxiliaryCurrentDocumentFilter();
+
     std::unique_ptr<AbstractOverviewModel> createOverviewModel() const;
 
     CppIndexingSupport *indexingSupport();
@@ -212,12 +210,6 @@ public:
     static Internal::CppSourceProcessor *createSourceProcessor();
     static QString configurationFileName();
     static QString editorConfigurationFileName();
-
-    static void addRefactoringEngine(RefactoringEngineType type,
-                                     RefactoringEngineInterface *refactoringEngine);
-    static void removeRefactoringEngine(RefactoringEngineType type);
-    static RefactoringEngineInterface *builtinRefactoringEngine();
-    static FollowSymbolInterface &builtinFollowSymbol();
 
     void setLocatorFilter(std::unique_ptr<Core::ILocatorFilter> &&filter);
     void setClassesFilter(std::unique_ptr<Core::ILocatorFilter> &&filter);
@@ -291,6 +283,8 @@ private:
     void removeProjectInfoFilesAndIncludesFromSnapshot(const ProjectInfo &projectInfo);
 
     WorkingCopy buildWorkingCopyList();
+
+    ModelManagerSupport *modelManagerSupport(Backend backend) const;
 
     void ensureUpdated();
     QStringList internalProjectFiles() const;

@@ -31,6 +31,7 @@ add_qtc_library(Utils
     delegates.cpp delegates.h
     detailsbutton.cpp detailsbutton.h
     detailswidget.cpp detailswidget.h
+    deviceshell.cpp deviceshell.h
     differ.cpp differ.h
     displayname.cpp displayname.h
     dropsupport.cpp dropsupport.h
@@ -87,6 +88,8 @@ add_qtc_library(Utils
     macroexpander.cpp macroexpander.h
     mapreduce.h
     mimeutils.h
+    minimizableinfobars.cpp
+    minimizableinfobars.h
     multitextcursor.cpp multitextcursor.h
     namevaluedictionary.cpp namevaluedictionary.h
     namevaluedictionary.cpp namevaluedictionary.h
@@ -118,7 +121,7 @@ add_qtc_library(Utils
     processenums.h
     processhandle.cpp processhandle.h
     processinfo.cpp processinfo.h
-    processinterface.h
+    processinterface.cpp processinterface.h
     processreaper.cpp processreaper.h
     processutils.cpp processutils.h
     progressindicator.cpp progressindicator.h

@@ -27,7 +27,6 @@
 
 #include <projectexplorer/devicesupport/idevice.h>
 #include <projectexplorer/devicesupport/idevicefactory.h>
-#include <projectexplorer/devicesupport/sshdeviceprocess.h>
 
 #include <utils/aspects.h>
 
@@ -64,8 +63,8 @@ public:
     ProjectExplorer::IDeviceWidget *createWidget() override;
     QList<ProjectExplorer::Task> validate() const override;
 
-    bool canCreateProcess() const override { return true; }
-    Utils::QtcProcess *createProcess(QObject *parent) const override;
+    Utils::ProcessInterface *createProcessInterface() const override;
+
     bool canAutoDetectPorts() const override;
     ProjectExplorer::PortsGatheringMethod::Ptr portsGatheringMethod() const override;
     bool canCreateProcessModel() const override { return false; }
@@ -100,7 +99,6 @@ public:
     QByteArray fileContents(const Utils::FilePath &filePath, qint64 limit, qint64 offset) const override;
     bool writeFileContents(const Utils::FilePath &filePath, const QByteArray &data) const override;
     QDateTime lastModified(const Utils::FilePath &filePath) const override;
-    void runProcess(Utils::QtcProcess &process) const override;
     qint64 fileSize(const Utils::FilePath &filePath) const override;
     QFileDevice::Permissions permissions(const Utils::FilePath &filePath) const override;
     bool setPermissions(const Utils::FilePath &filePath, QFileDevice::Permissions permissions) const override;
@@ -112,6 +110,8 @@ public:
 
     void updateContainerAccess() const;
     void setMounts(const QStringList &mounts) const;
+
+    Utils::CommandLine withDockerExecCmd(const Utils::CommandLine& cmd, bool interactive = false) const;
 
 protected:
     void fromMap(const QVariantMap &map) final;

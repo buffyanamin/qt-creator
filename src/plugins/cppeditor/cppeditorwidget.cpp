@@ -39,7 +39,6 @@
 #include "cppfunctiondecldeflink.h"
 #include "cpphighlighter.h"
 #include "cpplocalrenaming.h"
-#include "cppminimizableinfobars.h"
 #include "cppmodelmanager.h"
 #include "cpppreprocessordialog.h"
 #include "cppsemanticinfo.h"
@@ -50,11 +49,7 @@
 #include "cpptoolssettings.h"
 #include "cppuseselectionsupdater.h"
 #include "cppworkingcopy.h"
-#include "followsymbolinterface.h"
-#include "refactoringengineinterface.h"
 #include "symbolfinder.h"
-
-#include <clangsupport/sourcelocationscontainer.h>
 
 #include <coreplugin/actionmanager/actioncontainer.h>
 #include <coreplugin/actionmanager/actionmanager.h>
@@ -409,7 +404,7 @@ class CppEditorWidgetPrivate
 public:
     CppEditorWidgetPrivate(CppEditorWidget *q);
 
-    bool shouldOfferOutline() const { return CppModelManager::supportsOutline(m_cppEditorDocument); }
+    bool shouldOfferOutline() const { return !CppModelManager::usesClangd(m_cppEditorDocument); }
 
 public:
     QPointer<CppModelManager> m_modelManager;
@@ -428,7 +423,6 @@ public:
     QAction *m_parseContextAction = nullptr;
     ParseContextWidget *m_parseContextWidget = nullptr;
     QToolButton *m_preprocessorButton = nullptr;
-    MinimizableInfoBars::Actions m_showInfoBarActions;
 
     CppLocalRenaming m_localRenaming;
     CppUseSelectionsUpdater m_useSelectionsUpdater;
@@ -558,13 +552,6 @@ void CppEditorWidget::finalizeInitialization()
         insertExtraToolBarWidget(TextEditorWidget::Left, d->m_preprocessorButton);
     }
 
-    // Toolbar: Actions to show minimized info bars
-    d->m_showInfoBarActions = MinimizableInfoBars::createShowInfoBarActions([this](QWidget *w) {
-        return this->insertExtraToolBarWidget(TextEditorWidget::Left, w);
-    });
-    connect(&cppEditorDocument()->minimizableInfoBars(), &MinimizableInfoBars::showAction,
-            this, &CppEditorWidget::onShowInfoBarAction);
-
     d->m_outlineTimer.setInterval(5000);
     d->m_outlineTimer.setSingleShot(true);
     connect(&d->m_outlineTimer, &QTimer::timeout, this, [this] {
@@ -674,13 +661,6 @@ void CppEditorWidget::onIfdefedOutBlocksUpdated(unsigned revision,
     if (revision != documentRevision())
         return;
     textDocument()->setIfdefedOutBlocks(ifdefedOutBlocks);
-}
-
-void CppEditorWidget::onShowInfoBarAction(const Id &id, bool show)
-{
-    QAction *action = d->m_showInfoBarActions.value(id);
-    QTC_ASSERT(action, return);
-    action->setVisible(show);
 }
 
 static QString getDocumentLine(QTextDocument *document, int line)
@@ -936,7 +916,6 @@ const ProjectPart *CppEditorWidget::projectPart() const
 
 namespace {
 
-using ClangBackEnd::SourceLocationContainer;
 using Utils::Text::selectAt;
 
 QTextCharFormat occurrencesTextCharFormat()
@@ -947,7 +926,7 @@ QTextCharFormat occurrencesTextCharFormat()
 }
 
 QList<QTextEdit::ExtraSelection> sourceLocationsToExtraSelections(
-    const std::vector<SourceLocationContainer> &sourceLocations,
+    const Links &sourceLocations,
     uint selectionLength,
     CppEditorWidget *cppEditorWidget)
 {
@@ -956,12 +935,12 @@ QList<QTextEdit::ExtraSelection> sourceLocationsToExtraSelections(
     QList<QTextEdit::ExtraSelection> selections;
     selections.reserve(int(sourceLocations.size()));
 
-    auto sourceLocationToExtraSelection = [&](const SourceLocationContainer &sourceLocation) {
+    auto sourceLocationToExtraSelection = [&](const Link &sourceLocation) {
         QTextEdit::ExtraSelection selection;
 
         selection.cursor = selectAt(cppEditorWidget->textCursor(),
-                                    sourceLocation.line,
-                                    sourceLocation.column,
+                                    sourceLocation.targetLine,
+                                    sourceLocation.targetColumn + 1,
                                     selectionLength);
         selection.format = textCharFormat;
 
@@ -980,8 +959,6 @@ QList<QTextEdit::ExtraSelection> sourceLocationsToExtraSelections(
 
 void CppEditorWidget::renameSymbolUnderCursor()
 {
-    using ClangBackEnd::SourceLocationsContainer;
-
     const ProjectPart *projPart = projectPart();
     if (!projPart)
         return;
@@ -994,17 +971,15 @@ void CppEditorWidget::renameSymbolUnderCursor()
 
     QPointer<CppEditorWidget> cppEditorWidget = this;
 
-    auto renameSymbols = [=](const QString &symbolName,
-                             const SourceLocationsContainer &sourceLocations,
-                             int revision) {
+    auto renameSymbols = [=](const QString &symbolName, const Links &links, int revision) {
         if (cppEditorWidget) {
             viewport()->setCursor(Qt::IBeamCursor);
 
             if (revision != document()->revision())
                 return;
-            if (sourceLocations.hasContent()) {
+            if (!links.isEmpty()) {
                 QList<QTextEdit::ExtraSelection> selections
-                    = sourceLocationsToExtraSelections(sourceLocations.sourceLocationContainers(),
+                    = sourceLocationsToExtraSelections(links,
                                                        static_cast<uint>(symbolName.size()),
                                                        cppEditorWidget);
                 setExtraSelections(TextEditor::TextEditorWidget::CodeSemanticsSelection, selections);
@@ -1045,9 +1020,7 @@ void CppEditorWidget::switchDeclarationDefinition(bool inNextSplit)
         if (self && link.hasValidTarget())
             self->openLink(link, split);
     };
-    followSymbolInterface().switchDeclDef(cursor, std::move(callback),
-                                          d->m_modelManager->snapshot(), d->m_lastSemanticInfo.doc,
-                                          d->m_modelManager->symbolFinder());
+    CppModelManager::switchDeclDef(cursor, std::move(callback));
 }
 
 void CppEditorWidget::findLinkAt(const QTextCursor &cursor,
@@ -1087,24 +1060,16 @@ void CppEditorWidget::findLinkAt(const QTextCursor &cursor,
         }
         callback(link);
     };
-    followSymbolInterface().findLink(
+    CppModelManager::followSymbol(
                 CursorInEditor{cursor, filePath, this, textDocument()},
                 std::move(callbackWrapper),
                 resolveTarget,
-                d->m_modelManager->snapshot(),
-                d->m_lastSemanticInfo.doc,
-                d->m_modelManager->symbolFinder(),
                 inNextSplit);
 }
 
 unsigned CppEditorWidget::documentRevision() const
 {
     return document()->revision();
-}
-
-FollowSymbolInterface &CppEditorWidget::followSymbolInterface() const
-{
-    return d->m_modelManager->followSymbolInterface();
 }
 
 bool CppEditorWidget::isSemanticInfoValidExceptLocalUses() const

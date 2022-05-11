@@ -44,6 +44,7 @@
 #include <utils/detailswidget.h>
 #include <utils/fileinprojectfinder.h>
 #include <utils/outputformatter.h>
+#include <utils/processinterface.h>
 #include <utils/qtcassert.h>
 #include <utils/utilsicons.h>
 #include <utils/variablechooser.h>
@@ -310,7 +311,6 @@ public:
     IDevice::ConstPtr device;
     Utils::Icon icon;
     const MacroExpander *macroExpander = nullptr;
-    QPointer<RunConfiguration> runConfiguration; // Not owned. Avoid use.
     AspectContainerData aspectData;
     QString buildKey;
     QMap<Utils::Id, QVariantMap> settingsData;
@@ -390,17 +390,15 @@ RunControl::RunControl(Utils::Id mode) :
 {
 }
 
-void RunControl::copyFromRunControl(RunControl *runControl)
+void RunControl::copyDataFromRunControl(RunControl *runControl)
 {
     QTC_ASSERT(runControl, return);
     d->copyData(runControl->d.get());
 }
 
-void RunControl::setRunConfiguration(RunConfiguration *runConfig)
+void RunControl::copyDataFromRunConfiguration(RunConfiguration *runConfig)
 {
     QTC_ASSERT(runConfig, return);
-    QTC_CHECK(!d->runConfiguration);
-    d->runConfiguration = runConfig;
     d->runConfigId = runConfig->id();
     d->runnable = runConfig->runnable();
     d->displayName = runConfig->expandedDisplayName();
@@ -928,11 +926,6 @@ IDevice::ConstPtr RunControl::device() const
    return d->device;
 }
 
-RunConfiguration *RunControl::runConfiguration() const
-{
-    return d->runConfiguration.data();
-}
-
 Target *RunControl::target() const
 {
     return d->target;
@@ -1163,8 +1156,8 @@ void RunControlPrivate::checkState(RunControlState expectedState)
 void RunControlPrivate::setState(RunControlState newState)
 {
     if (!isAllowedTransition(state, newState))
-        qDebug() << "Invalid run control state transition from " << stateName(state)
-                 << " to " << stateName(newState);
+        qDebug() << "Invalid run control state transition from" << stateName(state)
+                 << "to" << stateName(newState);
 
     state = newState;
 
@@ -1228,26 +1221,19 @@ void SimpleTargetRunner::doStart(const Runnable &runnable)
     const QString msg = RunControl::tr("Starting %1...").arg(runnable.command.toUserOutput());
     appendMessage(msg, Utils::NormalMessageFormat);
 
-    connect(&m_launcher, &ApplicationLauncher::finished, this, [this, runnable]() {
+    connect(&m_launcher, &ApplicationLauncher::done, this, [this, runnable] {
         if (m_stopReported)
             return;
-        const QString msg = (m_launcher.exitStatus() == QProcess::CrashExit)
-                ? tr("%1 crashed.") : tr("%2 exited with code %1").arg(m_launcher.exitCode());
-        const QString displayName = runnable.command.executable().toUserOutput();
-        appendMessage(msg.arg(displayName), Utils::NormalMessageFormat);
-        m_stopReported = true;
-        reportStopped();
-    });
-
-    connect(&m_launcher, &ApplicationLauncher::errorOccurred,
-        this, [this, runnable](QProcess::ProcessError error) {
-        if (m_stopReported)
-            return;
-        if (error == QProcess::Timedout)
-            return; // No actual change on the process side.
-        const QString msg = m_stopForced ? tr("The process was ended forcefully.")
-                    : userMessageForProcessError(error, runnable.command.executable());
-        appendMessage(msg, Utils::NormalMessageFormat);
+        const QString executable = runnable.command.executable().toUserOutput();
+        const ProcessResultData resultData = m_launcher.resultData();
+        QString msg = tr("%2 exited with code %1").arg(resultData.m_exitCode).arg(executable);
+        if (resultData.m_exitStatus == QProcess::CrashExit)
+            msg = tr("%1 crashed.").arg(executable);
+        else if (m_stopForced)
+            msg = tr("The process was ended forcefully.");
+        else if (resultData.m_error != QProcess::UnknownError)
+            msg = userMessageForProcessError(resultData.m_error, runnable.command.executable());
+        appendMessage(msg, NormalMessageFormat);
         m_stopReported = true;
         reportStopped();
     });

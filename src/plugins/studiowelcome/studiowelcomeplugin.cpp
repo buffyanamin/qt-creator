@@ -644,7 +644,7 @@ QString StudioWelcomePlugin::examplesPathSetting()
 
 WelcomeMode::WelcomeMode()
 {
-    setDisplayName(tr("Studio"));
+    setDisplayName(tr("Welcome"));
 
     const Utils::Icon FLAT({{":/studiowelcome/images/mode_welcome_mask.png",
                       Utils::Theme::IconsBaseColor}});
@@ -669,6 +669,11 @@ WelcomeMode::WelcomeMode()
     QmlDesigner::QmlDesignerPlugin::registerPreviewImageProvider(m_modeWidget->engine());
 
     m_modeWidget->engine()->setOutputWarningsToStandardError(false);
+
+    connect(Core::ModeManager::instance(), &Core::ModeManager::currentModeChanged, this, [this](Utils::Id mode){
+       bool active = (mode == Core::Constants::MODE_WELCOME);
+       m_modeWidget->rootObject()->setProperty("active", active);
+    });
 
     if (!useNewWelcomePage()) {
 

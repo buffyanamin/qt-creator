@@ -26,6 +26,7 @@
 #include "builddirparameters.h"
 
 #include "cmakebuildconfiguration.h"
+#include "cmakebuildsystem.h"
 #include "cmakekitinformation.h"
 #include "cmakeprojectconstants.h"
 #include "cmakeprojectplugin.h"
@@ -47,23 +48,25 @@ namespace Internal {
 
 BuildDirParameters::BuildDirParameters() = default;
 
-BuildDirParameters::BuildDirParameters(CMakeBuildConfiguration *bc)
+BuildDirParameters::BuildDirParameters(CMakeBuildSystem *buildSystem)
 {
-    QTC_ASSERT(bc, return );
+    QTC_ASSERT(buildSystem, return);
+    auto bc = buildSystem->cmakeBuildConfiguration();
+    QTC_ASSERT(bc, return);
 
     const Utils::MacroExpander *expander = bc->macroExpander();
 
-    const QStringList expandedArguments = Utils::transform(bc->initialCMakeArguments(),
+    const QStringList expandedArguments = Utils::transform(buildSystem->initialCMakeArguments(),
                                                            [expander](const QString &s) {
                                                                return expander->expand(s);
                                                            });
     initialCMakeArguments = Utils::filtered(expandedArguments,
                                             [](const QString &s) { return !s.isEmpty(); });
-    configurationChangesArguments = Utils::transform(bc->configurationChangesArguments(),
+    configurationChangesArguments = Utils::transform(buildSystem->configurationChangesArguments(),
                                                      [expander](const QString &s) {
                                                          return expander->expand(s);
                                                      });
-    additionalCMakeArguments = Utils::transform(bc->additionalCMakeArguments(),
+    additionalCMakeArguments = Utils::transform(buildSystem->additionalCMakeArguments(),
                                                 [expander](const QString &s) {
                                                     return expander->expand(s);
                                                 });
@@ -78,7 +81,7 @@ BuildDirParameters::BuildDirParameters(CMakeBuildConfiguration *bc)
         sourceDirectory = p->projectDirectory();
     buildDirectory = bc->buildDirectory();
 
-    cmakeBuildType = bc->cmakeBuildType();
+    cmakeBuildType = buildSystem->cmakeBuildType();
 
     environment = bc->environment();
     // Disable distributed building for configuration runs. CMake does not do those in parallel,

@@ -27,12 +27,13 @@
 
 #include "genericlinuxdeviceconfigurationwidget.h"
 #include "genericlinuxdeviceconfigurationwizard.h"
-#include "linuxdeviceprocess.h"
 #include "linuxdevicetester.h"
+#include "linuxprocessinterface.h"
 #include "publickeydeploymentdialog.h"
 #include "remotelinux_constants.h"
 #include "remotelinuxsignaloperation.h"
 #include "remotelinuxenvironmentreader.h"
+#include "sshprocessinterface.h"
 
 #include <coreplugin/icore.h>
 #include <coreplugin/messagemanager.h>
@@ -40,8 +41,7 @@
 #include <projectexplorer/devicesupport/sshdeviceprocesslist.h>
 #include <projectexplorer/runcontrol.h>
 
-#include <ssh/sshconnectionmanager.h>
-#include <ssh/sshremoteprocessrunner.h>
+#include <ssh/sshconnection.h>
 #include <ssh/sshsettings.h>
 
 #include <utils/algorithm.h>
@@ -50,6 +50,7 @@
 #include <utils/port.h>
 #include <utils/processinfo.h>
 #include <utils/qtcassert.h>
+#include <utils/qtcprocess.h>
 #include <utils/stringutils.h>
 #include <utils/temporaryfile.h>
 
@@ -58,13 +59,17 @@
 #include <QMutex>
 #include <QRegularExpression>
 #include <QScopeGuard>
+#include <QTemporaryDir>
 #include <QThread>
+#include <QTimer>
 
 using namespace ProjectExplorer;
 using namespace QSsh;
 using namespace Utils;
 
 namespace RemoteLinux {
+
+const QByteArray s_pidMarker = "__qtc";
 
 const char Delimiter0[] = "x--";
 const char Delimiter1[] = "---";
@@ -74,6 +79,221 @@ static Q_LOGGING_CATEGORY(linuxDeviceLog, "qtc.remotelinux.device", QtWarningMsg
 //#define DEBUG(x) qDebug() << x;
 //#define DEBUG(x) LOG(x)
 #define DEBUG(x)
+
+class SshSharedConnection : public QObject
+{
+    Q_OBJECT
+
+public:
+    explicit SshSharedConnection(const SshConnectionParameters &sshParameters, QObject *parent = nullptr);
+    ~SshSharedConnection() override;
+
+    SshConnectionParameters sshParameters() const { return m_sshParameters; }
+    void ref();
+    void deref();
+    void makeStale();
+
+    void connectToHost();
+    void disconnectFromHost();
+
+    QProcess::ProcessState state() const;
+    QString socketFilePath() const
+    {
+        QTC_ASSERT(m_masterSocketDir, return QString());
+        return m_masterSocketDir->path() + "/cs";
+    }
+    QStringList connectionOptions(const Utils::FilePath &binary) const
+    {
+        return m_sshParameters.connectionOptions(binary) << "-o" << ("ControlPath=" + socketFilePath());
+    }
+
+signals:
+    void connected(const QString &socketFilePath);
+    void disconnected(const ProcessResultData &result);
+
+    void autoDestructRequested();
+
+private:
+    void emitConnected();
+    void emitError(QProcess::ProcessError processError, const QString &errorString);
+    void emitDisconnected();
+    QString fullProcessError() const;
+    QStringList connectionArgs(const FilePath &binary) const
+    { return connectionOptions(binary) << m_sshParameters.host(); }
+
+    const SshConnectionParameters m_sshParameters;
+    std::unique_ptr<QtcProcess> m_masterProcess;
+    std::unique_ptr<QTemporaryDir> m_masterSocketDir;
+    QTimer m_timer;
+    int m_ref = 0;
+    bool m_stale = false;
+    QProcess::ProcessState m_state = QProcess::NotRunning;
+};
+
+SshSharedConnection::SshSharedConnection(const SshConnectionParameters &sshParameters, QObject *parent)
+    : QObject(parent), m_sshParameters(sshParameters)
+{
+}
+
+SshSharedConnection::~SshSharedConnection()
+{
+    QTC_CHECK(m_ref == 0);
+    disconnect();
+    disconnectFromHost();
+}
+
+void SshSharedConnection::ref()
+{
+    ++m_ref;
+    m_timer.stop();
+}
+
+void SshSharedConnection::deref()
+{
+    QTC_ASSERT(m_ref, return);
+    if (--m_ref)
+        return;
+    if (m_stale) // no one uses it
+        deleteLater();
+    // not stale, so someone may reuse it
+    m_timer.start(SshSettings::connectionSharingTimeout() * 1000 * 60);
+}
+
+void SshSharedConnection::makeStale()
+{
+    m_stale = true;
+    if (!m_ref) // no one uses it
+        deleteLater();
+}
+
+void SshSharedConnection::connectToHost()
+{
+    if (state() != QProcess::NotRunning)
+        return;
+
+    const FilePath sshBinary = SshSettings::sshFilePath();
+    if (!sshBinary.exists()) {
+        emitError(QProcess::FailedToStart, tr("Cannot establish SSH connection: ssh binary "
+                  "\"%1\" does not exist.").arg(sshBinary.toUserOutput()));
+        return;
+    }
+
+    m_masterSocketDir.reset(new QTemporaryDir);
+    if (!m_masterSocketDir->isValid()) {
+        emitError(QProcess::FailedToStart, tr("Cannot establish SSH connection: Failed to create temporary "
+                     "directory for control socket: %1")
+                  .arg(m_masterSocketDir->errorString()));
+        m_masterSocketDir.reset();
+        return;
+    }
+
+    m_masterProcess.reset(new QtcProcess);
+    SshConnectionParameters::setupSshEnvironment(m_masterProcess.get());
+    m_timer.setSingleShot(true);
+    connect(&m_timer, &QTimer::timeout, this, &SshSharedConnection::autoDestructRequested);
+    connect(m_masterProcess.get(), &QtcProcess::readyReadStandardOutput, [this] {
+        const QByteArray reply = m_masterProcess->readAllStandardOutput();
+        if (reply == "\n")
+            emitConnected();
+        // TODO: otherwise emitError and finish master process?
+    });
+    // TODO: in case of refused connection we are getting the following on stdErr:
+    // ssh: connect to host 127.0.0.1 port 22: Connection refused\r\n
+    connect(m_masterProcess.get(), &QtcProcess::done, [this] {
+        const ProcessResult result = m_masterProcess->result();
+        const ProcessResultData resultData = m_masterProcess->resultData();
+        if (result == ProcessResult::StartFailed) {
+            emitError(QProcess::FailedToStart, tr("Cannot establish SSH connection.\n"
+                                                  "Control process failed to start."));
+            return;
+        } else if (result == ProcessResult::FinishedWithError) {
+            emitError(resultData.m_error, fullProcessError());
+            return;
+        }
+        emit disconnected(resultData);
+    });
+
+    QStringList args = QStringList{"-M", "-N", "-o", "ControlPersist=no",
+            "-o", "PermitLocalCommand=yes", // Enable local command
+            "-o", "LocalCommand=echo"}      // Local command is executed after successfully
+                                            // connecting to the server. "echo" will print "\n"
+                                            // on the process output if everything went fine.
+            << connectionArgs(sshBinary);
+    if (!m_sshParameters.x11DisplayName.isEmpty()) {
+        args.prepend("-X");
+        Environment env = m_masterProcess->environment();
+        env.set("DISPLAY", m_sshParameters.x11DisplayName);
+        m_masterProcess->setEnvironment(env);
+    }
+    m_masterProcess->setCommand(CommandLine(sshBinary, args));
+    m_masterProcess->start();
+}
+
+void SshSharedConnection::disconnectFromHost()
+{
+    m_masterProcess.reset();
+    m_masterSocketDir.reset();
+}
+
+QProcess::ProcessState SshSharedConnection::state() const
+{
+    return m_state;
+}
+
+void SshSharedConnection::emitConnected()
+{
+    m_state = QProcess::Running;
+    emit connected(socketFilePath());
+}
+
+void SshSharedConnection::emitError(QProcess::ProcessError error, const QString &errorString)
+{
+    m_state = QProcess::NotRunning;
+    ProcessResultData resultData = m_masterProcess->resultData();
+    resultData.m_error = error;
+    resultData.m_errorString = errorString;
+    emit disconnected(resultData);
+}
+
+void SshSharedConnection::emitDisconnected()
+{
+    m_state = QProcess::NotRunning;
+    emit disconnected(m_masterProcess->resultData());
+}
+
+QString SshSharedConnection::fullProcessError() const
+{
+    const QString errorString = m_masterProcess->exitStatus() == QProcess::CrashExit
+            ? m_masterProcess->errorString() : QString();
+    const QString standardError = m_masterProcess->stdErr();
+    const QString errorPrefix = errorString.isEmpty() && standardError.isEmpty()
+            ? tr("SSH connection failure.") : tr("SSH connection failure:");
+    QStringList allErrors {errorPrefix, errorString, standardError};
+    allErrors.removeAll({});
+    return allErrors.join('\n');
+}
+
+// SshConnectionHandle
+
+class SshConnectionHandle : public QObject
+{
+    Q_OBJECT
+public:
+    SshConnectionHandle(const IDevice::ConstPtr &device) : m_device(device) {}
+    ~SshConnectionHandle() override { emit detachFromSharedConnection(); }
+
+signals:
+    // direction: connection -> caller
+    void connected(const QString &socketFilePath);
+    void disconnected(const ProcessResultData &result);
+    // direction: caller -> connection
+    void detachFromSharedConnection();
+
+private:
+    // Store the IDevice::ConstPtr in order to extend the lifetime of device for as long
+    // as this object is alive.
+    IDevice::ConstPtr m_device;
+};
 
 static QString visualizeNull(QString s)
 {
@@ -186,65 +406,465 @@ class LinuxPortsGatheringMethod : public PortsGatheringMethod
     }
 };
 
+// LinuxDevicePrivate
+
+class ShellThreadHandler;
+
+class LinuxDevicePrivate
+{
+public:
+    explicit LinuxDevicePrivate(LinuxDevice *parent);
+    ~LinuxDevicePrivate();
+
+    bool setupShell();
+    bool runInShell(const CommandLine &cmd, const QByteArray &data = {});
+    QByteArray outputForRunInShell(const QString &cmd);
+    QByteArray outputForRunInShell(const CommandLine &cmd);
+    void attachToSharedConnection(SshConnectionHandle *connectionHandle,
+                                  const SshConnectionParameters &sshParameters);
+
+    LinuxDevice *q = nullptr;
+    QThread m_shellThread;
+    ShellThreadHandler *m_handler = nullptr;
+    mutable QMutex m_shellMutex;
+    QList<QtcProcess *> m_terminals;
+};
+
+// SshProcessImpl
+
+class SshProcessInterfacePrivate : public QObject
+{
+    Q_OBJECT
+
+public:
+    SshProcessInterfacePrivate(SshProcessInterface *sshInterface, LinuxDevicePrivate *devicePrivate);
+
+    void start();
+
+    void handleConnected(const QString &socketFilePath);
+    void handleDisconnected(const ProcessResultData &result);
+
+    void handleStarted();
+    void handleDone();
+    void handleReadyReadStandardOutput();
+    void handleReadyReadStandardError();
+
+    void clearForStart();
+    void doStart();
+    CommandLine fullLocalCommandLine() const;
+
+    SshProcessInterface *q = nullptr;
+
+    qint64 m_processId = 0;
+    // Store the IDevice::ConstPtr in order to extend the lifetime of device for as long
+    // as this object is alive.
+    IDevice::ConstPtr m_device;
+    std::unique_ptr<SshConnectionHandle> m_connectionHandle;
+    QtcProcess m_process;
+    LinuxDevicePrivate *m_devicePrivate = nullptr;
+
+    QString m_socketFilePath;
+    SshConnectionParameters m_sshParameters;
+    bool m_connecting = false;
+    bool m_killed = false;
+
+    ProcessResultData m_result;
+};
+
+SshProcessInterface::SshProcessInterface(const LinuxDevice *linuxDevice)
+    : d(new SshProcessInterfacePrivate(this, linuxDevice->d))
+{
+}
+
+SshProcessInterface::~SshProcessInterface()
+{
+    delete d;
+}
+
+void SshProcessInterface::handleStarted(qint64 processId)
+{
+    emitStarted(processId);
+}
+
+void SshProcessInterface::handleReadyReadStandardOutput(const QByteArray &outputData)
+{
+    emit readyRead(outputData, {});
+}
+
+void SshProcessInterface::handleReadyReadStandardError(const QByteArray &errorData)
+{
+    emit readyRead({}, errorData);
+}
+
+void SshProcessInterface::emitStarted(qint64 processId)
+{
+    d->m_processId = processId;
+    emit started(processId);
+}
+
+void SshProcessInterface::killIfRunning()
+{
+    if (d->m_killed || d->m_process.state() != QProcess::Running)
+        return;
+    sendControlSignal(ControlSignal::Kill);
+    d->m_killed = true;
+}
+
+qint64 SshProcessInterface::processId() const
+{
+    return d->m_processId;
+}
+
+bool SshProcessInterface::runInShell(const CommandLine &command, const QByteArray &data)
+{
+    return d->m_devicePrivate->runInShell(command, data);
+}
+
+void SshProcessInterface::start()
+{
+    d->start();
+}
+
+qint64 SshProcessInterface::write(const QByteArray &data)
+{
+    return d->m_process.writeRaw(data);
+}
+
+bool SshProcessInterface::waitForStarted(int msecs)
+{
+    Q_UNUSED(msecs)
+    QTC_CHECK(false);
+    return false;
+}
+
+bool SshProcessInterface::waitForReadyRead(int msecs)
+{
+    Q_UNUSED(msecs)
+    QTC_CHECK(false);
+    return false;
+}
+
+bool SshProcessInterface::waitForFinished(int msecs)
+{
+    Q_UNUSED(msecs)
+    QTC_CHECK(false);
+    return false;
+}
+
+LinuxProcessInterface::LinuxProcessInterface(const LinuxDevice *linuxDevice)
+    : SshProcessInterface(linuxDevice)
+{
+}
+
+LinuxProcessInterface::~LinuxProcessInterface()
+{
+    killIfRunning();
+}
+
+void LinuxProcessInterface::sendControlSignal(ControlSignal controlSignal)
+{
+    QTC_ASSERT(controlSignal != ControlSignal::KickOff, return);
+    const qint64 pid = processId();
+    QTC_ASSERT(pid, return); // TODO: try sending a signal based on process name
+    const QString args = QString::fromLatin1("-%1 %2")
+            .arg(controlSignalToInt(controlSignal)).arg(pid);
+    CommandLine command = { "kill", args, CommandLine::Raw };
+    // Note: This blocking call takes up to 2 ms for local remote.
+    runInShell(command);
+}
+
+QString LinuxProcessInterface::fullCommandLine(const CommandLine &commandLine) const
+{
+    CommandLine cmd;
+
+    if (!commandLine.isEmpty()) {
+        const QStringList rcFilesToSource = {"/etc/profile", "$HOME/.profile"};
+        for (const QString &filePath : rcFilesToSource) {
+            cmd.addArgs({"test", "-f", filePath});
+            cmd.addArgs("&&", CommandLine::Raw);
+            cmd.addArgs({".", filePath});
+            cmd.addArgs(";", CommandLine::Raw);
+        }
+    }
+
+    if (!m_setup.m_workingDirectory.isEmpty()) {
+        cmd.addArgs({"cd", m_setup.m_workingDirectory.path()});
+        cmd.addArgs("&&", CommandLine::Raw);
+    }
+
+    if (m_setup.m_terminalMode == TerminalMode::Off)
+        cmd.addArgs(QString("echo ") + s_pidMarker + "$$" + s_pidMarker + " && ", CommandLine::Raw);
+
+    const Environment &env = m_setup.m_environment;
+    for (auto it = env.constBegin(); it != env.constEnd(); ++it)
+        cmd.addArgs(env.key(it) + "='" + env.expandedValueForKey(env.key(it)) + '\'', CommandLine::Raw);
+
+    if (m_setup.m_terminalMode == TerminalMode::Off)
+        cmd.addArg("exec");
+
+    if (!commandLine.isEmpty())
+        cmd.addCommandLineAsArgs(commandLine, CommandLine::Raw);
+    return cmd.arguments();
+}
+
+void LinuxProcessInterface::handleStarted(qint64 processId)
+{
+    // Don't emit started() when terminal is off,
+    // it's being done later inside handleReadyReadStandardOutput().
+    if (m_setup.m_terminalMode == TerminalMode::Off)
+        return;
+
+    m_pidParsed = true;
+    emitStarted(processId);
+}
+
+void LinuxProcessInterface::handleReadyReadStandardOutput(const QByteArray &outputData)
+{
+    if (m_pidParsed) {
+        emit readyRead(outputData, {});
+        return;
+    }
+
+    m_output.append(outputData);
+
+    static const QByteArray endMarker = s_pidMarker + '\n';
+    const int endMarkerOffset = m_output.indexOf(endMarker);
+    if (endMarkerOffset == -1)
+        return;
+    const int startMarkerOffset = m_output.indexOf(s_pidMarker);
+    if (startMarkerOffset == endMarkerOffset) // Only theoretically possible.
+        return;
+    const int pidStart = startMarkerOffset + s_pidMarker.length();
+    const QByteArray pidString = m_output.mid(pidStart, endMarkerOffset - pidStart);
+    m_pidParsed = true;
+    const qint64 processId = pidString.toLongLong();
+
+    // We don't want to show output from e.g. /etc/profile.
+    m_output = m_output.mid(endMarkerOffset + endMarker.length());
+
+    emitStarted(processId);
+
+    if (!m_output.isEmpty() || !m_error.isEmpty())
+        emit readyRead(m_output, m_error);
+
+    m_output.clear();
+    m_error.clear();
+}
+
+void LinuxProcessInterface::handleReadyReadStandardError(const QByteArray &errorData)
+{
+    if (m_pidParsed) {
+        emit readyRead({}, errorData);
+        return;
+    }
+    m_error.append(errorData);
+}
+
+SshProcessInterfacePrivate::SshProcessInterfacePrivate(SshProcessInterface *sshInterface,
+                                                       LinuxDevicePrivate *devicePrivate)
+    : QObject(sshInterface)
+    , q(sshInterface)
+    , m_device(devicePrivate->q->sharedFromThis())
+    , m_process(this)
+    , m_devicePrivate(devicePrivate)
+{
+    connect(&m_process, &QtcProcess::started, this, &SshProcessInterfacePrivate::handleStarted);
+    connect(&m_process, &QtcProcess::done, this, &SshProcessInterfacePrivate::handleDone);
+    connect(&m_process, &QtcProcess::readyReadStandardOutput,
+            this, &SshProcessInterfacePrivate::handleReadyReadStandardOutput);
+    connect(&m_process, &QtcProcess::readyReadStandardError,
+            this, &SshProcessInterfacePrivate::handleReadyReadStandardError);
+}
+
+void SshProcessInterfacePrivate::start()
+{
+    clearForStart();
+
+    m_sshParameters = m_devicePrivate->q->sshParameters();
+    // TODO: Do we really need it for master process?
+    m_sshParameters.x11DisplayName
+            = q->m_setup.m_extraData.value("Ssh.X11ForwardToDisplay").toString();
+    if (SshSettings::connectionSharingEnabled()) {
+        m_connecting = true;
+        m_connectionHandle.reset(new SshConnectionHandle(m_devicePrivate->q->sharedFromThis()));
+        m_connectionHandle->setParent(this);
+        connect(m_connectionHandle.get(), &SshConnectionHandle::connected,
+                this, &SshProcessInterfacePrivate::handleConnected);
+        connect(m_connectionHandle.get(), &SshConnectionHandle::disconnected,
+                this, &SshProcessInterfacePrivate::handleDisconnected);
+        m_devicePrivate->attachToSharedConnection(m_connectionHandle.get(), m_sshParameters);
+    } else {
+        doStart();
+    }
+}
+
+void SshProcessInterfacePrivate::handleConnected(const QString &socketFilePath)
+{
+    m_connecting = false;
+    m_socketFilePath = socketFilePath;
+    doStart();
+}
+
+void SshProcessInterfacePrivate::handleDisconnected(const ProcessResultData &result)
+{
+    ProcessResultData resultData = result;
+    if (m_connecting)
+        resultData.m_error = QProcess::FailedToStart;
+
+    m_connecting = false;
+    if (m_connectionHandle) // TODO: should it disconnect from signals first?
+        m_connectionHandle.release()->deleteLater();
+
+    if (resultData.m_error != QProcess::UnknownError || m_process.state() != QProcess::NotRunning)
+        emit q->done(resultData); // TODO: don't emit done() on process finished afterwards
+}
+
+void SshProcessInterfacePrivate::handleStarted()
+{
+    const qint64 processId = m_process.usesTerminal() ? m_process.processId() : 0;
+    // By default emits started signal, Linux impl doesn't emit it when terminal is off.
+    q->handleStarted(processId);
+}
+
+void SshProcessInterfacePrivate::handleDone()
+{
+    m_connectionHandle.reset();
+    emit q->done(m_process.resultData());
+}
+
+void SshProcessInterfacePrivate::handleReadyReadStandardOutput()
+{
+    // By default emits signal. LinuxProcessImpl does custom parsing for processId
+    // and emits delayed start() - only when terminal is off.
+    q->handleReadyReadStandardOutput(m_process.readAllStandardOutput());
+}
+
+void SshProcessInterfacePrivate::handleReadyReadStandardError()
+{
+    // By default emits signal. LinuxProcessImpl buffers the error channel until
+    // it emits delayed start() - only when terminal is off.
+    q->handleReadyReadStandardError(m_process.readAllStandardError());
+}
+
+void SshProcessInterfacePrivate::clearForStart()
+{
+    m_result = {};
+}
+
+void SshProcessInterfacePrivate::doStart()
+{
+    m_process.setProcessImpl(q->m_setup.m_processImpl);
+    m_process.setProcessMode(q->m_setup.m_processMode);
+    m_process.setTerminalMode(q->m_setup.m_terminalMode);
+    m_process.setWriteData(q->m_setup.m_writeData);
+    // TODO: what about other fields from m_setup?
+    SshConnectionParameters::setupSshEnvironment(&m_process);
+    if (!m_sshParameters.x11DisplayName.isEmpty()) {
+        Environment env = m_process.controlEnvironment();
+        // Note: it seems this is no-op when shared connection is used.
+        // In this case the display is taken from master process.
+        env.set("DISPLAY", m_sshParameters.x11DisplayName);
+        m_process.setControlEnvironment(env);
+    }
+    m_process.setCommand(fullLocalCommandLine());
+    m_process.start();
+}
+
+CommandLine SshProcessInterfacePrivate::fullLocalCommandLine() const
+{
+    Utils::CommandLine cmd{SshSettings::sshFilePath()};
+
+    if (!m_sshParameters.x11DisplayName.isEmpty())
+        cmd.addArg("-X");
+    if (q->m_setup.m_terminalMode != TerminalMode::Off)
+        cmd.addArg("-tt");
+
+    cmd.addArg("-q");
+
+    QStringList options = m_sshParameters.connectionOptions(SshSettings::sshFilePath());
+    if (!m_socketFilePath.isEmpty())
+        options << "-o" << ("ControlPath=" + m_socketFilePath);
+    options << m_sshParameters.host();
+    cmd.addArgs(options);
+
+    CommandLine remoteWithLocalPath = q->m_setup.m_commandLine;
+    FilePath executable;
+    executable.setPath(remoteWithLocalPath.executable().path());
+    remoteWithLocalPath.setExecutable(executable);
+
+    cmd.addArg(q->fullCommandLine(remoteWithLocalPath));
+    return cmd;
+}
+
 // ShellThreadHandler
+
+static SshConnectionParameters displayless(const SshConnectionParameters &sshParameters)
+{
+    SshConnectionParameters parameters = sshParameters;
+    parameters.x11DisplayName.clear();
+    return parameters;
+}
 
 class ShellThreadHandler : public QObject
 {
 public:
     ~ShellThreadHandler()
     {
-        if (!m_shell)
-            return;
-        if (m_shell->isRunning()) {
-            m_shell->write("exit\n");
-            m_shell->waitForFinished();
-        }
-        delete m_shell;
+        closeShell();
+        qDeleteAll(m_connections);
     }
 
-    bool startFailed(const SshConnectionParameters &parameters)
+    void closeShell()
     {
-        delete m_shell;
-        m_shell = nullptr;
-        qCDebug(linuxDeviceLog) << "Failed to connect to" << parameters.host();
-        return false;
+        if (m_shell && m_shell->isRunning()) {
+            m_shell->write("exit\n");
+            m_shell->waitForFinished(-1);
+        }
+        m_shell.reset();
     }
 
+    // Call me with shell mutex locked
     bool start(const SshConnectionParameters &parameters)
     {
-        // TODO: start here shared ssh connection if needed (take it from settings)
-        // connect to it
-        // wait for connected
-        m_shell = new SshRemoteProcess("/bin/sh",
-                  parameters.connectionOptions(SshSettings::sshFilePath()) << parameters.host());
+        closeShell();
+        setSshParameters(parameters);
+        m_shell.reset(new QtcProcess);
+
+        SshConnectionParameters::setupSshEnvironment(m_shell.get());
+
+        const FilePath sshPath = SshSettings::sshFilePath();
+        CommandLine cmd { sshPath };
+        cmd.addArg("-q");
+        cmd.addArgs(m_displaylessSshParameters.connectionOptions(sshPath)
+                    << m_displaylessSshParameters.host());
+        cmd.addArg("/bin/sh");
+
+        m_shell->setCommand(cmd);
         m_shell->setProcessMode(ProcessMode::Writer);
+        m_shell->setWriteData("echo\n");
         m_shell->start();
-        const bool startOK = m_shell->waitForStarted();
-        if (!startOK)
-            return startFailed(parameters);
 
-        m_shell->write("echo\n");
-        const bool readOK = m_shell->waitForReadyRead();
-        if (!readOK)
-            return startFailed(parameters);
-
-        const QByteArray output = m_shell->readAllStandardOutput();
-        if (output != "\n")
-            return startFailed(parameters);
-
+        if (!m_shell->waitForStarted() || !m_shell->waitForReadyRead()
+                || m_shell->readAllStandardOutput() != "\n") {
+            closeShell();
+            qCDebug(linuxDeviceLog) << "Failed to connect to" << m_displaylessSshParameters.host();
+            return false;
+        }
         return true;
     }
 
+    // Call me with shell mutex locked
     bool runInShell(const CommandLine &cmd, const QByteArray &data = {})
     {
         QTC_ASSERT(m_shell, return false);
         QTC_CHECK(m_shell->readAllStandardOutput().isNull()); // clean possible left-overs
         QTC_CHECK(m_shell->readAllStandardError().isNull()); // clean possible left-overs
 
-        const QByteArray prefix = !data.isEmpty()
-                ? QByteArray("echo '" + data.toBase64() + "' | base64 -d | ") : QByteArray("");
-        const QByteArray suffix = QByteArray(" > /dev/null 2>&1\necho $?\n");
-        const QByteArray command = prefix + cmd.toUserOutput().toUtf8() + suffix;
+        QString prefix;
+        if (!data.isEmpty())
+            prefix =  "echo '" + QString::fromUtf8(data.toBase64()) + "' | base64 -d | ";
+        const QString suffix = " > /dev/null 2>&1\necho $?\n";
+        const QString command = prefix + cmd.toUserOutput() + suffix;
 
         m_shell->write(command);
         DEBUG("RUN1 " << cmd.toUserOutput());
@@ -258,6 +878,7 @@ public:
         return !result;
     }
 
+    // Call me with shell mutex locked
     QByteArray outputForRunInShell(const QString &cmd)
     {
         QTC_ASSERT(m_shell, return {});
@@ -265,8 +886,8 @@ public:
         QTC_CHECK(m_shell->readAllStandardError().isNull()); // clean possible left-overs
         auto cleanup = qScopeGuard([this] { m_shell->readAllStandardOutput(); }); // clean on assert
 
-        const QByteArray suffix = QByteArray(" 2> /dev/null \necho $? 1>&2\n");
-        const QByteArray command = cmd.toUtf8() + suffix;
+        const QString suffix = " 2> /dev/null \necho $? 1>&2\n";
+        const QString command = cmd + suffix;
 
         m_shell->write(command);
         DEBUG("RUN2 " << cmd.toUserOutput());
@@ -288,31 +909,87 @@ public:
         return output;
     }
 
-    bool isRunning() const { return m_shell; }
+    void setSshParameters(const SshConnectionParameters &sshParameters)
+    {
+        QMutexLocker locker(&m_mutex);
+        const SshConnectionParameters displaylessSshParameters = displayless(sshParameters);
+
+        if (m_displaylessSshParameters == displaylessSshParameters)
+            return;
+
+        // If displayless sshParameters don't match the old connections' sshParameters, then stale
+        // old connections (don't delete, as the last deref() to each one will delete them).
+        for (SshSharedConnection *connection : qAsConst(m_connections))
+            connection->makeStale();
+        m_connections.clear();
+        m_displaylessSshParameters = displaylessSshParameters;
+    }
+
+    QString attachToSharedConnection(SshConnectionHandle *connectionHandle,
+                                     const SshConnectionParameters &sshParameters)
+    {
+        setSshParameters(sshParameters);
+
+        SshSharedConnection *matchingConnection = nullptr;
+
+        // Find the matching connection
+        for (SshSharedConnection *connection : qAsConst(m_connections)) {
+            if (connection->sshParameters() == sshParameters) {
+                matchingConnection = connection;
+                break;
+            }
+        }
+
+        // If no matching connection has been found, create a new one
+        if (!matchingConnection) {
+            matchingConnection = new SshSharedConnection(sshParameters);
+            connect(matchingConnection, &SshSharedConnection::autoDestructRequested,
+                    this, [this, matchingConnection] {
+                // This slot is just for removing the matchingConnection from the connection list.
+                // The SshSharedConnection could have deleted itself otherwise.
+                m_connections.removeOne(matchingConnection);
+                matchingConnection->deleteLater();
+            });
+            m_connections.append(matchingConnection);
+        }
+
+        matchingConnection->ref();
+
+        connect(matchingConnection, &SshSharedConnection::connected,
+                connectionHandle, &SshConnectionHandle::connected);
+        connect(matchingConnection, &SshSharedConnection::disconnected,
+                connectionHandle, &SshConnectionHandle::disconnected);
+
+        connect(connectionHandle, &SshConnectionHandle::detachFromSharedConnection,
+                matchingConnection, &SshSharedConnection::deref,
+                Qt::BlockingQueuedConnection); // Ensure the signal is delivered before sender's
+                                               // destruction, otherwise we may get out of sync
+                                               // with ref count.
+
+        if (matchingConnection->state() == QProcess::Running)
+            return matchingConnection->socketFilePath();
+
+        if (matchingConnection->state() == QProcess::NotRunning)
+            matchingConnection->connectToHost();
+
+        return {};
+    }
+
+    // Call me with shell mutex locked, called from other thread
+    bool isRunning(const SshConnectionParameters &sshParameters) const
+    {
+        if (!m_shell)
+           return false;
+        QMutexLocker locker(&m_mutex);
+        if (m_displaylessSshParameters != displayless(sshParameters))
+           return false;
+        return true;
+    }
 private:
-    SshRemoteProcess *m_shell = nullptr;
-};
-
-// LinuxDevicePrivate
-
-class LinuxDevicePrivate
-{
-public:
-    explicit LinuxDevicePrivate(LinuxDevice *parent);
-    ~LinuxDevicePrivate();
-
-    CommandLine fullLocalCommandLine(const CommandLine &remoteCommand,
-                                     TerminalMode terminalMode,
-                                     bool hasDisplay) const;
-    bool setupShell();
-    bool runInShell(const CommandLine &cmd, const QByteArray &data = {});
-    QByteArray outputForRunInShell(const QString &cmd);
-    QByteArray outputForRunInShell(const CommandLine &cmd);
-
-    LinuxDevice *q = nullptr;
-    QThread m_shellThread;
-    ShellThreadHandler *m_handler = nullptr;
-    mutable QMutex m_shellMutex;
+    mutable QMutex m_mutex;
+    SshConnectionParameters m_displaylessSshParameters;
+    QList<SshSharedConnection *> m_connections;
+    std::unique_ptr<QtcProcess> m_shell;
 };
 
 // LinuxDevice
@@ -332,8 +1009,9 @@ LinuxDevice::LinuxDevice()
     }});
 
     setOpenTerminal([this](const Environment &env, const FilePath &workingDir) {
-        QtcProcess * const proc = createProcess(nullptr);
-        QObject::connect(proc, &QtcProcess::done, [proc] {
+        QtcProcess * const proc = new QtcProcess;
+        d->m_terminals.append(proc);
+        QObject::connect(proc, &QtcProcess::done, [this, proc] {
             if (proc->error() != QProcess::UnknownError) {
                 const QString errorString = proc->errorString();
                 QString message;
@@ -346,13 +1024,10 @@ LinuxDevice::LinuxDevice()
                 Core::MessageManager::writeDisrupting(message);
             }
             proc->deleteLater();
+            d->m_terminals.removeOne(proc);
         });
 
-        // It seems we cannot pass an environment to OpenSSH dynamically
-        // without specifying an executable.
-        if (env.size() > 0)
-            proc->setCommand({"/bin/sh", {}});
-
+        proc->setCommand({filePath({}), {}});
         proc->setTerminalMode(TerminalMode::On);
         proc->setEnvironment(env);
         proc->setWorkingDirectory(workingDir);
@@ -372,11 +1047,6 @@ LinuxDevice::~LinuxDevice()
 IDeviceWidget *LinuxDevice::createWidget()
 {
     return new GenericLinuxDeviceConfigurationWidget(sharedFromThis());
-}
-
-QtcProcess *LinuxDevice::createProcess(QObject *parent) const
-{
-    return new LinuxDeviceProcess(sharedFromThis(), parent);
 }
 
 bool LinuxDevice::canAutoDetectPorts() const
@@ -401,7 +1071,7 @@ DeviceTester *LinuxDevice::createDeviceTester() const
 
 DeviceProcessSignalOperation::Ptr LinuxDevice::signalOperation() const
 {
-    return DeviceProcessSignalOperation::Ptr(new RemoteLinuxSignalOperation(sshParameters()));
+    return DeviceProcessSignalOperation::Ptr(new RemoteLinuxSignalOperation(sharedFromThis()));
 }
 
 class LinuxDeviceEnvironmentFetcher : public DeviceEnvironmentFetcher
@@ -442,8 +1112,8 @@ FilePath LinuxDevice::mapToGlobalPath(const FilePath &pathOnDevice) const
         return pathOnDevice;
     }
     FilePath result;
-    result.setScheme("ssh");
-    result.setHost(userAtHost());
+    result.setScheme("device");
+    result.setHost(id().toString());
     result.setPath(pathOnDevice.path());
     return result;
 }
@@ -457,39 +1127,14 @@ bool LinuxDevice::handlesFile(const FilePath &filePath) const
     return false;
 }
 
-CommandLine LinuxDevicePrivate::fullLocalCommandLine(const CommandLine &remoteCommand,
-                                                     TerminalMode terminalMode,
-                                                     bool hasDisplay) const
+ProcessInterface *LinuxDevice::createProcessInterface() const
 {
-    Utils::CommandLine cmd{SshSettings::sshFilePath()};
-    const SshConnectionParameters parameters = q->sshParameters();
-
-    if (hasDisplay)
-        cmd.addArg("-X");
-    if (terminalMode != TerminalMode::Off)
-        cmd.addArg("-tt");
-
-    cmd.addArg("-q");
-    // TODO: currently this drops shared connection (-o ControlPath=socketFilePath)
-    cmd.addArgs(parameters.connectionOptions(SshSettings::sshFilePath()) << parameters.host());
-
-    CommandLine remoteWithLocalPath = remoteCommand;
-    FilePath executable = remoteWithLocalPath.executable();
-    executable.setScheme({});
-    executable.setHost({});
-    remoteWithLocalPath.setExecutable(executable);
-    cmd.addArg(remoteWithLocalPath.toUserOutput());
-    return cmd;
+    return new LinuxProcessInterface(this);
 }
 
-void LinuxDevice::runProcess(QtcProcess &process) const
+Environment LinuxDevice::systemEnvironment() const
 {
-    QTC_ASSERT(!process.isRunning(), return);
-
-    const bool hasDisplay = SshRemoteProcess::setupSshEnvironment(&process);
-    process.setCommand(d->fullLocalCommandLine(process.commandLine(), process.terminalMode(),
-                                               hasDisplay));
-    process.start();
+    return {}; // FIXME. See e.g. Docker implementation.
 }
 
 LinuxDevicePrivate::LinuxDevicePrivate(LinuxDevice *parent)
@@ -503,15 +1148,27 @@ LinuxDevicePrivate::LinuxDevicePrivate(LinuxDevice *parent)
 
 LinuxDevicePrivate::~LinuxDevicePrivate()
 {
-    m_shellThread.quit();
-    m_shellThread.wait();
+    qDeleteAll(m_terminals);
+    auto closeShell = [this] {
+        m_shellThread.quit();
+        m_shellThread.wait();
+    };
+    if (QThread::currentThread() == m_shellThread.thread())
+        closeShell();
+    else // We might be in a non-main thread now due to extended lifetime of IDevice::Ptr
+        QMetaObject::invokeMethod(&m_shellThread, closeShell, Qt::BlockingQueuedConnection);
 }
 
+// Call me with shell mutex locked
 bool LinuxDevicePrivate::setupShell()
 {
+    const SshConnectionParameters sshParameters = q->sshParameters();
+    if (m_handler->isRunning(sshParameters))
+        return true;
+
     bool ok = false;
-    QMetaObject::invokeMethod(m_handler, [this, parameters = q->sshParameters()] {
-        return m_handler->start(parameters);
+    QMetaObject::invokeMethod(m_handler, [this, sshParameters] {
+        return m_handler->start(sshParameters);
     }, Qt::BlockingQueuedConnection, &ok);
     return ok;
 }
@@ -520,10 +1177,7 @@ bool LinuxDevicePrivate::runInShell(const CommandLine &cmd, const QByteArray &da
 {
     QMutexLocker locker(&m_shellMutex);
     DEBUG(cmd.toUserOutput());
-    if (!m_handler->isRunning()) {
-        const bool ok = setupShell();
-        QTC_ASSERT(ok, return false);
-    }
+    QTC_ASSERT(setupShell(), return false);
 
     bool ret = false;
     QMetaObject::invokeMethod(m_handler, [this, &cmd, &data] {
@@ -536,10 +1190,7 @@ QByteArray LinuxDevicePrivate::outputForRunInShell(const QString &cmd)
 {
     QMutexLocker locker(&m_shellMutex);
     DEBUG(cmd);
-    if (!m_handler->isRunning()) {
-        const bool ok = setupShell();
-        QTC_ASSERT(ok, return {});
-    }
+    QTC_ASSERT(setupShell(), return {});
 
     QByteArray ret;
     QMetaObject::invokeMethod(m_handler, [this, &cmd] {
@@ -551,6 +1202,17 @@ QByteArray LinuxDevicePrivate::outputForRunInShell(const QString &cmd)
 QByteArray LinuxDevicePrivate::outputForRunInShell(const CommandLine &cmd)
 {
     return outputForRunInShell(cmd.toUserOutput());
+}
+
+void LinuxDevicePrivate::attachToSharedConnection(SshConnectionHandle *connectionHandle,
+                                                  const SshConnectionParameters &sshParameters)
+{
+    QString socketFilePath;
+    QMetaObject::invokeMethod(m_handler, [this, connectionHandle, sshParameters] {
+        return m_handler->attachToSharedConnection(connectionHandle, sshParameters);
+    }, Qt::BlockingQueuedConnection, &socketFilePath);
+    if (!socketFilePath.isEmpty())
+        emit connectionHandle->connected(socketFilePath);
 }
 
 bool LinuxDevice::isExecutableFile(const FilePath &filePath) const
@@ -776,3 +1438,5 @@ LinuxDeviceFactory::LinuxDeviceFactory()
 
 } // namespace Internal
 } // namespace RemoteLinux
+
+#include "linuxdevice.moc"

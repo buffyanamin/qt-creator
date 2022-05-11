@@ -29,7 +29,7 @@ Project {
         Depends { name: "Sqlite" }
 
         cpp.defines: base.concat([
-            "DESIGNER_CORE_LIBRARY",
+            "QMLDESIGNER_LIBRARY",
             "TIMELINE_QML_PATH=\"" + FileInfo.joinPaths(path, "components",
                                                         "timelineeditor", "qml") + "\""
         ])
@@ -736,7 +736,7 @@ Project {
                 "propertyeditor/qmlmodelnodeproxy.h",
                 "propertyeditor/tooltip.cpp",
                 "propertyeditor/tooltip.h",
-                "resources/resources.qrc",
+                "resources/resources_qmldesigner_components.qrc",
                 "stateseditor/stateseditorimageprovider.cpp",
                 "stateseditor/stateseditorimageprovider.h",
                 "stateseditor/stateseditormodel.cpp",
@@ -828,6 +828,8 @@ Project {
                 "curveeditor/curveeditor.qrc",
                 "curveeditor/curveeditormodel.cpp",
                 "curveeditor/curveeditormodel.h",
+                "curveeditor/curveeditortoolbar.cpp",
+                "curveeditor/curveeditortoolbar.h",
                 "curveeditor/curveeditorstyle.h",
                 "curveeditor/curvesegment.cpp",
                 "curveeditor/curvesegment.h",

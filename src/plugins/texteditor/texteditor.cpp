@@ -80,6 +80,7 @@
 #include <utils/hostosinfo.h>
 #include <utils/infobar.h>
 #include <utils/mimeutils.h>
+#include <utils/minimizableinfobars.h>
 #include <utils/multitextcursor.h>
 #include <utils/qtcassert.h>
 #include <utils/styledbar.h>
@@ -5493,7 +5494,30 @@ void TextEditorWidget::mouseDoubleClickEvent(QMouseEvent *e)
         }
     }
 
+    QTextCursor oldCursor = multiTextCursor().mainCursor();
+    const int oldPosition = oldCursor.position();
+
     QPlainTextEdit::mouseDoubleClickEvent(e);
+
+    // QPlainTextEdit::mouseDoubleClickEvent just selects the word under the text cursor. If the
+    // event is triggered on a position that is inbetween two whitespaces this event selects the
+    // previous word or nothing if the whitespaces are at the block start. Replace this behavior
+    // with selecting the whitespaces starting from the previous word end to the next word.
+    const QChar character = characterAt(oldPosition);
+    const QChar prevCharacter = characterAt(oldPosition - 1);
+
+    if (character.isSpace() && prevCharacter.isSpace()) {
+        if (prevCharacter != QChar::ParagraphSeparator) {
+            oldCursor.movePosition(QTextCursor::PreviousWord);
+            oldCursor.movePosition(QTextCursor::EndOfWord);
+        } else if (character == QChar::ParagraphSeparator) {
+            return; // no special handling for empty lines
+        }
+        oldCursor.movePosition(QTextCursor::NextWord, QTextCursor::KeepAnchor);
+        MultiTextCursor cursor = multiTextCursor();
+        cursor.replaceMainCursor(oldCursor);
+        setMultiTextCursor(cursor);
+    }
 }
 
 void TextEditorWidgetPrivate::setClipboardSelection()
@@ -8511,6 +8535,12 @@ BaseTextEditor *TextEditorFactoryPrivate::createEditorHelper(const TextDocumentP
     if (m_useGenericHighlighter)
         textEditorWidget->setupGenericHighlighter();
     textEditorWidget->finalizeInitialization();
+
+    // Toolbar: Actions to show minimized info bars
+    document->minimizableInfoBars()->createShowInfoBarActions([textEditorWidget](QWidget *w) {
+        return textEditorWidget->insertExtraToolBarWidget(TextEditorWidget::Left, w);
+    });
+
     editor->finalizeInitialization();
     return editor;
 }

@@ -25,8 +25,7 @@
 
 #pragma once
 
-#include <clangsupport_global.h>
-#include <clangsupport/diagnosticcontainer.h>
+#include "clangutils.h"
 
 #include <languageserverprotocol/lsptypes.h>
 
@@ -40,31 +39,6 @@ namespace LanguageClient { class Client; }
 
 namespace ClangCodeModel {
 namespace Internal {
-class ClangDiagnosticManager;
-
-class ClangTextMark : public TextEditor::TextMark
-{
-public:
-    using RemovedFromEditorHandler = std::function<void(ClangTextMark *)>;
-
-    ClangTextMark(const ::Utils::FilePath &fileName,
-                  const ClangBackEnd::DiagnosticContainer &diagnostic,
-                  const RemovedFromEditorHandler &removedHandler,
-                  bool fullVisualization,
-                  const ClangDiagnosticManager *diagMgr);
-
-    ClangBackEnd::DiagnosticContainer diagnostic() const { return m_diagnostic; }
-    void updateIcon(bool valid = true);
-
-private:
-    bool addToolTipContent(QLayout *target) const override;
-    void removedFromEditor() override;
-
-private:
-    ClangBackEnd::DiagnosticContainer m_diagnostic;
-    RemovedFromEditorHandler m_removedFromEditorHandler;
-    const ClangDiagnosticManager * const m_diagMgr;
-};
 
 class ClangdTextMark : public TextEditor::TextMark
 {
@@ -79,7 +53,7 @@ private:
     bool addToolTipContent(QLayout *target) const override;
 
     const LanguageServerProtocol::Diagnostic m_lspDiagnostic;
-    const ClangBackEnd::DiagnosticContainer m_diagnostic;
+    const ClangDiagnostic m_diagnostic;
     const QPointer<const LanguageClient::Client> m_client;
 };
 

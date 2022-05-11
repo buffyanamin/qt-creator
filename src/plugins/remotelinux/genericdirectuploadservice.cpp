@@ -26,12 +26,12 @@
 #include "genericdirectuploadservice.h"
 
 #include <projectexplorer/deployablefile.h>
+#include <projectexplorer/devicesupport/idevice.h>
 #include <utils/hostosinfo.h>
 #include <utils/qtcassert.h>
 #include <utils/qtcprocess.h>
 #include <ssh/sftptransfer.h>
 #include <ssh/sshconnection.h>
-#include <ssh/sshremoteprocess.h>
 
 #include <QDateTime>
 #include <QDir>
@@ -55,7 +55,7 @@ const int MaxConcurrentStatCalls = 10;
 class GenericDirectUploadServicePrivate
 {
 public:
-    DeployableFile getFileForProcess(SshRemoteProcess *proc)
+    DeployableFile getFileForProcess(QtcProcess *proc)
     {
         const auto it = remoteProcs.find(proc);
         QTC_ASSERT(it != remoteProcs.end(), return DeployableFile());
@@ -66,7 +66,7 @@ public:
 
     IncrementalDeployment incremental = IncrementalDeployment::NotSupported;
     bool ignoreMissingFiles = false;
-    QHash<SshRemoteProcess *, DeployableFile> remoteProcs;
+    QHash<QtcProcess *, DeployableFile> remoteProcs;
     QQueue<DeployableFile> filesToStat;
     State state = Inactive;
     QList<DeployableFile> filesToUpload;
@@ -135,7 +135,7 @@ void GenericDirectUploadService::doDeploy()
 }
 
 QDateTime GenericDirectUploadService::timestampFromStat(const DeployableFile &file,
-                                                        SshRemoteProcess *statProc,
+                                                        QtcProcess *statProc,
                                                         const QString &errorMsg)
 {
     QString errorDetails;
@@ -197,9 +197,9 @@ void GenericDirectUploadService::stopDeployment()
 void GenericDirectUploadService::runStat(const DeployableFile &file)
 {
     // We'd like to use --format=%Y, but it's not supported by busybox.
-    const QString statCmd = "stat -t " + Utils::ProcessArgs::quoteArgUnix(file.remoteFilePath());
-    SshRemoteProcess * const statProc = connection()->createRemoteProcess(statCmd).release();
-    statProc->setParent(this);
+    QtcProcess * const statProc = new QtcProcess(this);
+    statProc->setCommand({deviceConfiguration()->filePath("stat"),
+              {"-t", Utils::ProcessArgs::quoteArgUnix(file.remoteFilePath())}});
     connect(statProc, &QtcProcess::done, this, [this, statProc, state = d->state] {
         QTC_ASSERT(d->state == state, return);
         const DeployableFile file = d->getFileForProcess(statProc);
@@ -310,7 +310,7 @@ void GenericDirectUploadService::uploadFiles()
         }
         filesToTransfer << FileToTransfer(f.localFilePath().toString(), f.remoteFilePath());
     }
-    d->uploader = connection()->createUpload(filesToTransfer, FileTransferErrorHandling::Abort);
+    d->uploader = connection()->createUpload(filesToTransfer);
     connect(d->uploader.get(), &SftpTransfer::done, [this](const QString &error) {
         QTC_ASSERT(d->state == Uploading, return);
         if (!error.isEmpty()) {
@@ -336,11 +336,9 @@ void GenericDirectUploadService::chmod()
     for (const DeployableFile &f : qAsConst(d->filesToUpload)) {
         if (!f.isExecutable())
             continue;
-        const QString command = QLatin1String("chmod a+x ")
-                + Utils::ProcessArgs::quoteArgUnix(f.remoteFilePath());
-        SshRemoteProcess * const chmodProc
-                = connection()->createRemoteProcess(command).release();
-        chmodProc->setParent(this);
+        QtcProcess * const chmodProc = new QtcProcess(this);
+        chmodProc->setCommand({deviceConfiguration()->filePath("chmod"),
+                {"a+x", Utils::ProcessArgs::quoteArgUnix(f.remoteFilePath())}});
         connect(chmodProc, &QtcProcess::done, this, [this, chmodProc, state = d->state] {
             QTC_ASSERT(state == d->state, return);
             const DeployableFile file = d->getFileForProcess(chmodProc);

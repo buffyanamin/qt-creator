@@ -34,7 +34,10 @@
 
 #include <memory>
 
-namespace Utils { class ProcessHandle; }
+namespace Utils {
+class ProcessHandle;
+class ProcessResultData;
+} // Utils
 
 namespace ProjectExplorer {
 
@@ -50,30 +53,21 @@ public:
     explicit ApplicationLauncher(QObject *parent = nullptr);
     ~ApplicationLauncher() override;
 
-    void setProcessChannelMode(QProcess::ProcessChannelMode mode);
     void setUseTerminal(bool on);
     void setRunAsRoot(bool on);
     void setRunnable(const Runnable &runnable);
 
     void start();
     void stop();
-    bool isRunning() const;
+
     Utils::ProcessHandle applicationPID() const;
-    bool isLocal() const;
 
-    QString errorString() const;
-    QProcess::ProcessError error() const;
-
-    static QString msgWinCannotRetrieveDebuggingOutput();
-
-    int exitCode() const;
-    QProcess::ExitStatus exitStatus() const;
+    Utils::ProcessResultData resultData() const;
 
 signals:
     void appendMessage(const QString &message, Utils::OutputFormat format, bool appendNewLine = true);
     void started();
-    void finished();
-    void errorOccurred(QProcess::ProcessError error);
+    void done();
 
 private:
     std::unique_ptr<Internal::ApplicationLauncherPrivate> d;

@@ -159,6 +159,7 @@ Project {
                 "userfileaccessor.cpp", "userfileaccessor.h",
                 "vcsannotatetaskhandler.cpp", "vcsannotatetaskhandler.h",
                 "waitforstopdialog.cpp", "waitforstopdialog.h",
+                "windebuginterface.cpp", "windebuginterface.h",
                 "xcodebuildparser.cpp", "xcodebuildparser.h"
             ]
         }
@@ -224,7 +225,6 @@ Project {
                 "idevicefwd.h",
                 "idevicewidget.h",
                 "localprocesslist.cpp", "localprocesslist.h",
-                "sshdeviceprocess.cpp", "sshdeviceprocess.h",
                 "sshdeviceprocesslist.cpp", "sshdeviceprocesslist.h",
                 "sshsettingspage.cpp", "sshsettingspage.h",
                 "desktopprocesssignaloperation.cpp", "desktopprocesssignaloperation.h"
@@ -243,8 +243,6 @@ Project {
             files: [
                 "msvctoolchain.cpp",
                 "msvctoolchain.h",
-                "windebuginterface.cpp",
-                "windebuginterface.h",
             ]
         }
 

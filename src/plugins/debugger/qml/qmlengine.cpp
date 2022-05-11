@@ -47,8 +47,6 @@
 #include <coreplugin/helpmanager.h>
 #include <coreplugin/icore.h>
 
-#include <projectexplorer/applicationlauncher.h>
-
 #include <qmljseditor/qmljseditorconstants.h>
 #include <qmljs/qmljsmodelmanagerinterface.h>
 #include <qmldebug/qmldebugconnection.h>
@@ -58,10 +56,12 @@
 #include <texteditor/texteditor.h>
 
 #include <app/app_version.h>
-#include <utils/treemodel.h>
+
 #include <utils/basetreeview.h>
 #include <utils/fileinprojectfinder.h>
 #include <utils/qtcassert.h>
+#include <utils/qtcprocess.h>
+#include <utils/treemodel.h>
 
 #include <QDebug>
 #include <QDir>
@@ -220,7 +220,7 @@ public:
 
     QHash<QString, QTextDocument*> sourceDocuments;
     InteractiveInterpreter interpreter;
-    ApplicationLauncher applicationLauncher;
+    QtcProcess process;
     QmlInspectorAgent inspectorAgent;
 
     QList<quint32> queryIds;
@@ -269,12 +269,17 @@ QmlEngine::QmlEngine()
     connect(stackHandler(), &StackHandler::currentIndexChanged,
             this, &QmlEngine::updateCurrentContext);
 
-    connect(&d->applicationLauncher, &ApplicationLauncher::finished,
-            this, &QmlEngine::disconnected);
-    connect(&d->applicationLauncher, &ApplicationLauncher::appendMessage,
-            this, &QmlEngine::appMessage);
-    connect(&d->applicationLauncher, &ApplicationLauncher::started,
-            this, &QmlEngine::handleLauncherStarted);
+    connect(&d->process, &QtcProcess::readyReadStandardOutput, this, [this] {
+        // FIXME: Redirect to RunControl
+        showMessage(QString::fromUtf8(d->process.readAllStandardOutput()), AppOutput);
+    });
+    connect(&d->process, &QtcProcess::readyReadStandardError, this, [this] {
+        // FIXME: Redirect to RunControl
+        showMessage(QString::fromUtf8(d->process.readAllStandardError()), AppOutput);
+    });
+
+    connect(&d->process, &QtcProcess::finished, this, &QmlEngine::disconnected);
+    connect(&d->process, &QtcProcess::started, this, &QmlEngine::handleLauncherStarted);
 
     debuggerConsole()->populateFileFinder();
     debuggerConsole()->setScriptEvaluator([this](const QString &expr) {
@@ -327,11 +332,6 @@ void QmlEngine::handleLauncherStarted()
     // raising, so do it here manually for now.
     ProcessHandle(inferiorPid()).activate();
     tryToConnect();
-}
-
-void QmlEngine::appMessage(const QString &msg, Utils::OutputFormat /* format */)
-{
-    showMessage(msg, AppOutput); // FIXME: Redirect to RunControl
 }
 
 void QmlEngine::connectionEstablished()
@@ -472,7 +472,8 @@ void QmlEngine::gotoLocation(const Location &location)
 
         QString titlePattern = tr("JS Source for %1").arg(fileName);
         //Check if there are open documents with the same title
-        foreach (IDocument *document, DocumentModel::openedDocuments()) {
+        const QList<IDocument *> documents = DocumentModel::openedDocuments();
+        for (IDocument *document: documents) {
             if (document->displayName() == titlePattern) {
                 EditorManager::activateEditorForDocument(document);
                 return;
@@ -501,25 +502,23 @@ void QmlEngine::closeConnection()
     }
 }
 
-void QmlEngine::startApplicationLauncher()
+void QmlEngine::startProcess()
 {
-    if (!d->applicationLauncher.isRunning()) {
-        Runnable runnable = runParameters().inferior;
-        runnable.device.reset();
-        showMessage(tr("Starting %1").arg(runnable.command.toUserOutput()),
-                    NormalMessageFormat);
-        d->applicationLauncher.setRunnable(runnable);
-        d->applicationLauncher.start();
-    }
+    if (d->process.isRunning())
+        return;
+
+    d->process.setCommand(runParameters().inferior.command);
+    d->process.setWorkingDirectory(runParameters().inferior.workingDirectory);
+    d->process.setEnvironment(runParameters().inferior.environment);
+    showMessage(tr("Starting %1").arg(d->process.commandLine().toUserOutput()),
+        NormalMessageFormat);
+    d->process.start();
 }
 
-void QmlEngine::stopApplicationLauncher()
+void QmlEngine::stopProcess()
 {
-    if (d->applicationLauncher.isRunning()) {
-        disconnect(&d->applicationLauncher, &ApplicationLauncher::finished,
-                   this, &QmlEngine::disconnected);
-        d->applicationLauncher.stop();
-    }
+    if (d->process.isRunning())
+        d->process.close();
 }
 
 void QmlEngine::shutdownInferior()
@@ -533,7 +532,7 @@ void QmlEngine::shutdownInferior()
     d->runCommand({DISCONNECT});
 
     resetLocation();
-    stopApplicationLauncher();
+    stopProcess();
     closeConnection();
 
     notifyInferiorShutdownFinished();
@@ -546,7 +545,7 @@ void QmlEngine::shutdownEngine()
     debuggerConsole()->setScriptEvaluator(ScriptEvaluator());
 
    // double check (ill engine?):
-    stopApplicationLauncher();
+    stopProcess();
 
     notifyEngineShutdownFinished();
 }
@@ -570,7 +569,7 @@ void QmlEngine::setupEngine()
         else if (runParameters().startMode == AttachToRemoteProcess)
             beginConnection();
         else
-            startApplicationLauncher();
+            startProcess();
     } else {
         tryToConnect();
     }
@@ -895,7 +894,7 @@ static ConsoleItem *constructLogItemTree(const QVariant &result,
             std::sort(children.begin(), children.end(), compareConsoleItems);
 
         item = new ConsoleItem(ConsoleItem::DefaultType, text);
-        foreach (ConsoleItem *child, children) {
+        for (ConsoleItem *child : qAsConst(children)) {
             if (child)
                 item->appendChild(child);
         }
@@ -915,7 +914,7 @@ static ConsoleItem *constructLogItemTree(const QVariant &result,
             std::sort(children.begin(), children.end(), compareConsoleItems);
 
         item = new ConsoleItem(ConsoleItem::DefaultType, text);
-        foreach (ConsoleItem *child, children) {
+        for (ConsoleItem *child : qAsConst(children)) {
             if (child)
                 item->appendChild(child);
         }
@@ -958,7 +957,7 @@ void QmlEngine::quitDebugger()
 {
     d->automaticConnect = false;
     d->retryOnConnectFail = false;
-    stopApplicationLauncher();
+    stopProcess();
     closeConnection();
 }
 
@@ -1102,7 +1101,8 @@ void QmlEnginePrivate::updateScriptSource(const QString &fileName, int lineOffse
     //update open editors
     QString titlePattern = QCoreApplication::translate("QmlEngine", "JS Source for %1").arg(fileName);
     //Check if there are open editors with the same title
-    foreach (IDocument *doc, DocumentModel::openedDocuments()) {
+    const QList<IDocument *> documents = DocumentModel::openedDocuments();
+    for (IDocument *doc: documents) {
         if (doc->displayName() == titlePattern) {
             updateDocument(doc, document);
             break;
@@ -1646,7 +1646,8 @@ void QmlEnginePrivate::runDirectCommand(const QString &type, const QByteArray &m
 void QmlEnginePrivate::memorizeRefs(const QVariant &refs)
 {
     if (refs.isValid()) {
-        foreach (const QVariant &ref, refs.toList()) {
+        const QList<QVariant> refList = refs.toList();
+        for (const QVariant &ref : refList) {
             const QVariantMap refData = ref.toMap();
             int handle = refData.value(HANDLE).toInt();
             refVals[handle] = extractData(refData);
@@ -1811,7 +1812,7 @@ void QmlEnginePrivate::messageReceived(const QByteArray &data)
                         }
 
                         QMap<QString,QString> files;
-                        foreach (const QString &file, sourceFiles) {
+                        for (const QString &file : qAsConst(sourceFiles)) {
                             QString shortName = file;
                             QString fullName = engine->toFileInProject(file);
                             files.insert(shortName, fullName);
@@ -2238,7 +2239,7 @@ void QmlEnginePrivate::constructChildLogItems(ConsoleItem *item, const QmlV8Obje
     if (debuggerSettings()->sortStructMembers.value())
         std::sort(children.begin(), children.end(), compareConsoleItems);
 
-    foreach (ConsoleItem *child, children)
+    for (ConsoleItem *child : qAsConst(children))
         item->appendChild(child);
 }
 
@@ -2364,7 +2365,7 @@ void QmlEnginePrivate::handleExecuteDebuggerCommand(const QVariantMap &response)
         debuggerConsole()->printItem(constructLogItemTree(extractData(response.value(BODY))));
 
         // Update the locals
-        foreach (int index, currentFrameScopes)
+        for (int index : qAsConst(currentFrameScopes))
             scope(index);
     } else {
         debuggerConsole()->printItem(new ConsoleItem(ConsoleItem::ErrorType,
@@ -2439,7 +2440,7 @@ void QmlEnginePrivate::handleVersion(const QVariantMap &response)
 void QmlEnginePrivate::flushSendBuffer()
 {
     QTC_ASSERT(state() == Enabled, return);
-    foreach (const QByteArray &msg, sendBuffer)
+    for (const QByteArray &msg : qAsConst(sendBuffer))
         sendMessage(msg);
     sendBuffer.clear();
 }

@@ -229,8 +229,10 @@ void SemanticTokenSupport::updateFormatHash()
             continue;
         TextStyle style;
         switch (tokenType) {
+        case namespaceToken: style = C_NAMESPACE; break;
         case typeToken: style = C_TYPE; break;
         case classToken: style = C_TYPE; break;
+        case structToken: style = C_TYPE; break;
         case enumMemberToken: style = C_ENUMERATION; break;
         case typeParameterToken: style = C_FIELD; break;
         case parameterToken: style = C_PARAMETER; break;
@@ -244,8 +246,7 @@ void SemanticTokenSupport::updateFormatHash()
         case numberToken: style = C_NUMBER; break;
         case operatorToken: style = C_OPERATOR; break;
         default:
-            style = m_additionalTypeStyles.value(tokenType, C_TEXT);
-            break;
+            continue;
         }
         int mainHashPart = tokenType << tokenTypeBitOffset;
         m_formatHash[mainHashPart] = fontSettings.toTextCharFormat(style);

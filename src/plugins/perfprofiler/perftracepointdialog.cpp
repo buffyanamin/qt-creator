@@ -89,48 +89,36 @@ void PerfTracePointDialog::runScript()
     m_ui->privilegesChooser->setEnabled(false);
     m_ui->buttonBox->button(QDialogButtonBox::Ok)->setEnabled(false);
 
-    m_process.reset(m_device->createProcess(this));
+    m_process.reset(new QtcProcess(this));
     m_process->setWriteData(m_ui->textEdit->toPlainText().toUtf8());
     m_ui->textEdit->clear();
 
     const QString elevate = m_ui->privilegesChooser->currentText();
     if (elevate != QLatin1String("n.a."))
-        m_process->setCommand({FilePath::fromString(elevate), {"sh"}});
+        m_process->setCommand({m_device->filePath(elevate), {"sh"}});
     else
-        m_process->setCommand({"sh", {}});
+        m_process->setCommand({m_device->filePath("sh"), {}});
 
-    connect(m_process.get(), &QtcProcess::finished,
-            this, &PerfTracePointDialog::handleProcessFinished);
-
-    connect(m_process.get(), &QtcProcess::errorOccurred,
-            this, &PerfTracePointDialog::handleProcessError);
-
+    connect(m_process.get(), &QtcProcess::done, this, &PerfTracePointDialog::handleProcessDone);
     m_process->start();
 }
 
-void PerfTracePointDialog::handleProcessFinished()
+void PerfTracePointDialog::handleProcessDone()
 {
-    if (m_process->exitCode() != 0) {
-        m_ui->label->setText(tr("Failed to create trace points."));
+    const QProcess::ProcessError error = m_process->error();
+    QString message;
+    if (error == QProcess::FailedToStart) {
+        message = tr("Failed to run trace point script: %1").arg(error);
+    } else if ((m_process->exitStatus() == QProcess::CrashExit) || (m_process->exitCode() != 0)) {
+        message = tr("Failed to create trace points.");
     } else {
-        m_ui->label->setText(tr("Created trace points for: %1")
-                             .arg(QString::fromUtf8(
-                                      m_process->readAllStandardOutput().trimmed()
-                                      .replace('\n', ", "))));
+        message = tr("Created trace points for: %1").arg(QString::fromUtf8(
+            m_process->readAllStandardOutput().trimmed().replace('\n', ", ")));
     }
+    m_ui->label->setText(message);
     m_ui->textEdit->setHtml(QString::fromUtf8(m_process->readAllStandardError()));
     m_ui->buttonBox->button(QDialogButtonBox::Ok)->setEnabled(true);
     m_ui->buttonBox->button(QDialogButtonBox::Cancel)->setEnabled(false);
-}
-
-void PerfTracePointDialog::handleProcessError(QProcess::ProcessError error)
-{
-    if (error == QProcess::FailedToStart) {
-        m_ui->label->setText(tr("Failed to run trace point script: %1").arg(error));
-        m_ui->textEdit->setText(QString::fromUtf8(m_process->readAllStandardError()));
-        m_ui->buttonBox->button(QDialogButtonBox::Ok)->setEnabled(true);
-        m_ui->buttonBox->button(QDialogButtonBox::Cancel)->setEnabled(false);
-    }
 }
 
 void PerfTracePointDialog::accept()

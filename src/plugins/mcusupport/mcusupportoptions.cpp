@@ -32,6 +32,7 @@
 #include "mcusupportplugin.h"
 #include "mcusupportsdk.h"
 #include "mcutarget.h"
+#include "settingshandler.h"
 
 #include <cmakeprojectmanager/cmakekitinformation.h>
 #include <cmakeprojectmanager/cmaketoolmanager.h>
@@ -50,21 +51,16 @@ using namespace Utils;
 
 namespace McuSupport::Internal {
 
-namespace {
-const QString automaticKitCreationSettingsKey = QLatin1String(Constants::SETTINGS_GROUP) + '/'
-                                                + QLatin1String(
-                                                    Constants::SETTINGS_KEY_AUTOMATIC_KIT_CREATION);
-}
-
-McuSupportOptions::McuSupportOptions(QObject *parent)
+McuSupportOptions::McuSupportOptions(const SettingsHandler::Ptr &settingsHandler, QObject *parent)
     : QObject(parent)
-    , qtForMCUsSdkPackage(Sdk::createQtForMCUsPackage())
+    , qtForMCUsSdkPackage(Sdk::createQtForMCUsPackage(settingsHandler))
+    , settingsHandler(settingsHandler)
 {
     connect(qtForMCUsSdkPackage.get(),
             &McuAbstractPackage::changed,
             this,
             &McuSupportOptions::populatePackagesAndTargets);
-    m_automaticKitCreation = automaticKitCreationFromSettings();
+    m_automaticKitCreation = settingsHandler->isAutomaticKitCreationEnabled();
 }
 
 void McuSupportOptions::populatePackagesAndTargets()
@@ -72,12 +68,12 @@ void McuSupportOptions::populatePackagesAndTargets()
     setQulDir(qtForMCUsSdkPackage->path());
 }
 
-static FilePath qulDocsDir()
+FilePath McuSupportOptions::qulDocsDir() const
 {
-    const FilePath qulDir = McuSupportOptions::qulDirFromSettings();
+    const FilePath qulDir = qulDirFromSettings();
     if (qulDir.isEmpty() || !qulDir.exists())
         return {};
-    const FilePath docsDir = qulDir.pathAppended("docs");
+    const FilePath docsDir = qulDir / "docs";
     return docsDir.exists() ? docsDir : FilePath();
 }
 
@@ -102,7 +98,7 @@ void McuSupportOptions::registerExamples()
     auto examples = {std::make_pair(QStringLiteral("demos"), tr("Qt for MCUs Demos")),
                      std::make_pair(QStringLiteral("examples"), tr("Qt for MCUs Examples"))};
     for (const auto &dir : examples) {
-        const FilePath examplesDir = McuSupportOptions::qulDirFromSettings().pathAppended(dir.first);
+        const FilePath examplesDir = qulDirFromSettings() / dir.first;
         if (!examplesDir.exists())
             continue;
 
@@ -126,7 +122,7 @@ void McuSupportOptions::setQulDir(const FilePath &dir)
 {
     qtForMCUsSdkPackage->updateStatus();
     if (qtForMCUsSdkPackage->isValidStatus())
-        sdkRepository = Sdk::targetsAndPackages(dir);
+        sdkRepository = Sdk::targetsAndPackages(dir, settingsHandler);
     else
         sdkRepository = McuSdkRepository{};
     for (const auto &package : qAsConst(sdkRepository.packages))
@@ -138,11 +134,11 @@ void McuSupportOptions::setQulDir(const FilePath &dir)
     emit packagesChanged();
 }
 
-FilePath McuSupportOptions::qulDirFromSettings()
+FilePath McuSupportOptions::qulDirFromSettings() const
 {
-    return Sdk::packagePathFromSettings(Constants::SETTINGS_KEY_PACKAGE_QT_FOR_MCUS_SDK,
-                                        QSettings::UserScope,
-                                        {});
+    return settingsHandler->getPath(Constants::SETTINGS_KEY_PACKAGE_QT_FOR_MCUS_SDK,
+                                    QSettings::UserScope,
+                                    {});
 }
 
 McuKitManager::UpgradeOption McuSupportOptions::askForKitUpgrades()
@@ -175,7 +171,7 @@ void McuSupportOptions::checkUpgradeableKits()
             return !McuKitManager::upgradeableKits(target.get(), this->qtForMCUsSdkPackage).empty()
                    && McuKitManager::matchingKits(target.get(), this->qtForMCUsSdkPackage).empty();
         }))
-        McuKitManager::upgradeKitsByCreatingNewPackage(askForKitUpgrades());
+        McuKitManager::upgradeKitsByCreatingNewPackage(settingsHandler, askForKitUpgrades());
 }
 
 bool McuSupportOptions::kitsNeedQtVersion()
@@ -193,19 +189,6 @@ bool McuSupportOptions::automaticKitCreationEnabled() const
 void McuSupportOptions::setAutomaticKitCreationEnabled(const bool enabled)
 {
     m_automaticKitCreation = enabled;
-}
-
-void McuSupportOptions::writeGeneralSettings() const
-{
-    QSettings *settings = Core::ICore::settings(QSettings::UserScope);
-    settings->setValue(automaticKitCreationSettingsKey, m_automaticKitCreation);
-}
-
-bool McuSupportOptions::automaticKitCreationFromSettings()
-{
-    QSettings *settings = Core::ICore::settings(QSettings::UserScope);
-    const bool automaticKitCreation = settings->value(automaticKitCreationSettingsKey, true).toBool();
-    return automaticKitCreation;
 }
 
 } // namespace McuSupport::Internal

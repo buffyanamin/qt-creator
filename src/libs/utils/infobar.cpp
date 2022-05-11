@@ -85,6 +85,16 @@ InfoBarEntry::InfoBarEntry(Id _id, const QString &_infoText, GlobalSuppression _
 {
 }
 
+Id InfoBarEntry::id() const
+{
+    return m_id;
+}
+
+QString InfoBarEntry::text() const
+{
+    return m_infoText;
+}
+
 void InfoBarEntry::addCustomButton(const QString &buttonText,
                                    CallBack callBack,
                                    const QString &tooltip)
@@ -204,6 +214,11 @@ void InfoBar::initialize(QSettings *settings)
         const QStringList list = m_settings->value(QLatin1String(C_SUPPRESSED_WARNINGS)).toStringList();
         globallySuppressed = Utils::transform<QSet>(list, Id::fromString);
     }
+}
+
+QSettings *InfoBar::settings()
+{
+    return m_settings;
 }
 
 void InfoBar::clearGloballySuppressed()

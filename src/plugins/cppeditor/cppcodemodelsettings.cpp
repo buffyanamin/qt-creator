@@ -337,7 +337,7 @@ ClangdSettings::ClangdSettings()
 
 bool ClangdSettings::useClangd() const
 {
-    return m_data.useClangd && clangdVersion() >= QVersionNumber(13);
+    return m_data.useClangd && clangdVersion() >= QVersionNumber(14);
 }
 
 void ClangdSettings::setDefaultClangdPath(const FilePath &filePath)
@@ -403,6 +403,19 @@ QVersionNumber ClangdSettings::clangdVersion(const FilePath &clangdFilePath)
         it->second = getClangdVersion(clangdFilePath);
     }
     return it->second;
+}
+
+FilePath ClangdSettings::clangdIncludePath() const
+{
+    QTC_ASSERT(useClangd(), return {});
+    FilePath clangdPath = clangdFilePath();
+    QTC_ASSERT(!clangdPath.isEmpty() && clangdPath.exists(), return {});
+    const QVersionNumber version = clangdVersion();
+    QTC_ASSERT(!version.isNull(), return {});
+    const FilePath includePath = clangdPath.absolutePath().parentDir().pathAppended("lib/clang")
+            .pathAppended(version.toString()).pathAppended("include");
+    QTC_ASSERT(includePath.exists(), return {});
+    return includePath;
 }
 
 void ClangdSettings::loadSettings()
@@ -480,8 +493,9 @@ QVariantMap ClangdSettings::Data::toMap() const
 {
     QVariantMap map;
     map.insert(useClangdKey(), useClangd);
-    if (executableFilePath != fallbackClangdFilePath())
-        map.insert(clangdPathKey(), executableFilePath.toString());
+    map.insert(clangdPathKey(),
+               executableFilePath != fallbackClangdFilePath() ? executableFilePath.toString()
+                                                              : QString());
     map.insert(clangdIndexingKey(), enableIndexing);
     map.insert(clangdHeaderInsertionKey(), autoIncludeHeaders);
     map.insert(clangdThreadLimitKey(), workerThreadLimit);

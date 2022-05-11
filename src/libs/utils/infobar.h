@@ -54,7 +54,11 @@ public:
         Enabled
     };
 
+    InfoBarEntry() = default;
     InfoBarEntry(Id _id, const QString &_infoText, GlobalSuppression _globalSuppression = GlobalSuppression::Disabled);
+
+    Id id() const;
+    QString text() const;
 
     using CallBack = std::function<void()>;
     void addCustomButton(const QString &_buttonText, CallBack callBack, const QString &tooltip = {});
@@ -120,6 +124,7 @@ public:
     static bool anyGloballySuppressed();
 
     static void initialize(QSettings *settings);
+    static QSettings *settings();
 
 signals:
     void changed();

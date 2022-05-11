@@ -27,10 +27,8 @@
 
 #include "utils_global.h"
 
-#include "environment.h"
 #include "commandline.h"
 #include "processenums.h"
-#include "qtcassert.h"
 
 #include <QProcess>
 
@@ -45,11 +43,12 @@ namespace Utils {
 
 namespace Internal { class QtcProcessPrivate; }
 
+class Environment;
 class DeviceProcessHooks;
 class ProcessInterface;
 class ProcessResultData;
 
-class QTCREATOR_UTILS_EXPORT QtcProcess : public QObject
+class QTCREATOR_UTILS_EXPORT QtcProcess final : public QObject
 {
     Q_OBJECT
 
@@ -61,17 +60,19 @@ public:
 
     void start();
 
-    virtual void terminate();
-    virtual void kill();
-    virtual void interrupt();
+    void terminate();
+    void kill();
+    void interrupt();
     void kickoffProcess();
     void close();
 
-    virtual QByteArray readAllStandardOutput();
-    virtual QByteArray readAllStandardError();
-    virtual qint64 write(const QByteArray &input);
+    QByteArray readAllStandardOutput();
+    QByteArray readAllStandardError();
 
-    virtual qint64 processId() const;
+    qint64 write(const QString &input);
+    qint64 writeRaw(const QByteArray &input);
+
+    qint64 processId() const;
     qint64 applicationMainThreadId() const;
 
     QProcess::ProcessState state() const;
@@ -98,13 +99,11 @@ public:
     void setProcessMode(ProcessMode processMode);
     ProcessMode processMode() const;
 
-    void setEnvironment(const Environment &env);
-    void unsetEnvironment();
+    void setEnvironment(const Environment &env);  // Main process
     const Environment &environment() const;
-    bool hasEnvironment() const;
 
-    void setRemoteEnvironment(const Environment &env);
-    Environment remoteEnvironment() const;
+    void setControlEnvironment(const Environment &env); // Possible helper process (ssh on host etc)
+    const Environment &controlEnvironment() const;
 
     void setCommand(const CommandLine &cmdLine);
     const CommandLine &commandLine() const;
@@ -121,6 +120,7 @@ public:
     bool isRunAsRoot() const;
     void setAbortOnMetaChars(bool abort);
 
+    QProcess::ProcessChannelMode processChannelMode() const;
     void setProcessChannelMode(QProcess::ProcessChannelMode mode);
     void setStandardInputFile(const QString &inputFile);
 
@@ -199,12 +199,6 @@ signals:
     void readyReadStandardOutput();
     void readyReadStandardError();
 
-protected:
-    // TODO: remove these methods on QtcProcess de-virtualization
-    virtual void startImpl();
-    virtual void emitStarted();
-    virtual void emitFinished();
-
 private:
     friend QTCREATOR_UTILS_EXPORT QDebug operator<<(QDebug str, const QtcProcess &r);
 
@@ -216,8 +210,6 @@ class DeviceProcessHooks
 {
 public:
     std::function<ProcessInterface *(const FilePath &)> processImplHook;
-    // TODO: remove this hook
-    std::function<void(QtcProcess &)> startProcessHook;
     std::function<Environment(const FilePath &)> systemEnvironmentForBinary;
 };
 

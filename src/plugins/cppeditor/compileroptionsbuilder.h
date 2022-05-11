@@ -50,15 +50,14 @@ public:
         UseTweakedHeaderPaths useTweakedHeaderPaths = UseTweakedHeaderPaths::No,
         UseLanguageDefines useLanguageDefines = UseLanguageDefines::No,
         UseBuildSystemWarnings useBuildSystemWarnings = UseBuildSystemWarnings::No,
-        const QString &clangVersion = {},
         const Utils::FilePath &clangIncludeDirectory = {});
-    virtual ~CompilerOptionsBuilder();
 
     QStringList build(ProjectFile::Kind fileKind, UsePrecompiledHeaders usePrecompiledHeaders);
     QStringList options() const { return m_options; }
 
     // Add options based on project part
-    virtual void addProjectMacros();
+    void provideAdditionalMacros(const ProjectExplorer::Macros &macros);
+    void addProjectMacros();
     void addSyntaxOnly();
     void addWordWidth();
     void addHeaderPathOptions();
@@ -90,13 +89,14 @@ public:
     void add(const QString &arg, bool gccOnlyOption = false);
     void prepend(const QString &arg);
     void add(const QStringList &args, bool gccOnlyOptions = false);
-    virtual void addExtraOptions() {}
 
     static UseToolchainMacros useToolChainMacros();
     void reset();
 
     void evaluateCompilerFlags();
     bool isClStyle() const;
+
+    const ProjectPart &projectPart() const { return m_projectPart; }
 
 private:
     void addIncludeDirOptionForPath(const ProjectExplorer::HeaderPath &path);
@@ -115,8 +115,9 @@ private:
     const UseLanguageDefines m_useLanguageDefines;
     const UseBuildSystemWarnings m_useBuildSystemWarnings;
 
-    const QString m_clangVersion;
     const Utils::FilePath m_clangIncludeDirectory;
+
+    ProjectExplorer::Macros m_additionalMacros;
 
     struct {
         QStringList flags;

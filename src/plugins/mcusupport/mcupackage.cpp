@@ -27,6 +27,7 @@
 #include "mcusupportconstants.h"
 #include "mcusupportsdk.h"
 #include "mcusupportversiondetection.h"
+#include "settingshandler.h"
 
 #include <baremetal/baremetalconstants.h>
 #include <coreplugin/icore.h>
@@ -49,7 +50,8 @@ using namespace Utils;
 
 namespace McuSupport::Internal {
 
-McuPackage::McuPackage(const QString &label,
+McuPackage::McuPackage(const SettingsHandler::Ptr &settingsHandler,
+                       const QString &label,
                        const FilePath &defaultPath,
                        const FilePath &detectionPath,
                        const QString &settingsKey,
@@ -59,8 +61,9 @@ McuPackage::McuPackage(const QString &label,
                        const McuPackageVersionDetector *versionDetector,
                        const bool addToSystemPath,
                        const FilePath &relativePathModifier)
-    : m_label(label)
-    , m_defaultPath(Sdk::packagePathFromSettings(settingsKey, QSettings::SystemScope, defaultPath))
+    : settingsHandler(settingsHandler)
+    , m_label(label)
+    , m_defaultPath(settingsHandler->getPath(settingsKey, QSettings::SystemScope, defaultPath))
     , m_detectionPath(detectionPath)
     , m_settingsKey(settingsKey)
     , m_versionDetector(versionDetector)
@@ -70,7 +73,7 @@ McuPackage::McuPackage(const QString &label,
     , m_downloadUrl(downloadUrl)
     , m_addToSystemPath(addToSystemPath)
 {
-    m_path = Sdk::packagePathFromSettings(settingsKey, QSettings::UserScope, m_defaultPath);
+    m_path = this->settingsHandler->getPath(settingsKey, QSettings::UserScope, m_defaultPath);
 }
 
 QString McuPackage::label() const
@@ -110,7 +113,7 @@ FilePath McuPackage::basePath() const
 
 FilePath McuPackage::path() const
 {
-    return basePath().pathAppended(m_relativePathModifier.path()).absoluteFilePath();
+    return (basePath() / m_relativePathModifier.path()).absoluteFilePath().cleanPath();
 }
 
 FilePath McuPackage::defaultPath() const
@@ -133,10 +136,10 @@ void McuPackage::updatePath()
 void McuPackage::updateStatus()
 {
     bool validPath = !m_path.isEmpty() && m_path.exists();
-    const FilePath detectionPath = basePath().pathAppended(m_detectionPath.path());
+    const FilePath detectionPath = basePath() / m_detectionPath.path();
     const bool validPackage = m_detectionPath.isEmpty() || detectionPath.exists();
     m_detectedVersion = validPath && validPackage && m_versionDetector
-                            ? m_versionDetector->parseVersion(basePath().toString())
+                            ? m_versionDetector->parseVersion(basePath())
                             : QString();
     const bool validVersion = m_detectedVersion.isEmpty() || m_versions.isEmpty()
                               || m_versions.contains(m_detectedVersion);
@@ -227,14 +230,7 @@ QString McuPackage::statusText() const
 
 bool McuPackage::writeToSettings() const
 {
-    const FilePath savedPath = Sdk::packagePathFromSettings(m_settingsKey,
-                                                            QSettings::UserScope,
-                                                            m_defaultPath);
-    const QString key = QLatin1String(Constants::SETTINGS_GROUP) + '/'
-                        + QLatin1String(Constants::SETTINGS_KEY_PACKAGE_PREFIX) + m_settingsKey;
-    Core::ICore::settings()->setValueWithDefault(key, m_path.toString(), m_defaultPath.toString());
-
-    return savedPath != m_path;
+    return settingsHandler->write(m_settingsKey, m_path, m_defaultPath);
 }
 
 QWidget *McuPackage::widget()
@@ -277,7 +273,8 @@ QWidget *McuPackage::widget()
     return widget;
 }
 
-McuToolChainPackage::McuToolChainPackage(const QString &label,
+McuToolChainPackage::McuToolChainPackage(const SettingsHandler::Ptr &settingsHandler,
+                                         const QString &label,
                                          const FilePath &defaultPath,
                                          const FilePath &detectionPath,
                                          const QString &settingsKey,
@@ -285,7 +282,8 @@ McuToolChainPackage::McuToolChainPackage(const QString &label,
                                          const QString &cmakeVarName,
                                          const QString &envVarName,
                                          const McuPackageVersionDetector *versionDetector)
-    : McuPackage(label,
+    : McuPackage(settingsHandler,
+                 label,
                  defaultPath,
                  detectionPath,
                  settingsKey,
@@ -394,7 +392,7 @@ ToolChain *McuToolChainPackage::toolChain(Id language) const
     case ToolChainType::GCC:
         return gccToolChain(language);
     case ToolChainType::IAR: {
-        const FilePath compiler = path().pathAppended("/bin/iccarm").withExecutableSuffix();
+        const FilePath compiler = (path() / "/bin/iccarm").withExecutableSuffix();
         return iarToolChain(compiler, language);
     }
     case ToolChainType::ArmGcc:
@@ -407,7 +405,7 @@ ToolChain *McuToolChainPackage::toolChain(Id language) const
         const QString comp = QLatin1String(m_type == ToolChainType::ArmGcc ? "/bin/arm-none-eabi-%1"
                                                                            : "/bar/foo-keil-%1")
                                  .arg(compilerName);
-        const FilePath compiler = path().pathAppended(comp).withExecutableSuffix();
+        const FilePath compiler = (path() / comp).withExecutableSuffix();
 
         return armGccToolChain(compiler, language);
     }
@@ -432,11 +430,6 @@ QString McuToolChainPackage::toolChainName() const
     default:
         return QLatin1String("unsupported");
     }
-}
-
-QString McuToolChainPackage::cmakeToolChainFileName() const
-{
-    return toolChainName() + QLatin1String(".cmake");
 }
 
 QVariant McuToolChainPackage::debuggerId() const
@@ -469,7 +462,7 @@ QVariant McuToolChainPackage::debuggerId() const
         return QVariant();
     }
 
-    const FilePath command = path().pathAppended(sub).withExecutableSuffix();
+    const FilePath command = (path() / sub).withExecutableSuffix();
     if (const DebuggerItem *debugger = DebuggerItemManager::findByCommand(command)) {
         return debugger->id();
     }

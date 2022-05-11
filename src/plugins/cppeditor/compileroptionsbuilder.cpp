@@ -108,19 +108,15 @@ CompilerOptionsBuilder::CompilerOptionsBuilder(const ProjectPart &projectPart,
                                                UseTweakedHeaderPaths useTweakedHeaderPaths,
                                                UseLanguageDefines useLanguageDefines,
                                                UseBuildSystemWarnings useBuildSystemWarnings,
-                                               const QString &clangVersion,
                                                const FilePath &clangIncludeDirectory)
     : m_projectPart(projectPart)
     , m_useSystemHeader(useSystemHeader)
     , m_useTweakedHeaderPaths(useTweakedHeaderPaths)
     , m_useLanguageDefines(useLanguageDefines)
     , m_useBuildSystemWarnings(useBuildSystemWarnings)
-    , m_clangVersion(clangVersion)
     , m_clangIncludeDirectory(clangIncludeDirectory)
 {
 }
-
-CompilerOptionsBuilder::~CompilerOptionsBuilder() = default;
 
 QStringList CompilerOptionsBuilder::build(ProjectFile::Kind fileKind,
                                           UsePrecompiledHeaders usePrecompiledHeaders)
@@ -158,12 +154,15 @@ QStringList CompilerOptionsBuilder::build(ProjectFile::Kind fileKind,
 
     addHeaderPathOptions();
 
-    addExtraOptions();
-
     insertWrappedQtHeaders();
     insertWrappedMingwHeaders();
 
     return options();
+}
+
+void CompilerOptionsBuilder::provideAdditionalMacros(const ProjectExplorer::Macros &macros)
+{
+    m_additionalMacros = macros;
 }
 
 void CompilerOptionsBuilder::add(const QString &arg, bool gccOnlyOption)
@@ -350,7 +349,6 @@ void CompilerOptionsBuilder::addHeaderPathOptions()
     Internal::HeaderPathFilter filter{
         m_projectPart,
         m_useTweakedHeaderPaths,
-        m_clangVersion,
         m_clangIncludeDirectory};
 
     filter.process();
@@ -361,8 +359,6 @@ void CompilerOptionsBuilder::addHeaderPathOptions()
         addIncludeDirOptionForPath(headerPath);
 
     if (m_useTweakedHeaderPaths != UseTweakedHeaderPaths::No) {
-        QTC_CHECK(!m_clangVersion.isEmpty()
-                  && "Clang resource directory is required with UseTweakedHeaderPaths::Yes.");
 
         // Exclude all built-in includes and Clang resource directory.
         m_options.prepend("-nostdinc++");
@@ -413,6 +409,7 @@ void CompilerOptionsBuilder::addProjectMacros()
     }
 
     addMacros(m_projectPart.projectMacros);
+    addMacros(m_additionalMacros);
 }
 
 void CompilerOptionsBuilder::addMacros(const Macros &macros)

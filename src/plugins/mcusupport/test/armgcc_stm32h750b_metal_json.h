@@ -62,8 +62,7 @@ constexpr auto armgcc_stm32h750b_metal_json = R"({
     "versions": [
       "9.3.1"
     ],
-    "cmakeEntries": [
-      {
+    "compiler": {
         "id": "ARMGCC_DIR",
         "label": "GNU Arm Embedded Toolchain",
         "cmakeVar": "QUL_TARGET_TOOLCHAIN_DIR",
@@ -72,16 +71,15 @@ constexpr auto armgcc_stm32h750b_metal_json = R"({
         "type": "path",
         "optional": false
       },
-      {
+      "file" : {
         "id": "ARMGCC_CMAKE_TOOLCHAIN_FILE",
         "label": "CMake Toolchain File",
         "cmakeVar": "CMAKE_TOOLCHAIN_FILE",
         "type": "file",
-        "defaultValue": "$Qul_ROOT/lib/cmake/Qul/toolchain/armgcc.cmake",
+        "defaultValue": "/opt/qtformcu/2.2//lib/cmake/Qul/toolchain/armgcc.cmake",
         "visible": false,
         "optional": false
       }
-    ]
   },
   "boardSdk": {
     "envVar": "STM32Cube_FW_H7_SDK_PATH",

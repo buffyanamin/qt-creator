@@ -66,8 +66,6 @@ add_qtc_plugin(ProjectExplorer
     devicesupport/idevicefwd.h
     devicesupport/idevicewidget.h
     devicesupport/localprocesslist.cpp devicesupport/localprocesslist.h
-    devicesupport/sshdeviceprocess.cpp devicesupport/sshdeviceprocess.h
-    devicesupport/sshdeviceprocess.cpp devicesupport/sshdeviceprocess.h
     devicesupport/sshdeviceprocesslist.cpp devicesupport/sshdeviceprocesslist.h
     devicesupport/sshsettingspage.cpp devicesupport/sshsettingspage.h
     editorconfiguration.cpp editorconfiguration.h
@@ -182,6 +180,7 @@ add_qtc_plugin(ProjectExplorer
     userfileaccessor.cpp userfileaccessor.h
     vcsannotatetaskhandler.cpp vcsannotatetaskhandler.h
     waitforstopdialog.cpp waitforstopdialog.h
+    windebuginterface.cpp windebuginterface.h
     xcodebuildparser.cpp xcodebuildparser.h
 )
 
@@ -199,7 +198,6 @@ extend_qtc_plugin(ProjectExplorer
 
 extend_qtc_plugin(ProjectExplorer
   CONDITION WIN32
-  SOURCES windebuginterface.cpp windebuginterface.h
   DEFINES UNICODE _UNICODE
 )
 

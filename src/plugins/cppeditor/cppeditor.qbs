@@ -6,7 +6,6 @@ QtcPlugin {
     Depends { name: "Qt.widgets" }
     Depends { condition: project.withAutotests; name: "Qt.testlib" }
 
-    Depends { name: "ClangSupport" }
     Depends { name: "CPlusPlus" }
     Depends { name: "Utils" }
 
@@ -139,8 +138,6 @@ QtcPlugin {
         "cpplocatordata.h",
         "cpplocatorfilter.cpp",
         "cpplocatorfilter.h",
-        "cppminimizableinfobars.cpp",
-        "cppminimizableinfobars.h",
         "cppmodelmanager.cpp",
         "cppmodelmanager.h",
         "cppmodelmanagersupport.cpp",
@@ -189,8 +186,6 @@ QtcPlugin {
         "cppqtstyleindenter.h",
         "cpprefactoringchanges.cpp",
         "cpprefactoringchanges.h",
-        "cpprefactoringengine.cpp",
-        "cpprefactoringengine.h",
         "cppselectionchanger.cpp",
         "cppselectionchanger.h",
         "cppsemanticinfo.h",
@@ -219,7 +214,6 @@ QtcPlugin {
         "doxygengenerator.h",
         "editordocumenthandle.cpp",
         "editordocumenthandle.h",
-        "followsymbolinterface.h",
         "functionutils.cpp",
         "functionutils.h",
         "generatedcodemodelsupport.cpp",
@@ -236,7 +230,6 @@ QtcPlugin {
         "projectinfo.h",
         "projectpart.cpp",
         "projectpart.h",
-        "refactoringengineinterface.h",
         "resourcepreviewhoverhandler.cpp",
         "resourcepreviewhoverhandler.h",
         "searchsymbols.cpp",

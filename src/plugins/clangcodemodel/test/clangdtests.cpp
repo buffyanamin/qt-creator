@@ -25,12 +25,10 @@
 
 #include "clangdtests.h"
 
-#include "clangautomationutils.h"
 #include "clangbatchfileprocessor.h"
 #include "../clangdclient.h"
 #include "../clangmodelmanagersupport.h"
 
-#include <clangsupport/sourcelocationscontainer.h>
 #include <cplusplus/FindUsages.h>
 #include <cppeditor/cppcodemodelsettings.h>
 #include <cppeditor/cpptoolsreuse.h>
@@ -82,6 +80,11 @@ Q_DECLARE_METATYPE(IAssistProposal *)
 namespace ClangCodeModel {
 namespace Internal {
 namespace Tests {
+
+static QString qrcPath(const QByteArray &relativeFilePath)
+{
+    return QLatin1String(":/unittests/ClangCodeModel/") + QString::fromUtf8(relativeFilePath);
+}
 
 ClangdTest::~ClangdTest()
 {
@@ -234,8 +237,6 @@ void ClangdTestFindReferences::test_data()
 
     ItemList pureVirtualRefs{makeItem(17, 17, Usage::Type::Declaration),
                              makeItem(21, 9, Usage::Type::Declaration)};
-    if (client()->versionNumber() < QVersionNumber(14))
-        pureVirtualRefs << pureVirtualRefs.last();
     QTest::newRow("pure virtual declaration") << "defs.h" << 420 << pureVirtualRefs;
 
     QTest::newRow("pointer variable") << "main.cpp" << 52 << ItemList{
@@ -396,8 +397,6 @@ void ClangdTestFollowSymbol::test()
     timer.stop();
 
     QCOMPARE(actualLink.targetFilePath, filePath(targetFile));
-    if (client()->versionNumber() < QVersionNumber(14))
-        QEXPECT_FAIL("union member ref", "https://github.com/clangd/clangd/issues/877", Abort);
     QCOMPARE(actualLink.targetLine, targetLine);
     QCOMPARE(actualLink.targetColumn + 1, targetColumn);
 }
@@ -419,9 +418,9 @@ void ClangdTestLocalReferences::test_data()
     QTest::addColumn<QList<Range>>("expectedRanges");
 
     QTest::newRow("cursor not on identifier") << 3 << 5 << QList<Range>();
-    QTest::newRow("local variable, one use") << 3 << 9 << QList<Range>{{3, 9, 3}};
+    QTest::newRow("local variable, one use") << 3 << 9 << QList<Range>{{3, 8, 3}};
     QTest::newRow("local variable, two uses") << 10 << 9
-                                              << QList<Range>{{10, 9, 3}, {11, 12, 3}};
+                                              << QList<Range>{{10, 8, 3}, {11, 11, 3}};
     QTest::newRow("class name") << 16 << 7 << QList<Range>()
             /* QList<Range>{{16, 7, 3}, {19, 5, 3}} */;
     QTest::newRow("namespace") << 24 << 11 << QList<Range>()
@@ -433,9 +432,9 @@ void ClangdTestLocalReferences::test_data()
     QTest::newRow("class name and new expression") << 40 << 7 << QList<Range>()
             /* QList<Range>{{40, 7, 3}, {43, 9, 3}} */;
     QTest::newRow("instantiated template object") << 52 << 19
-                                                  << QList<Range>{{52, 19, 3}, {53, 5, 3}};
+                                                  << QList<Range>{{52, 18, 3}, {53, 4, 3}};
     QTest::newRow("variable in template") << 62 << 13
-                                          << QList<Range>{{62, 13, 3}, {63, 11, 3}};
+                                          << QList<Range>{{62, 12, 3}, {63, 10, 3}};
     QTest::newRow("member in template") << 67 << 7 << QList<Range>()
             /* QList<Range>{{64, 16, 3}, {67, 7, 3}} */;
     QTest::newRow("template type") << 58 << 19 << QList<Range>()
@@ -454,9 +453,9 @@ void ClangdTestLocalReferences::test_data()
     QTest::newRow("enum type") << 112 << 6 << QList<Range>()
             /* QList<Range>{{112, 6, 2}, {113, 8, 2}} */;
     QTest::newRow("captured lambda var") << 122 << 15
-                                         << QList<Range>{{122, 15, 3}, {122, 33, 3}};
+                                         << QList<Range>{{122, 14, 3}, {122, 32, 3}};
     QTest::newRow("lambda initializer") << 122 << 19
-                                         << QList<Range>{{121, 19, 3}, {122, 19, 3}};
+                                         << QList<Range>{{121, 18, 3}, {122, 18, 3}};
     QTest::newRow("template specialization") << 127 << 25 << QList<Range>()
             /* QList<Range>{{127, 5, 3}, {128, 25, 3}, {129, 18, 3}} */;
     QTest::newRow("dependent name") << 133 << 34 << QList<Range>()
@@ -468,16 +467,16 @@ void ClangdTestLocalReferences::test_data()
     QTest::newRow("function-like macro") << 155 << 9 << QList<Range>()
             /* QList<Range>{{155, 9, 3}, {158, 12, 3}} */;
     QTest::newRow("argument to function-like macro") << 156 << 27
-            << QList<Range>{{156, 27, 3}, {158, 16, 3}};
+            << QList<Range>{{156, 26, 3}, {158, 15, 3}};
     QTest::newRow("overloaded bracket operator argument") << 172 << 7
-            << QList<Range>{{171, 7, 1}, {172, 7, 1}, {172, 12, 1},
-                     {173, 7, 1}, {173, 10, 1}};
+            << QList<Range>{{171, 6, 1}, {172, 6, 1}, {172, 11, 1},
+                     {173, 6, 1}, {173, 9, 1}};
     QTest::newRow("overloaded call operator second argument") << 173 << 10
-            << QList<Range>{{171, 7, 1}, {172, 7, 1}, {172, 12, 1},
-                     {173, 7, 1}, {173, 10, 1}};
+            << QList<Range>{{171, 6, 1}, {172, 6, 1}, {172, 11, 1},
+                     {173, 6, 1}, {173, 9, 1}};
     QTest::newRow("overloaded operators arguments from outside") << 171 << 7
-            << QList<Range>{{171, 7, 1}, {172, 7, 1}, {172, 12, 1},
-                     {173, 7, 1}, {173, 10, 1}};
+            << QList<Range>{{171, 6, 1}, {172, 6, 1}, {172, 11, 1},
+                     {173, 6, 1}, {173, 9, 1}};
 }
 
 void ClangdTestLocalReferences::test()
@@ -495,11 +494,9 @@ void ClangdTestLocalReferences::test()
     QObject::connect(&timer, &QTimer::timeout, &loop, &QEventLoop::quit);
     QList<Range> actualRanges;
     const auto handler = [&actualRanges, &loop](const QString &symbol,
-            const ClangBackEnd::SourceLocationsContainer &container, int) {
-        for (const ClangBackEnd::SourceLocationContainer &c
-             : container.m_sourceLocationContainers) {
-            actualRanges << Range(c.line, c.column, symbol.length());
-        }
+            const Utils::Links &links, int) {
+        for (const Utils::Link &link : links)
+            actualRanges << Range(link.targetLine, link.targetColumn, symbol.length());
         loop.quit();
     };
 
@@ -623,11 +620,6 @@ void ClangdTestTooltips::test()
     QCOMPARE(editor->document(), doc);
     QVERIFY(editor->editorWidget());
 
-    if (client()->versionNumber() < QVersionNumber(14)
-            && QLatin1String(QTest::currentDataTag()) == QLatin1String("IncludeDirective")) {
-        QSKIP("clangd <= 13 sends empty or no hover data for includes");
-    }
-
     QTimer timer;
     timer.setSingleShot(true);
     QEventLoop loop;
@@ -650,10 +642,8 @@ void ClangdTestTooltips::test()
     timer.stop();
 
     QEXPECT_FAIL("TypeName_ResolveTemplateTypeAlias", "typedef already resolved in AST", Abort);
-    if (client()->versionNumber() >= QVersionNumber(14)) {
-        QEXPECT_FAIL("TypeNameIntroducedByUsingDeclarationQualified",
-                     "https://github.com/clangd/clangd/issues/989", Abort);
-    }
+    QEXPECT_FAIL("TypeNameIntroducedByUsingDeclarationQualified",
+                 "https://github.com/clangd/clangd/issues/989", Abort);
     QCOMPARE(int(helpItem.category()), expectedCategory);
     QEXPECT_FAIL("TemplateClassQualified", "Additional look-up needed?", Abort);
     QCOMPARE(helpItem.helpIds(), expectedIds);
@@ -1372,11 +1362,6 @@ void ClangdTestHighlighting::test()
     };
     const TextEditor::HighlightingResults results = findResults();
 
-    if (client()->versionNumber() < QVersionNumber(14)) {
-        QEXPECT_FAIL("typedef as underlying type in enum declaration",
-                     "https://github.com/clangd/clangd/issues/878",
-                     Abort);
-    }
     QEXPECT_FAIL("old-style signal (signal)", "check if and how we want to support this", Abort);
     QEXPECT_FAIL("old-style signal (signal parameter)",
                  "check if and how we want to support this", Abort);
@@ -1413,17 +1398,6 @@ void ClangdTestHighlighting::test()
             actualStyles << s;
     }
 
-
-    if (client()->versionNumber() < QVersionNumber(14)) {
-        QEXPECT_FAIL("final virtual function call via pointer",
-                     "clangd < 14 does not send virtual modifier", Continue);
-        QEXPECT_FAIL("virtual member function definition outside of class body",
-                     "clangd < 14 does not send virtual modifier", Continue);
-        QEXPECT_FAIL("virtual function call via pointer",
-                     "clangd < 14 does not send virtual modifier", Continue);
-        QEXPECT_FAIL("non-final virtual function call via pointer",
-                     "clangd < 14 does not send virtual modifier", Continue);
-    }
     QEXPECT_FAIL("non-const reference via member function call as output argument (object)",
                  "See below", Continue);
     QEXPECT_FAIL("non-const reference via member function call as output argument (function)",
@@ -1579,15 +1553,9 @@ void ClangdTestCompletion::testCompleteIncludeDirective()
     getProposal("includeDirectiveCompletion.cpp", proposal);
 
     QVERIFY(proposal);
-    if (client()->versionNumber() < QVersionNumber(14)) {
-        QVERIFY(hasItem(proposal, "file.h"));
-        QVERIFY(hasItem(proposal, "otherFile.h"));
-        QVERIFY(hasItem(proposal, "mylib/"));
-    } else {
-        QVERIFY(hasItem(proposal, " file.h>"));
-        QVERIFY(hasItem(proposal, " otherFile.h>"));
-        QVERIFY(hasItem(proposal, " mylib/"));
-    }
+    QVERIFY(hasItem(proposal, " file.h>"));
+    QVERIFY(hasItem(proposal, " otherFile.h>"));
+    QVERIFY(hasItem(proposal, " mylib/"));
     QVERIFY(!hasSnippet(proposal, "class "));
 }
 
@@ -1885,10 +1853,6 @@ void ClangdTestCompletion::testSignalCompletion()
     getProposal("signalCompletion.cpp", proposal, customCode);
 
     QVERIFY(proposal);
-    if (client()->versionNumber() < QVersionNumber(14)
-            && QString::fromLatin1(QTest::currentDataTag()).startsWith("positive:")) {
-        QEXPECT_FAIL("", "Signal info in completions requires clangd >= 14", Abort);
-    }
     QCOMPARE(proposal->size(), expectedSuggestions.size());
     for (const QString &expectedSuggestion : qAsConst(expectedSuggestions))
         QVERIFY2(hasItem(proposal, ' ' + expectedSuggestion), qPrintable(expectedSuggestion));

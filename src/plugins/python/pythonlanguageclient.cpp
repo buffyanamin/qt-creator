@@ -56,6 +56,7 @@
 #include <QTimer>
 
 using namespace LanguageClient;
+using namespace ProjectExplorer;
 using namespace Utils;
 
 namespace Python {
@@ -525,9 +526,9 @@ PyLSConfigureAssistant *PyLSConfigureAssistant::instance()
 
 const StdIOSettings *PyLSConfigureAssistant::languageServerForPython(const FilePath &python)
 {
+    const FilePath pythonModulePath = getPylsModulePath({python, {"-m", "pylsp"}});
     return findOrDefault(configuredPythonLanguageServer(),
-                         [pythonModulePath = getPylsModulePath(
-                              CommandLine(python, {"-m", "pylsp"}))](const StdIOSettings *setting) {
+                         [pythonModulePath](const StdIOSettings *setting) {
                              return getPylsModulePath(setting->command()) == pythonModulePath;
                          });
 }
@@ -613,7 +614,7 @@ void PyLSConfigureAssistant::openDocumentWithPython(const FilePath &python,
     QPointer<CheckPylsWatcher> watcher = new CheckPylsWatcher();
 
     // cancel and delete watcher after a 10 second timeout
-    QTimer::singleShot(10000, this, [watcher]() {
+    QTimer::singleShot(10000, instance(), [watcher]() {
         if (watcher) {
             watcher->cancel();
             watcher->deleteLater();
@@ -622,11 +623,11 @@ void PyLSConfigureAssistant::openDocumentWithPython(const FilePath &python,
 
     connect(watcher,
             &CheckPylsWatcher::resultReadyAt,
-            this,
+            instance(),
             [=, document = QPointer<TextEditor::TextDocument>(document)]() {
                 if (!document || !watcher)
                     return;
-                handlePyLSState(python, watcher->result(), document);
+                instance()->handlePyLSState(python, watcher->result(), document);
                 watcher->deleteLater();
             });
     watcher->setFuture(Utils::runAsync(&checkPythonLanguageServer, python));

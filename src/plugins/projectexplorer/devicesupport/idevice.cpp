@@ -221,6 +221,11 @@ QString IDevice::mapToDevicePath(const FilePath &globalPath) const
     return globalPath.path();
 }
 
+FilePath IDevice::filePath(const QString &pathOnDevice) const
+{
+    return mapToGlobalPath(FilePath::fromString(pathOnDevice));
+}
+
 bool IDevice::handlesFile(const FilePath &filePath) const
 {
     Q_UNUSED(filePath);
@@ -426,15 +431,8 @@ bool IDevice::setPermissions(const FilePath &filePath, QFile::Permissions) const
 
 ProcessInterface *IDevice::createProcessInterface() const
 {
-// TODO: uncomment below assert when docker device implements this method
-//    QTC_ASSERT(false, return nullptr);
-    return nullptr;
-}
-
-void IDevice::runProcess(QtcProcess &process) const
-{
-    Q_UNUSED(process);
     QTC_CHECK(false);
+    return nullptr;
 }
 
 Environment IDevice::systemEnvironment() const
@@ -588,12 +586,6 @@ DeviceTester *IDevice::createDeviceTester() const
 OsType IDevice::osType() const
 {
     return d->osType;
-}
-
-QtcProcess *IDevice::createProcess(QObject * /* parent */) const
-{
-    QTC_CHECK(false);
-    return nullptr;
 }
 
 DeviceEnvironmentFetcher::Ptr IDevice::environmentFetcher() const

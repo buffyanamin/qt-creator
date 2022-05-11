@@ -27,9 +27,9 @@
 
 #include "sftptransfer.h"
 #include "sshlogging_p.h"
-#include "sshremoteprocess.h"
 #include "sshsettings.h"
 
+#include <utils/environment.h>
 #include <utils/fileutils.h>
 #include <utils/hostosinfo.h>
 #include <utils/qtcassert.h>
@@ -104,6 +104,27 @@ QStringList SshConnectionParameters::connectionOptions(const FilePath &binary) c
     return args;
 }
 
+bool SshConnectionParameters::setupSshEnvironment(QtcProcess *process)
+{
+    Environment env = process->controlEnvironment();
+    if (env.size() == 0)
+        env = Environment::systemEnvironment();
+    const bool hasDisplay = env.hasKey("DISPLAY") && (env.value("DISPLAY") != QString(":0"));
+    if (SshSettings::askpassFilePath().exists()) {
+        env.set("SSH_ASKPASS", SshSettings::askpassFilePath().toUserOutput());
+
+        // OpenSSH only uses the askpass program if DISPLAY is set, regardless of the platform.
+        if (!env.hasKey("DISPLAY"))
+            env.set("DISPLAY", ":0");
+    }
+    process->setEnvironment(env);
+
+    // Otherwise, ssh will ignore SSH_ASKPASS and read from /dev/tty directly.
+    process->setDisableUnixTerminal();
+    return hasDisplay;
+}
+
+
 static inline bool equals(const SshConnectionParameters &p1, const SshConnectionParameters &p2)
 {
     return p1.url == p2.url
@@ -129,7 +150,7 @@ struct SshConnection::SshConnectionPrivate
     SshConnectionPrivate(const SshConnectionParameters &sshParameters)
         : connParams(sshParameters)
     {
-        SshRemoteProcess::setupSshEnvironment(&masterProcess);
+        SshConnectionParameters::setupSshEnvironment(&masterProcess);
     }
 
     QString fullProcessError()
@@ -166,7 +187,6 @@ struct SshConnection::SshConnectionPrivate
     }
 
     const SshConnectionParameters connParams;
-    SshConnectionInfo connInfo;
     QtcProcess masterProcess;
     QString errorString;
     std::unique_ptr<QTemporaryDir> masterSocketDir;
@@ -250,38 +270,6 @@ SshConnectionParameters SshConnection::connectionParameters() const
     return d->connParams;
 }
 
-SshConnectionInfo SshConnection::connectionInfo() const
-{
-    QTC_ASSERT(state() == Connected, return SshConnectionInfo());
-    if (d->connInfo.isValid())
-        return d->connInfo;
-    QtcProcess p;
-    const FilePath sshFilePath = SshSettings::sshFilePath();
-    p.setCommand({sshFilePath, d->connectionArgs(sshFilePath) << "echo" << "-n" << "$SSH_CLIENT"});
-    p.start();
-    if (!p.waitForStarted() || !p.waitForFinished()) {
-        qCWarning(Internal::sshLog) << "failed to retrieve connection info:" << p.errorString();
-        return SshConnectionInfo();
-    }
-    const QByteArrayList data = p.readAllStandardOutput().split(' ');
-    if (data.size() != 3) {
-        qCWarning(Internal::sshLog) << "failed to retrieve connection info: unexpected output";
-        return SshConnectionInfo();
-    }
-    d->connInfo.localPort = data.at(1).toInt();
-    if (d->connInfo.localPort == 0) {
-        qCWarning(Internal::sshLog) << "failed to retrieve connection info: unexpected output";
-        return SshConnectionInfo();
-    }
-    if (!d->connInfo.localAddress.setAddress(QString::fromLatin1(data.first()))) {
-        qCWarning(Internal::sshLog) << "failed to retrieve connection info: unexpected output";
-        return SshConnectionInfo();
-    }
-    d->connInfo.peerPort = d->connParams.port();
-    d->connInfo.peerAddress.setAddress(d->connParams.host());
-    return d->connInfo;
-}
-
 QStringList SshConnection::connectionOptions(const FilePath &binary) const
 {
     return d->connectionOptions(binary);
@@ -299,28 +287,14 @@ SshConnection::~SshConnection()
     delete d;
 }
 
-SshRemoteProcessPtr SshConnection::createRemoteProcess(const QString &command)
+SftpTransferPtr SshConnection::createUpload(const FilesToTransfer &files)
 {
-    QTC_ASSERT(state() == Connected, return SshRemoteProcessPtr());
-    return SshRemoteProcessPtr(new SshRemoteProcess(command,
-                                                    d->connectionArgs(SshSettings::sshFilePath())));
+    return setupTransfer(files, Internal::FileTransferType::Upload);
 }
 
-SshRemoteProcessPtr SshConnection::createRemoteShell()
+SftpTransferPtr SshConnection::createDownload(const FilesToTransfer &files)
 {
-    return createRemoteProcess({});
-}
-
-SftpTransferPtr SshConnection::createUpload(const FilesToTransfer &files,
-                                            FileTransferErrorHandling errorHandlingMode)
-{
-    return setupTransfer(files, Internal::FileTransferType::Upload, errorHandlingMode);
-}
-
-SftpTransferPtr SshConnection::createDownload(const FilesToTransfer &files,
-                                              FileTransferErrorHandling errorHandlingMode)
-{
-    return setupTransfer(files, Internal::FileTransferType::Download, errorHandlingMode);
+    return setupTransfer(files, Internal::FileTransferType::Download);
 }
 
 void SshConnection::doConnectToHost()
@@ -379,12 +353,11 @@ void SshConnection::emitDisconnected()
     emit disconnected();
 }
 
-SftpTransferPtr SshConnection::setupTransfer(
-        const FilesToTransfer &files, Internal::FileTransferType type,
-        FileTransferErrorHandling errorHandlingMode)
+SftpTransferPtr SshConnection::setupTransfer(const FilesToTransfer &files,
+                                             Internal::FileTransferType type)
 {
     QTC_ASSERT(state() == Connected, return SftpTransferPtr());
-    return SftpTransferPtr(new SftpTransfer(files, type, errorHandlingMode,
+    return SftpTransferPtr(new SftpTransfer(files, type,
                                             d->connectionArgs(SshSettings::sftpFilePath())));
 }
 

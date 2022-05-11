@@ -25,16 +25,15 @@
 
 #include "clangdclient.h"
 
-#include "clangcompletionassistprocessor.h"
 #include "clangcompletioncontextanalyzer.h"
-#include "clangdiagnosticmanager.h"
+#include "clangconstants.h"
+#include "clangdlocatorfilters.h"
 #include "clangdqpropertyhighlighter.h"
 #include "clangmodelmanagersupport.h"
 #include "clangpreprocessorassistproposalitem.h"
 #include "clangtextmark.h"
 #include "clangutils.h"
 
-#include <clangsupport/sourcelocationscontainer.h>
 #include <coreplugin/editormanager/editormanager.h>
 #include <coreplugin/find/searchresultitem.h>
 #include <coreplugin/find/searchresultwindow.h>
@@ -56,12 +55,14 @@
 #include <cppeditor/cppvirtualfunctionassistprovider.h>
 #include <cppeditor/cppvirtualfunctionproposalitem.h>
 #include <cppeditor/semantichighlighter.h>
+#include <cppeditor/cppsemanticinfo.h>
 #include <languageclient/languageclientinterface.h>
 #include <languageclient/languageclientmanager.h>
 #include <languageclient/languageclientutils.h>
 #include <projectexplorer/project.h>
 #include <projectexplorer/projecttree.h>
 #include <projectexplorer/session.h>
+#include <projectexplorer/taskhub.h>
 #include <texteditor/basefilefind.h>
 #include <texteditor/codeassist/assistinterface.h>
 #include <texteditor/codeassist/iassistprocessor.h>
@@ -634,8 +635,7 @@ static BaseClientInterface *clientInterface(Project *project, const Utils::FileP
         cmd.addArg("--compile-commands-dir=" + jsonDbDir.toString());
     if (clangdLogServer().isDebugEnabled())
         cmd.addArgs({"--log=verbose", "--pretty"});
-    if (settings.clangdVersion() >= QVersionNumber(14))
-        cmd.addArg("--use-dirty-headers");
+    cmd.addArg("--use-dirty-headers");
     const auto interface = new StdIOClientInterface;
     interface->setCommandLine(cmd);
     return interface;
@@ -824,7 +824,7 @@ public:
 class LocalRefsData {
 public:
     LocalRefsData(quint64 id, TextDocument *doc, const QTextCursor &cursor,
-                  CppEditor::RefactoringEngineInterface::RenameCallback &&callback)
+                  CppEditor::RenameCallback &&callback)
         : id(id), document(doc), cursor(cursor), callback(std::move(callback)),
           uri(DocumentUri::fromFilePath(doc->filePath())), revision(doc->document()->revision())
     {}
@@ -838,7 +838,7 @@ public:
     const quint64 id;
     const QPointer<TextDocument> document;
     const QTextCursor cursor;
-    CppEditor::RefactoringEngineInterface::RenameCallback callback;
+    CppEditor::RenameCallback callback;
     const DocumentUri uri;
     const int revision;
 };
@@ -902,8 +902,7 @@ private:
                     = projectPartForFile(interface->filePath().toString());
             if (projectPart)
                 headerPaths = projectPart->headerPaths;
-            completions = ClangCompletionAssistProcessor::completeInclude(
-                        m_endPos, m_completionOperator, interface, headerPaths);
+            completions = completeInclude(m_endPos, m_completionOperator, interface, headerPaths);
             break;
         }
         }
@@ -924,6 +923,107 @@ private:
         item->setIcon(icon);
         item->setCompletionOperator(m_completionOperator);
         return item;
+    }
+
+    /**
+     * @brief Creates completion proposals for #include and given cursor
+     * @param position - cursor placed after opening bracked or quote
+     * @param completionOperator - the type of token
+     * @param interface - relevant document data
+     * @param headerPaths - the include paths
+     * @return the list of completion items
+     */
+    static QList<AssistProposalItemInterface *> completeInclude(
+            int position, unsigned completionOperator, const TextEditor::AssistInterface *interface,
+            const ProjectExplorer::HeaderPaths &headerPaths)
+    {
+        QTextCursor cursor(interface->textDocument());
+        cursor.setPosition(position);
+        QString directoryPrefix;
+        if (completionOperator == T_SLASH) {
+            QTextCursor c = cursor;
+            c.movePosition(QTextCursor::StartOfLine, QTextCursor::KeepAnchor);
+            QString sel = c.selectedText();
+            int startCharPos = sel.indexOf(QLatin1Char('"'));
+            if (startCharPos == -1) {
+                startCharPos = sel.indexOf(QLatin1Char('<'));
+                completionOperator = T_ANGLE_STRING_LITERAL;
+            } else {
+                completionOperator = T_STRING_LITERAL;
+            }
+            if (startCharPos != -1)
+                directoryPrefix = sel.mid(startCharPos + 1, sel.length() - 1);
+        }
+
+        // Make completion for all relevant includes
+        ProjectExplorer::HeaderPaths allHeaderPaths = headerPaths;
+        const auto currentFilePath = ProjectExplorer::HeaderPath::makeUser(
+                    interface->filePath().toFileInfo().path());
+        if (!allHeaderPaths.contains(currentFilePath))
+            allHeaderPaths.append(currentFilePath);
+
+        const ::Utils::MimeType mimeType = ::Utils::mimeTypeForName("text/x-c++hdr");
+        const QStringList suffixes = mimeType.suffixes();
+
+        QList<AssistProposalItemInterface *> completions;
+        foreach (const ProjectExplorer::HeaderPath &headerPath, allHeaderPaths) {
+            QString realPath = headerPath.path;
+            if (!directoryPrefix.isEmpty()) {
+                realPath += QLatin1Char('/');
+                realPath += directoryPrefix;
+                if (headerPath.type == ProjectExplorer::HeaderPathType::Framework)
+                    realPath += QLatin1String(".framework/Headers");
+            }
+            completions << completeIncludePath(realPath, suffixes, completionOperator);
+        }
+
+        QList<QPair<AssistProposalItemInterface *, QString>> completionsForSorting;
+        for (AssistProposalItemInterface * const item : qAsConst(completions)) {
+            QString s = item->text();
+            s.replace('/', QChar(0)); // The dir separator should compare less than anything else.
+            completionsForSorting << qMakePair(item, s);
+        }
+        Utils::sort(completionsForSorting, [](const auto &left, const auto &right) {
+            return left.second < right.second;
+        });
+        for (int i = 0; i < completionsForSorting.count(); ++i)
+            completions[i] = completionsForSorting[i].first;
+
+        return completions;
+    }
+
+    /**
+     * @brief Finds #include completion proposals using given include path
+     * @param realPath - one of directories where compiler searches includes
+     * @param suffixes - file suffixes for C/C++ header files
+     * @return a list of matching completion items
+     */
+    static QList<AssistProposalItemInterface *> completeIncludePath(
+            const QString &realPath, const QStringList &suffixes, unsigned completionOperator)
+    {
+        QList<AssistProposalItemInterface *> completions;
+        QDirIterator i(realPath, QDir::Files | QDir::Dirs | QDir::NoDotAndDotDot);
+        //: Parent folder for proposed #include completion
+        const QString hint = ClangdClient::tr("Location: %1")
+                .arg(QDir::toNativeSeparators(QDir::cleanPath(realPath)));
+        while (i.hasNext()) {
+            const QString fileName = i.next();
+            const QFileInfo fileInfo = i.fileInfo();
+            const QString suffix = fileInfo.suffix();
+            if (suffix.isEmpty() || suffixes.contains(suffix)) {
+                QString text = fileName.mid(realPath.length() + 1);
+                if (fileInfo.isDir())
+                    text += QLatin1Char('/');
+
+                auto *item = new ClangPreprocessorAssistProposalItem;
+                item->setText(text);
+                item->setDetail(hint);
+                item->setIcon(CPlusPlus::Icons::keywordIcon());
+                item->setCompletionOperator(completionOperator);
+                completions.append(item);
+            }
+        }
+        return completions;
     }
 
     ClangdClient * const m_client;
@@ -1353,25 +1453,24 @@ private:
 };
 
 static void addToCompilationDb(QJsonObject &cdb,
-                               const CppEditor::ClangDiagnosticConfig &projectWarnings,
-                               const QStringList &projectOptions,
-                               const CppEditor::ProjectPart::ConstPtr &projectPart,
+                               const CppEditor::ProjectPart &projectPart,
+                               CppEditor::UsePrecompiledHeaders usePch,
+                               const QJsonArray &projectPartOptions,
                                const Utils::FilePath &workingDir,
-                               const Utils::FilePath &sourceFile)
+                               const CppEditor::ProjectFile &sourceFile)
 {
-    // TODO: Do we really need to re-calculate the project part options per source file?
-    QStringList args = createClangOptions(*projectPart, sourceFile.toString(),
-                                          projectWarnings, projectOptions);
+    QJsonArray args = clangOptionsForFile(sourceFile, projectPart, projectPartOptions, usePch);
 
     // TODO: clangd seems to apply some heuristics depending on what we put here.
     //       Should we make use of them or keep using our own?
     args.prepend("clang");
 
-    args.append(sourceFile.toUserOutput());
+    const QString fileString = Utils::FilePath::fromString(sourceFile.path).toUserOutput();
+    args.append(fileString);
     QJsonObject value;
     value.insert("workingDirectory", workingDir.toString());
-    value.insert("compilationCommand", QJsonArray::fromStringList(args));
-    cdb.insert(sourceFile.toUserOutput(), value);
+    value.insert("compilationCommand", args);
+    cdb.insert(fileString, value);
 }
 
 static void addCompilationDb(QJsonObject &parentObject, const QJsonObject &cdb)
@@ -1393,10 +1492,18 @@ ClangdClient::ClangdClient(Project *project, const Utils::FilePath &jsonDbDir)
     setQuickFixAssistProvider(new ClangdQuickFixProvider(this));
     if (!project) {
         QJsonObject initOptions;
-        const QStringList clangOptions = createClangOptions(
-                    *CppEditor::CppModelManager::instance()->fallbackProjectPart(), {},
-                    warningsConfigForProject(nullptr), optionsForProject(nullptr));
-        initOptions.insert("fallbackFlags", QJsonArray::fromStringList(clangOptions));
+        const Utils::FilePath includeDir
+                = CppEditor::ClangdSettings(d->settings).clangdIncludePath();
+        const CppEditor::ClangDiagnosticConfig warningsConfig = warningsConfigForProject(nullptr);
+        CppEditor::CompilerOptionsBuilder optionsBuilder = clangOptionsBuilder(
+                    *CppEditor::CppModelManager::instance()->fallbackProjectPart(),
+                    warningsConfig, includeDir);
+        const CppEditor::UsePrecompiledHeaders usePch = CppEditor::getPchUsage();
+        const QJsonArray projectPartOptions = fullProjectPartOptions(
+                    optionsBuilder, optionsForProject(nullptr, warningsConfig));
+        const QJsonArray clangOptions = clangOptionsForFile({}, optionsBuilder.projectPart(),
+                                                            projectPartOptions, usePch);
+        initOptions.insert("fallbackFlags", clangOptions);
         setInitializationOptions(initOptions);
     }
     auto isRunningClangdClient = [](const LanguageClient::Client *c) {
@@ -1457,6 +1564,9 @@ ClangdClient::ClangdClient(Project *project, const Utils::FilePath &jsonDbDir)
     });
 
     connect(this, &Client::initialized, this, [this] {
+        auto currentDocumentFilter = static_cast<ClangdCurrentDocumentFilter *>(
+            CppEditor::CppModelManager::instance()->currentDocumentFilter());
+        currentDocumentFilter->updateCurrentClient();
         // If we get this signal while there are pending searches, it means that
         // the client was re-initialized, i.e. clangd crashed.
 
@@ -1613,7 +1723,7 @@ public:
     void hideDiagnostics(const Utils::FilePath &filePath) override
     {
         DiagnosticManager::hideDiagnostics(filePath);
-        ClangDiagnosticManager::clearTaskHubIssues();
+        TaskHub::clearTasks(Constants::TASK_CATEGORY_DIAGNOSTICS);
     }
 
     QList<Diagnostic> filteredDiagnostics(const QList<Diagnostic> &diagnostics) const override
@@ -1810,8 +1920,16 @@ void ClangdClient::updateParserConfig(const Utils::FilePath &filePath,
     if (!projectPart)
         return;
     QJsonObject cdbChanges;
-    addToCompilationDb(cdbChanges, warningsConfigForProject(project()),
-                       optionsForProject(project()), projectPart, filePath.parentDir(), filePath);
+    const Utils::FilePath includeDir = CppEditor::ClangdSettings(d->settings).clangdIncludePath();
+    const CppEditor::ClangDiagnosticConfig warningsConfig = warningsConfigForProject(project());
+    CppEditor::CompilerOptionsBuilder optionsBuilder = clangOptionsBuilder(
+                *projectPart, warningsConfig, includeDir);
+    const CppEditor::ProjectFile file(filePath.toString(),
+                                      CppEditor::ProjectFile::classify(filePath.toString()));
+    const QJsonArray projectPartOptions = fullProjectPartOptions(
+                optionsBuilder, optionsForProject(project(), warningsConfig));
+    addToCompilationDb(cdbChanges, *projectPart, CppEditor::getPchUsage(), projectPartOptions,
+                       filePath.parentDir(), file);
     QJsonObject settings;
     addCompilationDb(settings, cdbChanges);
     DidChangeConfigurationParams configChangeParams;
@@ -2082,7 +2200,7 @@ void ClangdClient::switchDeclDef(TextDocument *document, const QTextCursor &curs
 }
 
 void ClangdClient::findLocalUsages(TextDocument *document, const QTextCursor &cursor,
-        CppEditor::RefactoringEngineInterface::RenameCallback &&callback)
+        CppEditor::RenameCallback &&callback)
 {
     QTC_ASSERT(documentOpen(document), openDocument(document));
 
@@ -2136,11 +2254,7 @@ void ClangdClient::findLocalUsages(TextDocument *document, const QTextCursor &cu
                         qCDebug(clangdLog) << "found" << locations.size() << "local references";
                         if (!d->localRefsData || id != d->localRefsData->id)
                             return;
-                        ClangBackEnd::SourceLocationsContainer container;
-                        for (const Location &loc : locations) {
-                            container.insertSourceLocation({}, loc.range().start().line() + 1,
-                                                           loc.range().start().character() + 1);
-                        }
+                        const Utils::Links links = Utils::transform(locations, &Location::toLink);
 
                         // The callback only uses the symbol length, so we just create a dummy.
                         // Note that the calculation will be wrong for identifiers with
@@ -2150,7 +2264,7 @@ void ClangdClient::findLocalUsages(TextDocument *document, const QTextCursor &cu
                             const Range r = locations.first().range();
                             symbol = QString(r.end().character() - r.start().character(), 'x');
                         }
-                        d->localRefsData->callback(symbol, container, d->localRefsData->revision);
+                        d->localRefsData->callback(symbol, links, d->localRefsData->revision);
                         d->localRefsData->callback = {};
                         d->localRefsData.reset();
                     });
@@ -3285,16 +3399,6 @@ IAssistProcessor *ClangdClient::ClangdCompletionAssistProvider::createProcessor(
                                          contextAnalyzer.positionEndOfExpression(),
                                          contextAnalyzer.completionOperator(),
                                          CustomAssistMode::Preprocessor);
-    case ClangCompletionContextAnalyzer::CompleteIncludePath:
-        if (m_client->versionNumber() < QVersionNumber(14)) { // https://reviews.llvm.org/D112996
-            qCDebug(clangdLogCompletion) << "creating include processor";
-            return new CustomAssistProcessor(m_client,
-                                             contextAnalyzer.positionForProposal(),
-                                             contextAnalyzer.positionEndOfExpression(),
-                                             contextAnalyzer.completionOperator(),
-                                             CustomAssistMode::IncludePath);
-        }
-        [[fallthrough]];
     default:
         break;
     }

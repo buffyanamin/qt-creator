@@ -1,5 +1,4 @@
 add_qtc_library(Modeling
-  DEFINES MODELING_LIBRARY
   DEPENDS Qt5::Widgets Utils
   PUBLIC_DEPENDS OptionalSvg
   INCLUDES qtserialization/inc
@@ -138,7 +137,7 @@ add_qtc_library(Modeling
     qmt/model_widgets_ui/propertiesviewmview.cpp qmt/model_widgets_ui/propertiesviewmview.h
     qmt/project_controller/projectcontroller.cpp qmt/project_controller/projectcontroller.h
     qmt/project/project.cpp qmt/project/project.h
-    qmt/resources/resources.qrc
+    qmt/resources/resources_modelinglib.qrc
     qmt/serializer/diagramserializer.cpp qmt/serializer/diagramserializer.h
     qmt/serializer/infrastructureserializer.cpp qmt/serializer/infrastructureserializer.h
     qmt/serializer/modelserializer.cpp qmt/serializer/modelserializer.h

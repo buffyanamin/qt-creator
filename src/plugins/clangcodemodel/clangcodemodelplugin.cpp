@@ -31,8 +31,8 @@
 
 #ifdef WITH_TESTS
 #  include "test/clangbatchfileprocessor.h"
-#  include "test/clangcodecompletion_test.h"
 #  include "test/clangdtests.h"
+#  include "test/clangfixittest.h"
 #endif
 
 #include <coreplugin/actionmanager/actioncontainer.h>
@@ -80,11 +80,14 @@ void ClangCodeModelPlugin::generateCompilationDB()
     if (!projectInfo)
         return;
 
+    const CppEditor::ClangDiagnosticConfig warningsConfig
+            = warningsConfigForProject(target->project());
     QFuture<GenerateCompilationDbResult> task
             = QtConcurrent::run(&Internal::generateCompilationDB, projectInfo,
                                 projectInfo->buildRoot(), CompilationDbPurpose::Project,
-                                warningsConfigForProject(target->project()),
-                                optionsForProject(target->project()));
+                                qMakePair(warningsConfig,
+                                          optionsForProject(target->project(), warningsConfig)),
+                                FilePath());
     Core::ProgressManager::addTask(task, tr("Generating Compilation DB"), "generate compilation db");
     m_generatorWatcher.setFuture(task);
 }
@@ -209,7 +212,6 @@ void ClangCodeModelPlugin::maybeHandleBatchFileAndExit() const
 QVector<QObject *> ClangCodeModelPlugin::createTestObjects() const
 {
     return {
-        new Tests::ClangCodeCompletionTest,
         new Tests::ClangdTestCompletion,
         new Tests::ClangdTestExternalChanges,
         new Tests::ClangdTestFindReferences,
@@ -217,6 +219,7 @@ QVector<QObject *> ClangCodeModelPlugin::createTestObjects() const
         new Tests::ClangdTestHighlighting,
         new Tests::ClangdTestLocalReferences,
         new Tests::ClangdTestTooltips,
+        new Tests::ClangFixItTest,
     };
 }
 #endif

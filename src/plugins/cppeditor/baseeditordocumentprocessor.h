@@ -83,19 +83,11 @@ public:
 
     virtual void invalidateDiagnostics();
 
-    virtual void editorDocumentTimerRestarted();
-
     virtual void setParserConfig(const BaseEditorDocumentParser::Configuration &config);
 
     virtual QFuture<CursorInfo> cursorInfo(const CursorInfoParams &params) = 0;
-    virtual QFuture<CursorInfo> requestLocalReferences(const QTextCursor &cursor) = 0;
-    virtual QFuture<SymbolInfo> requestFollowSymbol(int line, int column) = 0;
-    virtual QFuture<ToolTipInfo> toolTipInfo(const QByteArray &codecName, int line, int column);
 
     QString filePath() const { return m_filePath; }
-
-public:
-    using HeaderErrorDiagnosticWidgetCreator = std::function<QWidget*()>;
 
 signals:
     // Signal interface to implement
@@ -103,7 +95,6 @@ signals:
 
     void codeWarningsUpdated(unsigned revision,
                              const QList<QTextEdit::ExtraSelection> &selections,
-                             const HeaderErrorDiagnosticWidgetCreator &creator,
                              const TextEditor::RefactorMarkers &refactorMarkers);
 
     void ifdefedOutBlocksUpdated(unsigned revision,

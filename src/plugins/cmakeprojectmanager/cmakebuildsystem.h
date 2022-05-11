@@ -30,6 +30,7 @@
 #include "cmakeprojectnodes.h"
 #include "fileapireader.h"
 
+#include <projectexplorer/buildconfiguration.h>
 #include <projectexplorer/buildsystem.h>
 
 #include <utils/fileutils.h>
@@ -97,21 +98,54 @@ public:
     Utils::CommandLine commandLineForTests(const QList<QString> &tests,
                                            const QStringList &options) const final;
 
-    // Generic CMake helper functions:
-    static CMakeConfig parseCMakeCacheDotTxt(const Utils::FilePath &cacheFile,
-                                             QString *errorMessage);
-
     static bool filteredOutTarget(const CMakeBuildTarget &target);
 
     bool isMultiConfig() const;
+    void setIsMultiConfig(bool isMultiConfig);
+
+    bool isMultiConfigReader() const;
     bool usesAllCapsTargets() const;
 
     CMakeProject *project() const;
 
+    QString cmakeBuildType() const;
+    void setCMakeBuildType(const QString &cmakeBuildType, bool quiet = false);
+    ProjectExplorer::BuildConfiguration::BuildType buildType() const;
+
+    CMakeConfig configurationFromCMake() const;
+    CMakeConfig configurationChanges() const;
+
+    QStringList configurationChangesArguments(bool initialParameters = false) const;
+
+    QStringList initialCMakeArguments() const;
+    CMakeConfig initialCMakeConfiguration() const;
+
+    QStringList additionalCMakeArguments() const;
+    void setAdditionalCMakeArguments(const QStringList &args);
+
+    void filterConfigArgumentsFromAdditionalCMakeArguments();
+
+    void setConfigurationFromCMake(const CMakeConfig &config);
+    void setConfigurationChanges(const CMakeConfig &config);
+
+    void setInitialCMakeArguments(const QStringList &args);
+
+    QString error() const;
+    QString warning() const;
+
 signals:
     void configurationCleared();
+    void configurationChanged(const CMakeConfig &config);
+    void errorOccurred(const QString &message);
+    void warningOccurred(const QString &message);
 
 private:
+    enum ForceEnabledChanged { False, True };
+    void clearError(ForceEnabledChanged fec = ForceEnabledChanged::False);
+
+    void setError(const QString &message);
+    void setWarning(const QString &message);
+
     // Actually ask for parsing:
     enum ReparseParameters {
         REPARSE_DEFAULT = 0, // Nothing special:-)
@@ -122,6 +156,7 @@ private:
         REPARSE_FORCE_EXTRA_CONFIGURATION = (1 << 2), // Force extra configuration arguments to cmake
         REPARSE_URGENT = (1 << 3),                    // Do not delay the parser run by 1s
     };
+    void reparse(int reparseParameters);
     QString reparseParametersString(int reparseFlags);
     void setParametersAndRequestParse(const BuildDirParameters &parameters,
                                       const int reparseParameters);
@@ -172,6 +207,8 @@ private:
     bool m_waitingForParse = false;
     bool m_combinedScanAndParseResult = false;
 
+    bool m_isMultiConfig = false;
+
     ParseGuard m_currentGuard;
 
     CppEditor::CppProjectUpdater *m_cppCodeModelUpdater = nullptr;
@@ -188,6 +225,12 @@ private:
     Utils::FilePath m_ctestPath;
     QList<ProjectExplorer::TestCaseInfo> m_testNames;
     Utils::FutureSynchronizer m_futureSynchronizer;
+
+    CMakeConfig m_configurationFromCMake;
+    CMakeConfig m_configurationChanges;
+
+    QString m_error;
+    QString m_warning;
 };
 
 } // namespace Internal

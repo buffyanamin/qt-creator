@@ -193,11 +193,11 @@ public:
     explicit RunControl(Utils::Id mode);
     ~RunControl() override;
 
-    void setRunConfiguration(RunConfiguration *runConfig);
     void setTarget(Target *target);
     void setKit(Kit *kit);
 
-    void copyFromRunControl(RunControl *runControl);
+    void copyDataFromRunConfiguration(RunConfiguration *runConfig);
+    void copyDataFromRunControl(RunControl *runControl);
 
     void initiateStart();
     void initiateReStart();
@@ -225,7 +225,6 @@ public:
     void setApplicationProcessHandle(const Utils::ProcessHandle &handle);
     IDeviceConstPtr device() const;
 
-    RunConfiguration *runConfiguration() const; // FIXME: Remove.
     // FIXME: Try to cut down to amount of functions.
     Target *target() const;
     Project *project() const;
