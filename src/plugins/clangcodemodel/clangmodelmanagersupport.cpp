@@ -282,8 +282,10 @@ void ClangModelManagerSupport::onCurrentEditorChanged(Core::IEditor *editor)
     const ::Utils::FilePath filePath = editor->document()->filePath();
     if (auto processor = ClangEditorDocumentProcessor::get(filePath.toString())) {
         processor->semanticRehighlight();
-        if (const auto client = clientForFile(filePath))
+        if (const auto client = clientForFile(filePath)) {
             client->updateParserConfig(filePath, processor->parserConfig());
+            client->switchIssuePaneEntries(filePath);
+        }
     }
 }
 
@@ -299,8 +301,8 @@ void ClangModelManagerSupport::connectToWidgetsMarkContextMenuRequested(QWidget 
 void ClangModelManagerSupport::updateLanguageClient(
         ProjectExplorer::Project *project, const CppEditor::ProjectInfo::ConstPtr &projectInfo)
 {
-    const ClangdSettings::Data clangdSettingsData = ClangdProjectSettings(project).settings();
-    if (!clangdSettingsData.useClangd)
+    const ClangdSettings settings(ClangdProjectSettings(project).settings());
+    if (!settings.useClangd())
         return;
     const auto getJsonDbDir = [project] {
         if (const ProjectExplorer::Target * const target = project->activeTarget()) {
@@ -321,7 +323,7 @@ void ClangModelManagerSupport::updateLanguageClient(
         generatorWatcher->deleteLater();
         if (!ProjectExplorer::SessionManager::hasProject(project))
             return;
-        if (!CppEditor::ClangdProjectSettings(project).settings().useClangd)
+        if (!ClangdSettings(ClangdProjectSettings(project).settings()).useClangd())
             return;
         const CppEditor::ProjectInfo::ConstPtr newProjectInfo
                 = cppModelManager()->projectInfo(project);
@@ -409,12 +411,11 @@ void ClangModelManagerSupport::updateLanguageClient(
         });
 
     });
-    const Utils::FilePath includeDir = ClangdSettings(clangdSettingsData).clangdIncludePath();
+    const Utils::FilePath includeDir = settings.clangdIncludePath();
     const ClangDiagnosticConfig warningsConfig = warningsConfigForProject(project);
     auto future = Utils::runAsync(&Internal::generateCompilationDB, projectInfo, jsonDbDir,
                                   CompilationDbPurpose::CodeModel,
-                                  qMakePair(warningsConfig,
-                                            optionsForProject(project, warningsConfig)),
+                                  warningsConfig, optionsForProject(project, warningsConfig),
                                   includeDir);
     generatorWatcher->setFuture(future);
     m_generatorSynchronizer.addFuture(future);
@@ -615,18 +616,13 @@ void addFixItsActionsToMenu(QMenu *menu, const TextEditor::QuickFixOperations &f
     }
 }
 
-static int lineToPosition(const QTextDocument *textDocument, int lineNumber)
-{
-    QTC_ASSERT(textDocument, return 0);
-    const QTextBlock textBlock = textDocument->findBlockByLineNumber(lineNumber);
-    return textBlock.isValid() ? textBlock.position() - 1 : 0;
-}
-
 static TextEditor::AssistInterface createAssistInterface(TextEditor::TextEditorWidget *widget,
                                                          int lineNumber)
 {
-    return TextEditor::AssistInterface(widget->document(),
-                                       lineToPosition(widget->document(), lineNumber),
+    QTextCursor cursor(widget->document()->findBlockByLineNumber(lineNumber));
+    if (!cursor.atStart())
+        cursor.movePosition(QTextCursor::PreviousCharacter);
+    return TextEditor::AssistInterface(cursor,
                                        widget->textDocument()->filePath(),
                                        TextEditor::IdleEditor);
 }

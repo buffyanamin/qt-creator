@@ -1285,6 +1285,7 @@ public:
 
     QHash<TextDocument *, HighlightingData> highlightingData;
     QHash<Utils::FilePath, CppEditor::BaseEditorDocumentParser::Configuration> parserConfigs;
+    QHash<Utils::FilePath, Tasks> issuePaneEntries;
 
     VersionedDataCache<const TextDocument *, AstNode> astCache;
     VersionedDataCache<Utils::FilePath, AstNode> externalAstCache;
@@ -1428,12 +1429,31 @@ private:
         return nullptr;
     }
 
-    void handleProposalReady(const QuickFixOperations &ops) override
+    TextEditor::GenericProposal *handleCodeActionResult(const CodeActionResult &result) override
     {
-        // Step 3: Merge the results upon callback from clangd.
-        for (const auto &op : ops)
-            op->setDescription("clangd: " + op->description());
-        setAsyncProposalAvailable(GenericProposal::createProposal(m_interface, ops + m_builtinOps));
+        auto toOperation =
+            [=](const Utils::variant<Command, CodeAction> &item) -> QuickFixOperation * {
+            if (auto action = Utils::get_if<CodeAction>(&item)) {
+                const Utils::optional<QList<Diagnostic>> diagnostics = action->diagnostics();
+                if (!diagnostics.has_value() || diagnostics->isEmpty())
+                    return new CodeActionQuickFixOperation(*action, client());
+            }
+            if (auto command = Utils::get_if<Command>(&item))
+                return new CommandQuickFixOperation(*command, client());
+            return nullptr;
+        };
+
+        if (auto list = Utils::get_if<QList<Utils::variant<Command, CodeAction>>>(&result)) {
+            QuickFixOperations ops;
+            for (const Utils::variant<Command, CodeAction> &item : *list) {
+                if (QuickFixOperation *op = toOperation(item)) {
+                    op->setDescription("clangd: " + op->description());
+                    ops << op;
+                }
+            }
+            return GenericProposal::createProposal(m_interface, ops + m_builtinOps);
+        }
+        return nullptr;
     }
 
     QuickFixOperations m_builtinOps;
@@ -1675,8 +1695,10 @@ void ClangdClient::handleDiagnostics(const PublishDiagnosticsParams &params)
         const ClangdDiagnostic clangdDiagnostic(diagnostic);
         const auto codeActions = clangdDiagnostic.codeActions();
         if (codeActions && !codeActions->isEmpty()) {
-            for (const CodeAction &action : *codeActions)
+            for (CodeAction action : *codeActions) {
+                action.setDiagnostics({diagnostic});
                 LanguageClient::updateCodeActionRefactoringMarker(this, action, uri);
+            }
         } else {
             // We know that there's only one kind of diagnostic for which clangd has
             // a quickfix tweak, so let's not be wasteful.
@@ -1717,13 +1739,30 @@ const LanguageClient::Client::CustomInspectorTabs ClangdClient::createCustomInsp
 
 class ClangdDiagnosticManager : public LanguageClient::DiagnosticManager
 {
-public:
     using LanguageClient::DiagnosticManager::DiagnosticManager;
+
+    ClangdClient *getClient() const { return qobject_cast<ClangdClient *>(client()); }
+
+    bool isCurrentDocument(const Utils::FilePath &filePath) const
+    {
+        const IDocument * const doc = EditorManager::currentDocument();
+        return doc && doc->filePath() == filePath;
+    }
+
+    void showDiagnostics(const DocumentUri &uri, int version) override
+    {
+        const Utils::FilePath filePath = uri.toFilePath();
+        getClient()->clearTasks(filePath);
+        DiagnosticManager::showDiagnostics(uri, version);
+        if (isCurrentDocument(filePath))
+            getClient()->switchIssuePaneEntries(filePath);
+    }
 
     void hideDiagnostics(const Utils::FilePath &filePath) override
     {
         DiagnosticManager::hideDiagnostics(filePath);
-        TaskHub::clearTasks(Constants::TASK_CATEGORY_DIAGNOSTICS);
+        if (isCurrentDocument(filePath))
+            TaskHub::clearTasks(Constants::TASK_CATEGORY_DIAGNOSTICS);
     }
 
     QList<Diagnostic> filteredDiagnostics(const QList<Diagnostic> &diagnostics) const override
@@ -1739,7 +1778,7 @@ public:
                              const Diagnostic &diagnostic,
                              bool isProjectFile) const override
     {
-        return new ClangdTextMark(filePath, diagnostic, isProjectFile, client());
+        return new ClangdTextMark(filePath, diagnostic, isProjectFile, getClient());
     }
 };
 
@@ -1935,6 +1974,24 @@ void ClangdClient::updateParserConfig(const Utils::FilePath &filePath,
     DidChangeConfigurationParams configChangeParams;
     configChangeParams.setSettings(settings);
     sendContent(DidChangeConfigurationNotification(configChangeParams));
+}
+
+void ClangdClient::switchIssuePaneEntries(const Utils::FilePath &filePath)
+{
+    TaskHub::clearTasks(Constants::TASK_CATEGORY_DIAGNOSTICS);
+    const Tasks tasks = d->issuePaneEntries.value(filePath);
+    for (const Task &t : tasks)
+        TaskHub::addTask(t);
+}
+
+void ClangdClient::addTask(const ProjectExplorer::Task &task)
+{
+    d->issuePaneEntries[task.file] << task;
+}
+
+void ClangdClient::clearTasks(const Utils::FilePath &filePath)
+{
+    d->issuePaneEntries[filePath].clear();
 }
 
 void ClangdClient::Private::handleFindUsagesResult(quint64 key, const QList<Location> &locations)
@@ -2771,6 +2828,13 @@ QTextCursor ClangdClient::Private::adjustedCursor(const QTextCursor &cursor,
             QTextCursor c = cursor;
             c.setPosition(posForToken(destrAst->tilde_token));
             return c;
+        }
+
+        // QVector<QString|>
+        if (const TemplateIdAST * const templAst = (*it)->asTemplateId()) {
+            if (posForToken(templAst->greater_token) == cursor.position())
+                return leftMovedCursor();
+            return cursor;
         }
     }
     return cursor;

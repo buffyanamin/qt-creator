@@ -108,11 +108,26 @@ VcsCommand *VcsBaseClientImpl::createCommand(const FilePath &workingDirectory,
     return cmd;
 }
 
+VcsCommand *VcsBaseClientImpl::execBgCommand(const FilePath &workingDirectory,
+                                             const QStringList &args,
+                                             const std::function<void (const QString &)> &outputCallback,
+                                             unsigned flags) const
+{
+    VcsCommand *cmd = createCommand(workingDirectory);
+    cmd->addFlags(flags
+                  | VcsCommand::SuppressCommandLogging
+                  | VcsCommand::SuppressStdErr
+                  | VcsCommand::SuppressFailMessage);
+    cmd->addJob({vcsBinary(), args});
+    connect(cmd, &VcsCommand::stdOutText, this, outputCallback);
+    cmd->execute();
+    return cmd;
+}
+
 void VcsBaseClientImpl::enqueueJob(VcsCommand *cmd, const QStringList &args,
-                                   const FilePath &workingDirectory,
                                    const ExitCodeInterpreter &interpreter) const
 {
-    cmd->addJob({vcsBinary(), args}, vcsTimeoutS(), workingDirectory, interpreter);
+    cmd->addJob({vcsBinary(), args}, vcsTimeoutS(), {}, interpreter);
     cmd->execute();
 }
 
@@ -412,7 +427,7 @@ void VcsBaseClient::diff(const FilePath &workingDir, const QStringList &files,
                                          : VcsBaseEditor::getCodec(source);
     VcsCommand *command = createCommand(workingDir, editor);
     command->setCodec(codec);
-    enqueueJob(command, args, workingDir, exitCodeInterpreter(DiffCommand));
+    enqueueJob(command, args, exitCodeInterpreter(DiffCommand));
 }
 
 void VcsBaseClient::log(const FilePath &workingDir,
