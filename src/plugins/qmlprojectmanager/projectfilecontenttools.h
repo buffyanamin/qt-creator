@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2022 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of Qt Creator.
@@ -25,46 +25,29 @@
 
 #pragma once
 
-#include <QObject>
-#include <QString>
+#include "qmlprojectmanager_global.h"
 
-#include <ssh/sftpdefs.h>
+#include <projectexplorer/projectmanager.h>
+#include <projectexplorer/session.h>
 
-namespace QSsh {
-class SftpChannel;
-class SshConnection;
-}
+#include <utils/fileutils.h>
 
-namespace RemoteLinux {
-namespace Internal {
+namespace QmlProjectManager {
+namespace ProjectFileContentTools {
 
-class PackageUploader : public QObject
-{
-    Q_OBJECT
-public:
-    explicit PackageUploader(QObject *parent = nullptr);
-    ~PackageUploader() override;
-
-    // Connection has to be established already.
-    void uploadPackage(QSsh::SshConnection *connection,
-        const QString &localFilePath, const QString &remoteFilePath);
-    void cancelUpload();
-
-signals:
-    void progress(const QString &message);
-    void uploadFinished(const QString &errorMsg = QString());
-
-private:
-    enum State { Uploading, Inactive };
-
-    void handleConnectionFailure();
-    void handleUploadDone(const QString &error);
-    void setState(State newState);
-
-    State m_state;
-    QSsh::SshConnection *m_connection;
-    QSsh::SftpTransferPtr m_uploader;
+struct QMLPROJECTMANAGER_EXPORT Resolution {
+    int width;
+    int height;
 };
 
-} // namespace Internal
-} // namespace RemoteLinux
+const Utils::FilePaths QMLPROJECTMANAGER_EXPORT rootCmakeFiles(ProjectExplorer::Project *project = nullptr);
+const QString QMLPROJECTMANAGER_EXPORT readFileContents(const Utils::FilePath &filePath);
+const QString QMLPROJECTMANAGER_EXPORT qdsVersion(const Utils::FilePath &projectFilePath);
+const QString QMLPROJECTMANAGER_EXPORT qtVersion(const Utils::FilePath &projectFilePath);
+const QString QMLPROJECTMANAGER_EXPORT getMainQmlFile(const Utils::FilePath &projectFilePath);
+const QString QMLPROJECTMANAGER_EXPORT appQmlFile(const Utils::FilePath &projectFilePath);
+const Resolution QMLPROJECTMANAGER_EXPORT resolutionFromConstants(const Utils::FilePath &projectFilePath);
+
+} //ProjectFileContentTools
+} //QmlProjectManager
+

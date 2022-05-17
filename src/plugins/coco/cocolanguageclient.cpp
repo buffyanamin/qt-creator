@@ -54,13 +54,17 @@ CocoLanguageClient::CocoLanguageClient(const FilePath &coco, const FilePath &csm
     connect(EditorManager::instance(),
             &EditorManager::documentOpened,
             this,
-            &CocoLanguageClient::handleDocumentOpened);
+            &CocoLanguageClient::onDocumentOpened);
     connect(EditorManager::instance(),
             &EditorManager::documentClosed,
             this,
-            &CocoLanguageClient::handleDocumentClosed);
+            &CocoLanguageClient::onDocumentClosed);
+    connect(EditorManager::instance(),
+            &EditorManager::editorOpened,
+            this,
+            &CocoLanguageClient::handleEditorOpened);
     for (IDocument *openDocument : DocumentModel::openedDocuments())
-        handleDocumentOpened(openDocument);
+        onDocumentOpened(openDocument);
 
     ClientInfo info;
     info.setName("CocoQtCreator");
@@ -68,6 +72,15 @@ CocoLanguageClient::CocoLanguageClient(const FilePath &coco, const FilePath &csm
     setClientInfo(info);
 
     initClientCapabilities();
+}
+
+CocoLanguageClient::~CocoLanguageClient()
+{
+    const QList<Core::IEditor *> &editors = Core::DocumentModel::editorsForOpenedDocuments();
+    for (Core::IEditor *editor : editors) {
+        if (auto textEditor = qobject_cast<TextEditor::BaseTextEditor *>(editor))
+            textEditor->editorWidget()->removeHoverHandler(hoverHandler());
+    }
 }
 
 BaseClientInterface *CocoLanguageClient::clientInterface(const FilePath &coco,
@@ -207,6 +220,15 @@ DiagnosticManager *CocoLanguageClient::createDiagnosticManager()
     return new CocoDiagnosticManager(this);
 }
 
+void CocoLanguageClient::handleDiagnostics(const PublishDiagnosticsParams &params)
+{
+    using namespace TextEditor;
+    Client::handleDiagnostics(params);
+    TextDocument *document = documentForFilePath(params.uri().toFilePath());
+    for (BaseTextEditor *editor : BaseTextEditor::textEditorsForDocument(document))
+        editor->editorWidget()->addHoverHandler(hoverHandler());
+}
+
 class CocoTextDocumentCapabilities : public TextDocumentClientCapabilities
 {
 public:
@@ -228,16 +250,24 @@ void CocoLanguageClient::initClientCapabilities()
     setClientCapabilities(capabilities);
 }
 
-void CocoLanguageClient::handleDocumentOpened(IDocument *document)
+void CocoLanguageClient::onDocumentOpened(IDocument *document)
 {
     if (auto textDocument = qobject_cast<TextEditor::TextDocument *>(document))
         openDocument(textDocument);
 }
 
-void CocoLanguageClient::handleDocumentClosed(IDocument *document)
+void CocoLanguageClient::onDocumentClosed(IDocument *document)
 {
     if (auto textDocument = qobject_cast<TextEditor::TextDocument *>(document))
         closeDocument(textDocument);
+}
+
+void CocoLanguageClient::handleEditorOpened(IEditor *editor)
+{
+    if (auto textEditor = qobject_cast<TextEditor::BaseTextEditor *>(editor);
+            textEditor && hasDiagnostics(textEditor->textDocument())) {
+        textEditor->editorWidget()->addHoverHandler(hoverHandler());
+    }
 }
 
 } // namespace Coco
