@@ -3,7 +3,7 @@ import qbs 1.0
 QtcPlugin {
     name: "QmlProjectManager"
 
-    Depends { name: "Qt"; submodules: ["widgets", "network"] }
+    Depends { name: "Qt"; submodules: ["widgets", "network", "quickwidgets"] }
     Depends { name: "QmlJS" }
     Depends { name: "Utils" }
 
@@ -37,6 +37,20 @@ QtcPlugin {
             "filefilteritems.cpp", "filefilteritems.h",
             "qmlprojectfileformat.cpp", "qmlprojectfileformat.h",
             "qmlprojectitem.cpp", "qmlprojectitem.h",
+        ]
+    }
+
+    Group {
+        name: "CMake Generator"
+        prefix: "cmakegen/"
+        files: [
+            "generatecmakelists.cpp", "generatecmakelists.h",
+            "generatecmakelistsconstants.h",
+            "checkablefiletreeitem.cpp", "checkablefiletreeitem.h",
+            "cmakegeneratordialogtreemodel.cpp", "cmakegeneratordialogtreemodel.h",
+            "cmakegeneratordialog.cpp", "cmakegeneratordialog.h",
+            "cmakeprojectconverter.cpp", "cmakeprojectconverter.h",
+            "cmakeprojectconverterdialog.cpp", "cmakeprojectconverterdialog.h",
         ]
     }
 }
