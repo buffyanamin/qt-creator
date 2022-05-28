@@ -24,12 +24,15 @@
 ****************************************************************************/
 
 #include "propertyeditorvalue.h"
+#include "variantproperty.h"
+#include "documentmanager.h"
 
 #include <abstractview.h>
 #include <bindingproperty.h>
 #include <designdocument.h>
-#include <nodeproperty.h>
+#include <nodelistproperty.h>
 #include <nodemetainfo.h>
+#include <nodeproperty.h>
 #include <qmldesignerplugin.h>
 #include <qmlobjectnode.h>
 #include <designermcumanager.h>
@@ -40,6 +43,7 @@
 #include <QRegularExpression>
 #include <QUrl>
 #include <QScopedPointer>
+#include <assetslibrarymodel.h>
 
 //using namespace QmlDesigner;
 
@@ -367,6 +371,18 @@ void PropertyEditorValue::setEnumeration(const QString &scope, const QString &na
     setValueWithEmit(QVariant::fromValue(newEnumeration));
 }
 
+bool PropertyEditorValue::isSupportedDrop(const QString &path)
+{
+    QString suffix = "*." + QFileInfo(path).suffix().toLower();
+
+    if (m_modelNode.isSubclassOf("QtQuick3D.Material") && nameAsQString().endsWith("Map"))
+        return QmlDesigner::AssetsLibraryModel::supportedImageSuffixes().contains(suffix);
+
+    // TODO: handle support for other object properties dnd here (like image source)
+
+    return false;
+}
+
 void PropertyEditorValue::exportPropertyAsAlias()
 {
     emit exportPropertyAsAliasRequested(nameAsQString());
@@ -499,6 +515,29 @@ bool PropertyEditorValue::idListReplace(int idx, const QString &value)
     return true;
 }
 
+void PropertyEditorValue::commitDrop(const QString &path)
+{
+    if (m_modelNode.isSubclassOf("QtQuick3D.Material") && nameAsQString().endsWith("Map")) {
+        // create a texture node
+        QmlDesigner::NodeMetaInfo metaInfo = m_modelNode.view()->model()->metaInfo("QtQuick3D.Texture");
+        QmlDesigner::ModelNode texture = m_modelNode.view()->createModelNode("QtQuick3D.Texture",
+                                                                             metaInfo.majorVersion(),
+                                                                             metaInfo.minorVersion());
+        texture.validId();
+        modelNode().view()->rootModelNode().defaultNodeListProperty().reparentHere(texture);
+        // TODO: group textures under 1 node (just like materials)
+
+        // set texture source
+        Utils::FilePath imagePath = Utils::FilePath::fromString(path);
+        Utils::FilePath currFilePath = QmlDesigner::DocumentManager::currentFilePath();
+        QmlDesigner::VariantProperty srcProp = texture.variantProperty("source");
+        srcProp.setValue(imagePath.relativePath(currFilePath).toUrl());
+
+        // assign the texture to the property
+        setExpressionWithEmit(texture.id());
+    }
+}
+
 QStringList PropertyEditorValue::generateStringList(const QString &string) const
 {
     QString copy = string;
@@ -600,10 +639,10 @@ void PropertyEditorNodeWrapper::remove()
     }
     m_modelNode = QmlDesigner::ModelNode();
 
-    foreach (const QString &propertyName, m_valuesPropertyMap.keys())
+    const QStringList propertyNames = m_valuesPropertyMap.keys();
+    for (const QString &propertyName : propertyNames)
         m_valuesPropertyMap.clear(propertyName);
-    foreach (QObject *object, m_valuesPropertyMap.children())
-        delete object;
+    qDeleteAll(m_valuesPropertyMap.children());
     emit propertiesChanged();
     emit existsChanged();
 }
@@ -633,12 +672,13 @@ void PropertyEditorNodeWrapper::setup()
     Q_ASSERT(m_editorValue->modelNode().isValid());
     if ((m_editorValue->modelNode().isValid() && m_modelNode.isValid())) {
         QmlDesigner::QmlObjectNode qmlObjectNode(m_modelNode);
-        foreach ( const QString &propertyName, m_valuesPropertyMap.keys())
+        const QStringList propertyNames = m_valuesPropertyMap.keys();
+        for (const QString &propertyName : propertyNames)
             m_valuesPropertyMap.clear(propertyName);
-        foreach (QObject *object, m_valuesPropertyMap.children())
-            delete object;
+        qDeleteAll(m_valuesPropertyMap.children());
 
-        foreach (const QmlDesigner::PropertyName &propertyName, m_modelNode.metaInfo().propertyNames()) {
+        const QList<QmlDesigner::PropertyName> propertyNameList = m_modelNode.metaInfo().propertyNames();
+        for (const QmlDesigner::PropertyName &propertyName : propertyNameList) {
             if (qmlObjectNode.isValid()) {
                 auto valueObject = new PropertyEditorValue(&m_valuesPropertyMap);
                 valueObject->setName(propertyName);

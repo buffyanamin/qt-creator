@@ -129,7 +129,7 @@ private:
                             const QList<PropertyName> &propNames,
                             ValuesModifiedCommand::TransactionOption option);
     void updateView3DRect(QObject *view3D);
-    void updateActiveSceneToEditView3D();
+    void updateActiveSceneToEditView3D(bool timerCall = false);
     void removeNode3D(QObject *node);
     void resolveSceneRoots();
     ServerNodeInstance active3DSceneInstance() const;
@@ -139,8 +139,8 @@ private:
     void doRender3DEditView();
     void renderModelNodeImageView();
     void doRenderModelNodeImageView();
-    void doRenderModelNode3DImageView();
-    void doRenderModelNode2DImageView();
+    void doRenderModelNode3DImageView(const RequestModelNodePreviewImageCommand &cmd);
+    void doRenderModelNode2DImageView(const RequestModelNodePreviewImageCommand &cmd);
     void updateLockedAndHiddenStates(const QSet<ServerNodeInstance> &instances);
     void handleInputEvents();
     void resolveImportSupport();
@@ -159,13 +159,12 @@ private:
     RenderViewData m_modelNode2DImageViewData;
 
     bool m_editView3DSetupDone = false;
-    RequestModelNodePreviewImageCommand m_modelNodePreviewImageCommand;
+    QSet<RequestModelNodePreviewImageCommand> m_modelNodePreviewImageCommands;
     QHash<QString, QImage> m_modelNodePreviewImageCache;
     QSet<QObject *> m_view3Ds;
     QMultiHash<QObject *, QObject *> m_3DSceneMap; // key: scene root, value: node
     QObject *m_active3DView = nullptr;
     QObject *m_active3DScene = nullptr;
-    bool m_active3DSceneUpdatePending = false;
     QSet<ServerNodeInstance> m_parentChangedSet;
     QList<ServerNodeInstance> m_completedComponentList;
     QList<TokenCommand> m_tokenList;
@@ -175,6 +174,7 @@ private:
     QTimer m_renderModelNodeImageViewTimer;
     QTimer m_inputEventTimer;
     QTimer m_dynamicAddObjectTimer;
+    QTimer m_activeSceneIdUpdateTimer;
 #ifdef QUICK3D_PARTICLES_MODULE
     bool m_particleAnimationPlaying = true;
     AnimationDriver *m_particleAnimationDriver = nullptr;

@@ -27,7 +27,7 @@
 
 #include "utils_global.h"
 
-#include "fileutils.h"
+#include "filepath.h"
 #include "hostosinfo.h"
 
 #include <QStringList>
@@ -143,11 +143,13 @@ public:
 
     void addArg(const QString &arg);
     void addArgs(const QStringList &inArgs);
+    void addArgs(const QString &inArgs, RawType);
+
+    void prependArgs(const QStringList &inArgs);
+    void prependArgs(const QString &inArgs, RawType);
 
     void addCommandLineAsArgs(const CommandLine &cmd);
     void addCommandLineAsArgs(const CommandLine &cmd, RawType);
-
-    void addArgs(const QString &inArgs, RawType);
 
     QString toUserOutput() const;
 

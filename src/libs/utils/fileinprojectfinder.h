@@ -25,14 +25,17 @@
 
 #pragma once
 
-#include <utils/utils_global.h>
-#include <utils/fileutils.h>
+#include "utils_global.h"
+
+#include "filepath.h"
 
 #include <QHash>
 #include <QSharedPointer>
 #include <QStringList>
 
-QT_FORWARD_DECLARE_CLASS(QUrl)
+QT_BEGIN_NAMESPACE
+class QUrl;
+QT_END_NAMESPACE
 
 namespace Utils {
 class QrcParser;

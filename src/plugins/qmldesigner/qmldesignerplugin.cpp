@@ -369,7 +369,8 @@ static QStringList allUiQmlFilesforCurrentProject(const Utils::FilePath &fileNam
     ProjectExplorer::Project *currentProject = ProjectExplorer::SessionManager::projectForFile(fileName);
 
     if (currentProject) {
-        foreach (const Utils::FilePath &fileName, currentProject->files(ProjectExplorer::Project::SourceFiles)) {
+        const QList<Utils::FilePath> fileNames = currentProject->files(ProjectExplorer::Project::SourceFiles);
+        for (const Utils::FilePath &fileName : fileNames) {
             if (fileName.endsWith(".ui.qml"))
                 list.append(fileName.toString());
         }
@@ -477,6 +478,8 @@ void QmlDesignerPlugin::showDesigner()
     }
 
     d->shortCutManager.updateUndoActions(currentDesignDocument());
+
+    m_usageTimer.restart();
 }
 
 void QmlDesignerPlugin::hideDesigner()
@@ -489,6 +492,7 @@ void QmlDesignerPlugin::hideDesigner()
     d->shortCutManager.disconnectUndoActions(currentDesignDocument());
     d->documentManager.setCurrentDesignDocument(nullptr);
     d->shortCutManager.updateUndoActions(nullptr);
+    emitUsageStatisticsTime(QmlDesigner::Constants::EVENT_DESIGNMODE_TIME, m_usageTimer.elapsed());
 }
 
 void QmlDesignerPlugin::changeEditor()
@@ -668,6 +672,38 @@ AsynchronousImageCache &QmlDesignerPlugin::imageCache()
 void QmlDesignerPlugin::registerPreviewImageProvider(QQmlEngine *engine)
 {
     m_instance->d->projectManager.registerPreviewImageProvider(engine);
+}
+
+
+bool isParent(QWidget *parent, QWidget *widget)
+{
+    if (!widget)
+        return false;
+
+    if (widget == parent)
+        return true;
+
+    return isParent(parent, widget->parentWidget());
+}
+
+void QmlDesignerPlugin::trackWidgetFocusTime(QWidget *widget, const QString &identifier)
+{
+    connect(qApp,
+            &QApplication::focusChanged,
+            widget,
+            [widget, identifier](QWidget *from, QWidget *to) {
+                static QElapsedTimer widgetUsageTimer;
+                static QString lastIdentifier;
+                if (isParent(widget, to)) {
+                    if (!lastIdentifier.isEmpty())
+                        emitUsageStatisticsTime(lastIdentifier, widgetUsageTimer.elapsed());
+                    widgetUsageTimer.restart();
+                    lastIdentifier = identifier;
+                } else if (isParent(widget, from) && lastIdentifier == identifier) {
+                    emitUsageStatisticsTime(identifier, widgetUsageTimer.elapsed());
+                    lastIdentifier.clear();
+                }
+            });
 }
 
 void QmlDesignerPlugin::emitUsageStatisticsTime(const QString &identifier, int elapsed)

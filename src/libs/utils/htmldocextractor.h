@@ -27,6 +27,10 @@
 
 #include "utils_global.h"
 
+QT_BEGIN_NAMESPACE
+class QString;
+QT_END_NAMESPACE
+
 namespace Utils {
 
 class QTCREATOR_UTILS_EXPORT HtmlDocExtractor

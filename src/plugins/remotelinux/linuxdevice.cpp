@@ -40,10 +40,9 @@
 #include <coreplugin/messagemanager.h>
 
 #include <projectexplorer/devicesupport/sshdeviceprocesslist.h>
+#include <projectexplorer/devicesupport/sshparameters.h>
+#include <projectexplorer/devicesupport/sshsettings.h>
 #include <projectexplorer/runcontrol.h>
-
-#include <ssh/sshconnection.h>
-#include <ssh/sshsettings.h>
 
 #include <utils/algorithm.h>
 #include <utils/environment.h>
@@ -65,7 +64,6 @@
 #include <QTimer>
 
 using namespace ProjectExplorer;
-using namespace QSsh;
 using namespace Utils;
 
 namespace RemoteLinux {
@@ -86,10 +84,10 @@ class SshSharedConnection : public QObject
     Q_OBJECT
 
 public:
-    explicit SshSharedConnection(const SshConnectionParameters &sshParameters, QObject *parent = nullptr);
+    explicit SshSharedConnection(const SshParameters &sshParameters, QObject *parent = nullptr);
     ~SshSharedConnection() override;
 
-    SshConnectionParameters sshParameters() const { return m_sshParameters; }
+    SshParameters sshParameters() const { return m_sshParameters; }
     void ref();
     void deref();
     void makeStale();
@@ -122,7 +120,7 @@ private:
     QStringList connectionArgs(const FilePath &binary) const
     { return connectionOptions(binary) << m_sshParameters.host(); }
 
-    const SshConnectionParameters m_sshParameters;
+    const SshParameters m_sshParameters;
     std::unique_ptr<QtcProcess> m_masterProcess;
     std::unique_ptr<QTemporaryDir> m_masterSocketDir;
     QTimer m_timer;
@@ -131,7 +129,7 @@ private:
     QProcess::ProcessState m_state = QProcess::NotRunning;
 };
 
-SshSharedConnection::SshSharedConnection(const SshConnectionParameters &sshParameters, QObject *parent)
+SshSharedConnection::SshSharedConnection(const SshParameters &sshParameters, QObject *parent)
     : QObject(parent), m_sshParameters(sshParameters)
 {
 }
@@ -189,7 +187,7 @@ void SshSharedConnection::connectToHost()
     }
 
     m_masterProcess.reset(new QtcProcess);
-    SshConnectionParameters::setupSshEnvironment(m_masterProcess.get());
+    SshParameters::setupSshEnvironment(m_masterProcess.get());
     m_timer.setSingleShot(true);
     connect(&m_timer, &QTimer::timeout, this, &SshSharedConnection::autoDestructRequested);
     connect(m_masterProcess.get(), &QtcProcess::readyReadStandardOutput, [this] {
@@ -383,7 +381,7 @@ public:
     QByteArray outputForRunInShell(const QString &cmd);
     QByteArray outputForRunInShell(const CommandLine &cmd);
     void attachToSharedConnection(SshConnectionHandle *connectionHandle,
-                                  const SshConnectionParameters &sshParameters);
+                                  const SshParameters &sshParameters);
 
     LinuxDevice *q = nullptr;
     QThread m_shellThread;
@@ -426,7 +424,7 @@ public:
     LinuxDevicePrivate *m_devicePrivate = nullptr;
 
     QString m_socketFilePath;
-    SshConnectionParameters m_sshParameters;
+    SshParameters m_sshParameters;
     bool m_connecting = false;
     bool m_killed = false;
 
@@ -720,7 +718,7 @@ void SshProcessInterfacePrivate::doStart()
     m_process.setTerminalMode(q->m_setup.m_terminalMode);
     m_process.setWriteData(q->m_setup.m_writeData);
     // TODO: what about other fields from m_setup?
-    SshConnectionParameters::setupSshEnvironment(&m_process);
+    SshParameters::setupSshEnvironment(&m_process);
     if (!m_sshParameters.x11DisplayName.isEmpty()) {
         Environment env = m_process.controlEnvironment();
         // Note: it seems this is no-op when shared connection is used.
@@ -760,9 +758,9 @@ CommandLine SshProcessInterfacePrivate::fullLocalCommandLine() const
 
 // ShellThreadHandler
 
-static SshConnectionParameters displayless(const SshConnectionParameters &sshParameters)
+static SshParameters displayless(const SshParameters &sshParameters)
 {
-    SshConnectionParameters parameters = sshParameters;
+    SshParameters parameters = sshParameters;
     parameters.x11DisplayName.clear();
     return parameters;
 }
@@ -786,13 +784,13 @@ public:
     }
 
     // Call me with shell mutex locked
-    bool start(const SshConnectionParameters &parameters)
+    bool start(const SshParameters &parameters)
     {
         closeShell();
         setSshParameters(parameters);
         m_shell.reset(new QtcProcess);
 
-        SshConnectionParameters::setupSshEnvironment(m_shell.get());
+        SshParameters::setupSshEnvironment(m_shell.get());
 
         const FilePath sshPath = SshSettings::sshFilePath();
         CommandLine cmd { sshPath };
@@ -871,10 +869,10 @@ public:
         return output;
     }
 
-    void setSshParameters(const SshConnectionParameters &sshParameters)
+    void setSshParameters(const SshParameters &sshParameters)
     {
         QMutexLocker locker(&m_mutex);
-        const SshConnectionParameters displaylessSshParameters = displayless(sshParameters);
+        const SshParameters displaylessSshParameters = displayless(sshParameters);
 
         if (m_displaylessSshParameters == displaylessSshParameters)
             return;
@@ -888,7 +886,7 @@ public:
     }
 
     QString attachToSharedConnection(SshConnectionHandle *connectionHandle,
-                                     const SshConnectionParameters &sshParameters)
+                                     const SshParameters &sshParameters)
     {
         setSshParameters(sshParameters);
 
@@ -938,7 +936,7 @@ public:
     }
 
     // Call me with shell mutex locked, called from other thread
-    bool isRunning(const SshConnectionParameters &sshParameters) const
+    bool isRunning(const SshParameters &sshParameters) const
     {
         if (!m_shell)
            return false;
@@ -949,7 +947,7 @@ public:
     }
 private:
     mutable QMutex m_mutex;
-    SshConnectionParameters m_displaylessSshParameters;
+    SshParameters m_displaylessSshParameters;
     QList<SshSharedConnection *> m_connections;
     std::unique_ptr<QtcProcess> m_shell;
 };
@@ -1143,7 +1141,7 @@ LinuxDevicePrivate::~LinuxDevicePrivate()
 // Call me with shell mutex locked
 bool LinuxDevicePrivate::setupShell()
 {
-    const SshConnectionParameters sshParameters = q->sshParameters();
+    const SshParameters sshParameters = q->sshParameters();
     if (m_handler->isRunning(sshParameters))
         return true;
 
@@ -1186,7 +1184,7 @@ QByteArray LinuxDevicePrivate::outputForRunInShell(const CommandLine &cmd)
 }
 
 void LinuxDevicePrivate::attachToSharedConnection(SshConnectionHandle *connectionHandle,
-                                                  const SshConnectionParameters &sshParameters)
+                                                  const SshParameters &sshParameters)
 {
     QString socketFilePath;
     QMetaObject::invokeMethod(m_handler, [this, connectionHandle, sshParameters] {
@@ -1481,7 +1479,7 @@ protected:
         : m_method(method)
         , m_process(this)
     {
-        SshConnectionParameters::setupSshEnvironment(&m_process);
+        SshParameters::setupSshEnvironment(&m_process);
         connect(&m_process, &QtcProcess::readyReadStandardOutput, this, [this] {
             emit progress(QString::fromLocal8Bit(m_process.readAllStandardOutput()));
         });
@@ -1507,6 +1505,7 @@ protected:
         } else {
             return false;
         }
+        emit done(resultData);
         return true;
     }
 
@@ -1582,7 +1581,7 @@ private:
         m_process.setStandardInputFile(m_batchFile->fileName());
 
         // TODO: Add support for shared ssh connection
-        const SshConnectionParameters params = displayless(m_device->sshParameters());
+        const SshParameters params = displayless(m_device->sshParameters());
         m_process.setCommand(CommandLine(sftpBinary,
                                          params.connectionOptions(sftpBinary) << params.host()));
         m_process.start();
@@ -1597,7 +1596,7 @@ class RsyncTransferImpl : public FileTransferInterface
 {
 public:
     RsyncTransferImpl(const QString &flags)
-        : FileTransferInterface(FileTransferMethod::Sftp)
+        : FileTransferInterface(FileTransferMethod::Rsync)
         , m_flags(flags)
     { }
 
@@ -1624,7 +1623,7 @@ private:
     {
         m_process.close();
 
-        const SshConnectionParameters parameters = displayless(m_device->sshParameters());
+        const SshParameters parameters = displayless(m_device->sshParameters());
         const QStringList connectionOptions // TODO: add shared connection here
                 = parameters.connectionOptions(SshSettings::sshFilePath());
         const QString sshCmdLine = ProcessArgs::joinArgs(
@@ -1649,7 +1648,7 @@ private:
     }
 
     // On Windows, rsync is either from msys or cygwin. Neither work with the other's ssh.exe.
-    FileToTransfer fixLocalFileOnWindows(const FileToTransfer &file, const QStringList &options)
+    FileToTransfer fixLocalFileOnWindows(const FileToTransfer &file, const QStringList &options) const
     {
         if (!HostOsInfo::isWindowsHost())
             return file;
@@ -1668,7 +1667,7 @@ private:
         return fixedFile;
     }
 
-    QPair<QString, QString> fixPaths(const FileToTransfer &file, const QString &remoteHost)
+    QPair<QString, QString> fixPaths(const FileToTransfer &file, const QString &remoteHost) const
     {
         FilePath localPath;
         FilePath remotePath;
@@ -1698,7 +1697,7 @@ class FileTransferPrivate : public QObject
 public:
     void test() { run(TestRun); }
     void start() { run(NormalRun); }
-    void stop() { m_transfer.reset(); }
+    void stop();
 
     FileTransferMethod m_method = FileTransferMethod::Default;
     IDevice::ConstPtr m_device;
@@ -1720,6 +1719,19 @@ private:
 
     std::unique_ptr<FileTransferInterface> m_transfer;
 };
+
+void FileTransferPrivate::stop()
+{
+    if (!m_transfer)
+        return;
+    m_transfer->disconnect();
+    m_transfer.release()->deleteLater();
+}
+
+void FileTransferPrivate::startFailed(const QString &errorString)
+{
+    emit done({0, QProcess::NormalExit, QProcess::FailedToStart, errorString});
+}
 
 void FileTransferPrivate::run(RunMode mode)
 {
@@ -1746,7 +1758,8 @@ void FileTransferPrivate::run(RunMode mode)
         m_transfer.reset(new RsyncTransferImpl(m_rsyncFlags));
         break;
     }
-    QTC_ASSERT(m_transfer, startFailed(tr("Missing transfer implementation.")));
+    QTC_ASSERT(m_transfer, startFailed(tr("Missing transfer implementation.")); return);
+    m_transfer->setParent(this);
     m_transfer->setDevice(m_device);
     if (mode == NormalRun)
         m_transfer->setFilesToTransfer(m_files, direction);
@@ -1755,11 +1768,6 @@ void FileTransferPrivate::run(RunMode mode)
     connect(m_transfer.get(), &FileTransferInterface::done,
             this, &FileTransferPrivate::done);
     m_transfer->start();
-}
-
-void FileTransferPrivate::startFailed(const QString &errorString)
-{
-    emit done({0, QProcess::NormalExit, QProcess::FailedToStart, errorString});
 }
 
 FileTransfer::FileTransfer()

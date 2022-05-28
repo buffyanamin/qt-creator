@@ -28,6 +28,7 @@
 #include "ui_clangprojectsettingswidget.h"
 
 #include "clangprojectsettings.h"
+#include <projectexplorer/projectsettingswidget.h>
 
 #include <QPointer>
 
@@ -36,7 +37,7 @@ namespace ProjectExplorer { class Project; }
 namespace ClangCodeModel {
 namespace Internal {
 
-class ClangProjectSettingsWidget: public QWidget
+class ClangProjectSettingsWidget: public ProjectExplorer::ProjectSettingsWidget
 {
     Q_OBJECT
 
@@ -45,11 +46,10 @@ public:
 
 private:
     void onDelayedTemplateParseClicked(bool);
-    void onGlobalCustomChanged(int index);
+    void onGlobalCustomChanged(bool useGlobalSettings);
     void onAboutToSaveProjectSettings();
 
     void syncWidgets();
-    void syncGlobalCustomComboBox();
     void syncOtherWidgetsToComboBox();
 
 private:

@@ -27,37 +27,6 @@
     <number>0</number>
    </property>
    <item>
-    <layout class="QHBoxLayout" name="horizontalLayout">
-     <item>
-      <widget class="QComboBox" name="globalOrCustomComboBox">
-       <property name="sizePolicy">
-        <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
-         <horstretch>0</horstretch>
-         <verstretch>0</verstretch>
-        </sizepolicy>
-       </property>
-       <item>
-        <property name="text">
-         <string>Use Global Settings</string>
-        </property>
-       </item>
-       <item>
-        <property name="text">
-         <string>Use Customized Settings</string>
-        </property>
-       </item>
-      </widget>
-     </item>
-     <item>
-      <widget class="QLabel" name="gotoGlobalSettingsLabel">
-       <property name="text">
-        <string>&lt;a href=&quot;target&quot;&gt;Open Global Settings&lt;/a&gt;</string>
-       </property>
-      </widget>
-     </item>
-    </layout>
-   </item>
-   <item>
     <widget class="QCheckBox" name="delayedTemplateParseCheckBox">
      <property name="toolTip">
       <string>Parse templates in a MSVC-compliant way. This helps to parse headers for example from Active Template Library (ATL) or Windows Runtime Library (WRL).

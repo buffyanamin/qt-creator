@@ -25,7 +25,8 @@
 
 #pragma once
 
-#include "fileutils.h"
+#include "utils_global.h"
+
 #include "hostosinfo.h"
 #include "namevalueitem.h"
 

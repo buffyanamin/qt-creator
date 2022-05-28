@@ -26,9 +26,9 @@
 #include "cppcodemodelsettingspage.h"
 #include "ui_cppcodemodelsettingspage.h"
 
+#include "clangdiagnosticconfigsselectionwidget.h"
 #include "clangdiagnosticconfigswidget.h"
 #include "cppeditorconstants.h"
-#include "cppmodelmanager.h"
 #include "cpptoolsreuse.h"
 
 #include <coreplugin/icore.h>
@@ -67,10 +67,8 @@ private:
     void apply() final;
 
     void setupGeneralWidgets();
-    void setupClangCodeModelWidgets();
 
     bool applyGeneralWidgetsToSettings() const;
-    bool applyClangCodeModelWidgetsToSettings() const;
 
     Ui::CppCodeModelSettingsPage *m_ui = nullptr;
     CppCodeModelSettings *m_settings = nullptr;
@@ -84,7 +82,6 @@ CppCodeModelSettingsWidget::CppCodeModelSettingsWidget(CppCodeModelSettings *s)
     m_settings = s;
 
     setupGeneralWidgets();
-    setupClangCodeModelWidgets();
 }
 
 CppCodeModelSettingsWidget::~CppCodeModelSettingsWidget()
@@ -94,33 +91,8 @@ CppCodeModelSettingsWidget::~CppCodeModelSettingsWidget()
 
 void CppCodeModelSettingsWidget::apply()
 {
-    bool changed = false;
-
-    changed |= applyGeneralWidgetsToSettings();
-    changed |= applyClangCodeModelWidgetsToSettings();
-
-    if (changed)
+    if (applyGeneralWidgetsToSettings())
         m_settings->toSettings(Core::ICore::settings());
-}
-
-void CppCodeModelSettingsWidget::setupClangCodeModelWidgets()
-{
-    m_ui->clangDiagnosticConfigsSelectionWidget
-        ->refresh(diagnosticConfigsModel(),
-                  m_settings->clangDiagnosticConfigId(),
-                  [](const ClangDiagnosticConfigs &configs, const Utils::Id &configToSelect) {
-                      return new ClangDiagnosticConfigsWidget(configs, configToSelect);
-                  });
-
-    const bool isClangActive = CppModelManager::instance()->isClangCodeModelActive();
-    m_ui->clangCodeModelIsDisabledHint->setVisible(!isClangActive);
-    m_ui->clangCodeModelIsEnabledHint->setVisible(isClangActive);
-
-    for (int i = 0; i < m_ui->clangDiagnosticConfigsSelectionWidget->layout()->count(); ++i) {
-        QWidget *widget = m_ui->clangDiagnosticConfigsSelectionWidget->layout()->itemAt(i)->widget();
-        if (widget)
-            widget->setEnabled(isClangActive);
-    }
 }
 
 void CppCodeModelSettingsWidget::setupGeneralWidgets()
@@ -133,28 +105,6 @@ void CppCodeModelSettingsWidget::setupGeneralWidgets()
 
     const bool ignorePch = m_settings->pchUsage() == CppCodeModelSettings::PchUse_None;
     m_ui->ignorePCHCheckBox->setChecked(ignorePch);
-}
-
-bool CppCodeModelSettingsWidget::applyClangCodeModelWidgetsToSettings() const
-{
-    bool changed = false;
-
-    const Utils::Id oldConfigId = m_settings->clangDiagnosticConfigId();
-    const Utils::Id currentConfigId = m_ui->clangDiagnosticConfigsSelectionWidget->currentConfigId();
-    if (oldConfigId != currentConfigId) {
-        m_settings->setClangDiagnosticConfigId(currentConfigId);
-        changed = true;
-    }
-
-    const ClangDiagnosticConfigs oldConfigs = m_settings->clangCustomDiagnosticConfigs();
-    const ClangDiagnosticConfigs currentConfigs = m_ui->clangDiagnosticConfigsSelectionWidget
-                                                      ->customConfigs();
-    if (oldConfigs != currentConfigs) {
-        m_settings->setClangCustomDiagnosticConfigs(currentConfigs);
-        changed = true;
-    }
-
-    return changed;
 }
 
 bool CppCodeModelSettingsWidget::applyGeneralWidgetsToSettings() const
@@ -215,6 +165,7 @@ public:
     QSpinBox sizeThresholdSpinBox;
     Utils::PathChooser clangdChooser;
     Utils::InfoLabel versionWarningLabel;
+    ClangDiagnosticConfigsSelectionWidget *configSelectionWidget = nullptr;
     QGroupBox *sessionsGroupBox = nullptr;
     QStringListModel sessionsModel;
 };
@@ -283,8 +234,15 @@ ClangdSettingsWidget::ClangdSettingsWidget(const ClangdSettings::Data &settingsD
     sizeThresholdLayout->addWidget(&d->sizeThresholdSpinBox);
     sizeThresholdLayout->addStretch(1);
     formLayout->addRow(&d->sizeThresholdCheckBox, sizeThresholdLayout);
-    layout->addLayout(formLayout);
+    d->configSelectionWidget = new ClangDiagnosticConfigsSelectionWidget(formLayout);
+    d->configSelectionWidget->refresh(
+                diagnosticConfigsModel(settings.customDiagnosticConfigs()),
+                settings.diagnosticConfigId(),
+                [](const ClangDiagnosticConfigs &configs, const Utils::Id &configToSelect) {
+                    return new CppEditor::ClangDiagnosticConfigsWidget(configs, configToSelect);
+                });
 
+    layout->addLayout(formLayout);
     if (!isForProject) {
         d->sessionsModel.setStringList(settingsData.sessionsWithOneClangd);
         d->sessionsModel.sort(0);
@@ -427,6 +385,8 @@ ClangdSettingsWidget::ClangdSettingsWidget(const ClangdSettings::Data &settingsD
             this, &ClangdSettingsWidget::settingsDataChanged);
     connect(&d->clangdChooser, &Utils::PathChooser::pathChanged,
             this, &ClangdSettingsWidget::settingsDataChanged);
+    connect(d->configSelectionWidget, &ClangDiagnosticConfigsSelectionWidget::changed,
+            this, &ClangdSettingsWidget::settingsDataChanged);
 }
 
 ClangdSettingsWidget::~ClangdSettingsWidget()
@@ -446,6 +406,8 @@ ClangdSettings::Data ClangdSettingsWidget::settingsData() const
     data.sizeThresholdEnabled = d->sizeThresholdCheckBox.isChecked();
     data.sizeThresholdInKb = d->sizeThresholdSpinBox.value();
     data.sessionsWithOneClangd = d->sessionsModel.stringList();
+    data.customDiagnosticConfigs = d->configSelectionWidget->customConfigs();
+    data.diagnosticConfigId = d->configSelectionWidget->currentConfigId();
     return data;
 }
 
@@ -488,43 +450,35 @@ public:
 ClangdProjectSettingsWidget::ClangdProjectSettingsWidget(const ClangdProjectSettings &settings)
     : d(new Private(settings))
 {
+    setGlobalSettingsId(Constants::CPP_CLANGD_SETTINGS_ID);
     const auto layout = new QVBoxLayout(this);
     layout->setContentsMargins(0, 0, 0, 0);
-    const auto globalSettingsLayout = new QHBoxLayout;
-    globalSettingsLayout->addWidget(&d->useGlobalSettingsCheckBox);
-    const auto globalSettingsLabel = new QLabel("Use <a href=\"dummy\">global settings</a>");
-    connect(globalSettingsLabel, &QLabel::linkActivated,
-            this, [] { Core::ICore::showOptionsDialog(Constants::CPP_CLANGD_SETTINGS_ID); });
-    globalSettingsLayout->addWidget(globalSettingsLabel);
-    globalSettingsLayout->addStretch(1);
-    layout->addLayout(globalSettingsLayout);
-
-    const auto separator = new QFrame;
-    separator->setFrameShape(QFrame::HLine);
-    layout->addWidget(separator);
     layout->addWidget(&d->widget);
 
     const auto updateGlobalSettingsCheckBox = [this] {
         if (ClangdSettings::instance().granularity() == ClangdSettings::Granularity::Session) {
-            d->useGlobalSettingsCheckBox.setEnabled(false);
-            d->useGlobalSettingsCheckBox.setChecked(true);
+            setUseGlobalSettingsCheckBoxEnabled(false);
+            setUseGlobalSettings(true);
         } else {
-            d->useGlobalSettingsCheckBox.setEnabled(true);
-            d->useGlobalSettingsCheckBox.setChecked(d->settings.useGlobalSettings());
+            setUseGlobalSettingsCheckBoxEnabled(true);
+            setUseGlobalSettings(d->settings.useGlobalSettings());
         }
-        d->widget.setEnabled(!d->useGlobalSettingsCheckBox.isChecked());
+        d->widget.setEnabled(!useGlobalSettings());
     };
+
     updateGlobalSettingsCheckBox();
     connect(&ClangdSettings::instance(), &ClangdSettings::changed,
             this, updateGlobalSettingsCheckBox);
 
-    connect(&d->useGlobalSettingsCheckBox, &QCheckBox::clicked, [this](bool checked) {
-        d->widget.setEnabled(!checked);
-        d->settings.setUseGlobalSettings(checked);
-        if (!checked)
-            d->settings.setSettings(d->widget.settingsData());
-    });
-    connect(&d->widget, &ClangdSettingsWidget::settingsDataChanged, [this] {
+    connect(this, &ProjectSettingsWidget::useGlobalSettingsChanged, this,
+            [this](bool checked) {
+                d->widget.setEnabled(!checked);
+                d->settings.setUseGlobalSettings(checked);
+                if (!checked)
+                    d->settings.setSettings(d->widget.settingsData());
+            });
+
+    connect(&d->widget, &ClangdSettingsWidget::settingsDataChanged, this, [this] {
         d->settings.setSettings(d->widget.settingsData());
     });
 }

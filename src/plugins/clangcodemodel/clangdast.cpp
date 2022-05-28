@@ -26,9 +26,9 @@
 #include "clangdast.h"
 
 #include <languageclient/client.h>
-#include <languageserverprotocol/icontent.h>
 #include <languageserverprotocol/jsonkeys.h>
 #include <languageserverprotocol/lsptypes.h>
+#include <utils/hostosinfo.h>
 #include <utils/filepath.h>
 
 #include <QStringView>
@@ -60,6 +60,12 @@ bool ClangdAstNode::arcanaContains(const QString &s) const
 {
     const optional<QString> arcanaString = arcana();
     return arcanaString && arcanaString->contains(s);
+}
+
+bool ClangdAstNode::isFunction() const
+{
+    return role() == "declaration"
+           && (kind() == "Function" || kind() == "FunctionProto" || kind() == "CXXMethod");
 }
 
 bool ClangdAstNode::isMemberFunctionCall() const
@@ -403,7 +409,7 @@ MessageId requestAst(Client *client, const FilePath &filePath, const Range range
         const auto result = response.result();
         handler(result ? *result : ClangdAstNode(), reqId);
     });
-    client->sendContent(request, Client::SendDocUpdates::Ignore);
+    client->sendMessage(request, Client::SendDocUpdates::Ignore);
     return request.id();
 }
 

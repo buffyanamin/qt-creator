@@ -30,7 +30,6 @@
 #include "clangdquickfixfactory.h"
 #include "clangeditordocumentprocessor.h"
 #include "clangdlocatorfilters.h"
-#include "clangprojectsettings.h"
 #include "clangutils.h"
 
 #include <coreplugin/documentmanager.h>
@@ -137,19 +136,12 @@ ClangModelManagerSupport::ClangModelManagerSupport()
     });
 
     auto *sessionManager = ProjectExplorer::SessionManager::instance();
-    connect(sessionManager, &ProjectExplorer::SessionManager::projectAdded,
-            this, &ClangModelManagerSupport::onProjectAdded);
-    connect(sessionManager, &ProjectExplorer::SessionManager::aboutToRemoveProject,
-            this, &ClangModelManagerSupport::onAboutToRemoveProject);
     connect(sessionManager, &ProjectExplorer::SessionManager::projectRemoved,
             this, [this] { claimNonProjectSources(clientForProject(fallbackProject())); });
 
     CppEditor::ClangdSettings::setDefaultClangdPath(Core::ICore::clangdExecutable(CLANG_BINDIR));
     connect(&CppEditor::ClangdSettings::instance(), &CppEditor::ClangdSettings::changed,
             this, &ClangModelManagerSupport::onClangdSettingsChanged);
-    CppEditor::CppCodeModelSettings *settings = CppEditor::codeModelSettings();
-    connect(settings, &CppEditor::CppCodeModelSettings::clangDiagnosticConfigsInvalidated,
-            this, &ClangModelManagerSupport::onDiagnosticConfigsInvalidated);
 
     if (CppEditor::ClangdSettings::instance().useClangd())
         createClient(nullptr, {});
@@ -160,7 +152,6 @@ ClangModelManagerSupport::ClangModelManagerSupport()
 
 ClangModelManagerSupport::~ClangModelManagerSupport()
 {
-    QTC_CHECK(m_projectSettings.isEmpty());
     m_generatorSynchronizer.waitForFinished();
     m_instance = nullptr;
 }
@@ -427,11 +418,10 @@ void ClangModelManagerSupport::updateLanguageClient(
 
     });
     const Utils::FilePath includeDir = settings.clangdIncludePath();
-    const ClangDiagnosticConfig warningsConfig = warningsConfigForProject(project);
     auto future = Utils::runAsync(&Internal::generateCompilationDB, projectInfo, jsonDbDir,
                                   CompilationDbPurpose::CodeModel,
-                                  warningsConfig, optionsForProject(project, warningsConfig),
-                                  includeDir);
+                                  warningsConfigForProject(project),
+                                  globalClangOptions(), includeDir);
     generatorWatcher->setFuture(future);
     m_generatorSynchronizer.addFuture(future);
 }
@@ -623,7 +613,7 @@ void ClangModelManagerSupport::onAbstractEditorSupportRemoved(const QString &fil
 
 void addFixItsActionsToMenu(QMenu *menu, const TextEditor::QuickFixOperations &fixItOperations)
 {
-    foreach (const auto &fixItOperation, fixItOperations) {
+    for (const TextEditor::QuickFixOperation::Ptr &fixItOperation : fixItOperations) {
         QAction *action = menu->addAction(fixItOperation->description());
         QObject::connect(action, &QAction::triggered, [fixItOperation]() {
             fixItOperation->perform();
@@ -664,46 +654,10 @@ using ClangEditorDocumentProcessors = QVector<ClangEditorDocumentProcessor *>;
 static ClangEditorDocumentProcessors clangProcessors()
 {
     ClangEditorDocumentProcessors result;
-    foreach (auto *editorDocument, cppModelManager()->cppEditorDocuments())
+    for (const CppEditorDocumentHandle *editorDocument : cppModelManager()->cppEditorDocuments())
         result.append(qobject_cast<ClangEditorDocumentProcessor *>(editorDocument->processor()));
 
     return result;
-}
-
-static ClangEditorDocumentProcessors
-clangProcessorsWithProject(const ProjectExplorer::Project *project)
-{
-    return ::Utils::filtered(clangProcessors(), [project](ClangEditorDocumentProcessor *p) {
-        return p->hasProjectPart() && p->projectPart()->belongsToProject(project);
-    });
-}
-
-static void updateProcessors(const ClangEditorDocumentProcessors &processors)
-{
-    CppEditor::CppModelManager *modelManager = cppModelManager();
-    for (ClangEditorDocumentProcessor *processor : processors)
-        modelManager->cppEditorDocument(processor->filePath())->resetProcessor();
-    modelManager->updateCppEditorDocuments(/*projectsUpdated=*/ false);
-}
-
-void ClangModelManagerSupport::onProjectAdded(ProjectExplorer::Project *project)
-{
-    QTC_ASSERT(!m_projectSettings.value(project), return);
-
-    auto *settings = new Internal::ClangProjectSettings(project);
-    connect(settings, &Internal::ClangProjectSettings::changed, [project]() {
-        updateProcessors(clangProcessorsWithProject(project));
-    });
-
-    m_projectSettings.insert(project, settings);
-}
-
-void ClangModelManagerSupport::onAboutToRemoveProject(ProjectExplorer::Project *project)
-{
-    ClangProjectSettings * const settings = m_projectSettings.value(project);
-    QTC_ASSERT(settings, return);
-    m_projectSettings.remove(project);
-    delete settings;
 }
 
 void ClangModelManagerSupport::onProjectPartsUpdated(ProjectExplorer::Project *project)
@@ -765,19 +719,6 @@ void ClangModelManagerSupport::onClangdSettingsChanged()
     }
 }
 
-static ClangEditorDocumentProcessors clangProcessorsWithDiagnosticConfig(
-    const QVector<::Utils::Id> &configIds)
-{
-    return ::Utils::filtered(clangProcessors(), [configIds](ClangEditorDocumentProcessor *p) {
-        return configIds.contains(p->diagnosticConfigId());
-    });
-}
-
-void ClangModelManagerSupport::onDiagnosticConfigsInvalidated(const QVector<::Utils::Id> &configIds)
-{
-    updateProcessors(clangProcessorsWithDiagnosticConfig(configIds));
-}
-
 static ClangEditorDocumentProcessors
 clangProcessorsWithProjectParts(const QStringList &projectPartIds)
 {
@@ -788,8 +729,8 @@ clangProcessorsWithProjectParts(const QStringList &projectPartIds)
 
 void ClangModelManagerSupport::reinitializeBackendDocuments(const QStringList &projectPartIds)
 {
-    const auto processors = clangProcessorsWithProjectParts(projectPartIds);
-    foreach (ClangEditorDocumentProcessor *processor, processors) {
+    const ClangEditorDocumentProcessors processors = clangProcessorsWithProjectParts(projectPartIds);
+    for (ClangEditorDocumentProcessor *processor : processors) {
         processor->clearProjectPart();
         processor->run();
     }
@@ -803,12 +744,6 @@ ClangModelManagerSupport *ClangModelManagerSupport::instance()
 QString ClangModelManagerSupport::dummyUiHeaderOnDiskPath(const QString &filePath) const
 {
     return m_uiHeaderOnDiskManager.mapPath(filePath);
-}
-
-ClangProjectSettings &ClangModelManagerSupport::projectSettings(
-    ProjectExplorer::Project *project) const
-{
-    return *m_projectSettings.value(project);
 }
 
 QString ClangModelManagerSupport::dummyUiHeaderOnDiskDirPath() const

@@ -25,17 +25,20 @@
 
 #pragma once
 
-#include "fileutils.h"
-#include "theme/theme.h"
 #include "utils_global.h"
+
+#include "filepath.h"
+#include "theme/theme.h"
 
 #include <QIcon>
 #include <QPair>
 #include <QVector>
 
-QT_FORWARD_DECLARE_CLASS(QColor)
-QT_FORWARD_DECLARE_CLASS(QPixmap)
-QT_FORWARD_DECLARE_CLASS(QString)
+QT_BEGIN_NAMESPACE
+class QColor;
+class QPixmap;
+class QString;
+QT_END_NAMESPACE
 
 namespace Utils {
 
@@ -43,7 +46,7 @@ using IconMaskAndColor = QPair<FilePath, Theme::Color>;
 
 // Returns a recolored icon with shadow and custom disabled state for a
 // series of grayscalemask|Theme::Color mask pairs
-class QTCREATOR_UTILS_EXPORT Icon : public QVector<IconMaskAndColor>
+class QTCREATOR_UTILS_EXPORT Icon
 {
 public:
     enum IconStyleOption {
@@ -83,6 +86,7 @@ public:
     static QIcon combinedIcon(const QList<Icon> &icons);
 
 private:
+    QVector<IconMaskAndColor> m_iconSourceList;
     IconStyleOptions m_style = None;
 };
 

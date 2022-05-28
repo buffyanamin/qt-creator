@@ -25,11 +25,11 @@
 
 #include "terminalcommand.h"
 
-#include <utils/algorithm.h>
-#include <utils/commandline.h>
-#include <utils/environment.h>
-#include <utils/hostosinfo.h>
-#include <utils/qtcassert.h>
+#include "algorithm.h"
+#include "commandline.h"
+#include "environment.h"
+#include "hostosinfo.h"
+#include "qtcassert.h"
 
 #include <QCoreApplication>
 #include <QFileInfo>
@@ -155,8 +155,8 @@ TerminalCommand TerminalCommand::terminalEmulator()
                 const QStringList splitCommand = ProcessArgs::splitArgs(value);
                 if (QTC_GUARD(!splitCommand.isEmpty())) {
                     const QString command = splitCommand.first();
-                    const QStringList quotedArgs = Utils::transform(splitCommand.mid(1),
-                                                                    &ProcessArgs::quoteArgUnix);
+                    const QStringList quotedArgs = transform(splitCommand.mid(1),
+                                                             &ProcessArgs::quoteArgUnix);
                     const QString options = quotedArgs.join(' ');
                     return {command, "", options};
                 }

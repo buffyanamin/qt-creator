@@ -24,10 +24,12 @@
 ****************************************************************************/
 
 #include "url.h"
+
 #include "temporaryfile.h"
 
 #include <QHostAddress>
 #include <QTcpServer>
+#include <QUrl>
 
 namespace Utils {
 

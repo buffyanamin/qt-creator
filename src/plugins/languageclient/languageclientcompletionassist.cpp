@@ -35,6 +35,7 @@
 #include <texteditor/codeassist/genericproposalmodel.h>
 #include <texteditor/snippets/snippet.h>
 #include <texteditor/snippets/snippetassistcollector.h>
+#include <texteditor/textdocument.h>
 #include <texteditor/texteditorsettings.h>
 #include <utils/algorithm.h>
 #include <utils/textutils.h>
@@ -371,7 +372,7 @@ IAssistProposal *LanguageClientCompletionAssistProcessor::perform(const AssistIn
     completionRequest.setResponseCallback([this](auto response) {
         this->handleCompletionResponse(response);
     });
-    m_client->sendContent(completionRequest);
+    m_client->sendMessage(completionRequest);
     m_client->addAssistProcessor(this);
     m_currentRequest = completionRequest.id();
     m_document = interface->textDocument();

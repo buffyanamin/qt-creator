@@ -116,7 +116,7 @@ void SemanticTokenSupport::reloadSemanticTokensImpl(TextDocument *textDocument,
         request.setResponseCallback(responseCallback);
         qCDebug(LOGLSPHIGHLIGHT) << "Requesting all tokens for" << filePath << "with version"
                                  << m_client->documentVersion(filePath);
-        m_client->sendContent(request);
+        m_client->sendMessage(request);
     }
 }
 
@@ -161,7 +161,7 @@ void SemanticTokenSupport::updateSemanticTokensImpl(TextDocument *textDocument,
                 });
             qCDebug(LOGLSPHIGHLIGHT)
                 << "Requesting delta for" << filePath << "with version" << documentVersion;
-            m_client->sendContent(request);
+            m_client->sendMessage(request);
             return;
         }
     }
@@ -280,6 +280,11 @@ void SemanticTokenSupport::setAdditionalTokenTypeStyles(
     m_additionalTypeStyles = typeStyles;
 }
 
+void SemanticTokenSupport::clearTokens()
+{
+    m_tokens.clear();
+}
+
 //void SemanticTokenSupport::setAdditionalTokenModifierStyles(
 //    const QHash<int, TextStyle> &modifierStyles)
 //{
@@ -319,8 +324,9 @@ void SemanticTokenSupport::handleSemanticTokens(const Utils::FilePath &filePath,
                                                 int documentVersion)
 {
     if (auto tokens = Utils::get_if<SemanticTokens>(&result)) {
+        const bool force = !m_tokens.contains(filePath);
         m_tokens[filePath] = {*tokens, documentVersion};
-        highlight(filePath);
+        highlight(filePath, force);
     }
 }
 

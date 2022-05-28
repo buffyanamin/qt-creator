@@ -28,7 +28,7 @@
 namespace ProjectExplorer {
 
 NamedWidget::NamedWidget(const QString &displayName, QWidget *parent)
-    : QWidget(parent), m_displayName(displayName)
+    : ProjectSettingsWidget(parent), m_displayName(displayName)
 {
 }
 

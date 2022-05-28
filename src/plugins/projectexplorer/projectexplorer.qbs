@@ -6,7 +6,6 @@ Project {
     QtcPlugin {
         Depends { name: "Qt"; submodules: ["widgets", "xml", "network", "qml"] }
         Depends { name: "Aggregation" }
-        Depends { name: "QtcSsh" }
         Depends { name: "Utils" }
 
         Depends { name: "Core" }
@@ -27,7 +26,6 @@ Project {
                 "addrunconfigdialog.cpp", "addrunconfigdialog.h",
                 "allprojectsfilter.cpp", "allprojectsfilter.h",
                 "allprojectsfind.cpp", "allprojectsfind.h",
-                "applicationlauncher.cpp", "applicationlauncher.h",
                 "appoutputpane.cpp", "appoutputpane.h",
                 "baseprojectwizarddialog.cpp", "baseprojectwizarddialog.h",
                 "buildaspects.cpp", "buildaspects.h",
@@ -121,6 +119,7 @@ Project {
                 "projectmodels.cpp", "projectmodels.h",
                 "projectnodes.cpp", "projectnodes.h",
                 "projectpanelfactory.cpp", "projectpanelfactory.h",
+                "projectsettingswidget.cpp", "projectsettingswidget.h",
                 "projecttree.cpp",
                 "projecttree.h",
                 "projecttreewidget.cpp", "projecttreewidget.h",
@@ -226,6 +225,8 @@ Project {
                 "idevicewidget.h",
                 "localprocesslist.cpp", "localprocesslist.h",
                 "sshdeviceprocesslist.cpp", "sshdeviceprocesslist.h",
+                "sshparameters.cpp", "sshparameters.h",
+                "sshsettings.cpp", "sshsettings.h",
                 "sshsettingspage.cpp", "sshsettingspage.h",
                 "desktopprocesssignaloperation.cpp", "desktopprocesssignaloperation.h"
             ]

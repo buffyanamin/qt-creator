@@ -34,8 +34,8 @@
 #include <string.h>
 #include <unistd.h>
 #elif defined(Q_OS_WIN)
+#include "winutils.h"
 #include <windows.h>
-#include <utils/winutils.h>
 #include <tlhelp32.h>
 #include <psapi.h>
 #endif
@@ -191,7 +191,7 @@ QList<ProcessInfo> ProcessInfo::processInfoList()
         ProcessInfo p;
         p.processId = pe.th32ProcessID;
         // Image has the absolute path, but can fail.
-        const QString image = Utils::imageName(pe.th32ProcessID);
+        const QString image = imageName(pe.th32ProcessID);
         p.executable = p.commandLine = image.isEmpty() ?
             QString::fromWCharArray(pe.szExeFile) : image;
         processes << p;

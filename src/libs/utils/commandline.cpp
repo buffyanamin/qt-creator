@@ -658,6 +658,8 @@ bool ProcessArgs::prepareCommand(const CommandLine &cmdLine, QString *outCmd, Pr
     const QString arguments = cmdLine.arguments();
     if (env && executable.isRelativePath())
         executable = env->searchInPath(executable.toString());
+    if (executable.isEmpty())
+        return false;
     ProcessArgs::SplitError err;
     *outArgs = ProcessArgs::prepareArgs(arguments, &err, executable.osType(), env, pwd);
     if (err == ProcessArgs::SplitOk) {
@@ -1481,6 +1483,21 @@ void CommandLine::addCommandLineAsArgs(const CommandLine &cmd, RawType)
 void CommandLine::addArgs(const QString &inArgs, RawType)
 {
     ProcessArgs::addArgs(&m_arguments, inArgs);
+}
+
+void CommandLine::prependArgs(const QStringList &inArgs)
+{
+    QString oldArgs = m_arguments;
+    m_arguments.clear();
+    addArgs(inArgs);
+    addArgs(oldArgs, Raw);
+}
+
+void CommandLine::prependArgs(const QString &inArgs, RawType)
+{
+    QString oldArgs = m_arguments;
+    m_arguments = inArgs;
+    addArgs(oldArgs, Raw);
 }
 
 QString CommandLine::toUserOutput() const

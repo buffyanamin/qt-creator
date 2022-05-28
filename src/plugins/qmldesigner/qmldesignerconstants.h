@@ -84,6 +84,7 @@ const char QUICK_3D_ASSET_IMPORT_DATA_NAME[] = "_importdata.json";
 const char QUICK_3D_ASSET_IMPORT_DATA_OPTIONS_KEY[] = "import_options";
 const char QUICK_3D_ASSET_IMPORT_DATA_SOURCE_KEY[] = "source_scene";
 const char DEFAULT_ASSET_IMPORT_FOLDER[] = "/asset_imports";
+const char MATERIAL_LIB_ID[] = "__materialLibrary__";
 
 const char MIME_TYPE_ITEM_LIBRARY_INFO[] = "application/vnd.qtdesignstudio.itemlibraryinfo";
 const char MIME_TYPE_ASSETS[]            = "application/vnd.qtdesignstudio.assets";
@@ -117,6 +118,15 @@ const char EVENT_3DEDITOR_TIME[] = "3DEditor";
 const char EVENT_TIMELINE_TIME[] = "timeline";
 const char EVENT_TRANSITIONEDITOR_TIME[] = "transitionEditor";
 const char EVENT_CURVEDITOR_TIME[] = "curveEditor";
+const char EVENT_STATESEDITOR_TIME[] = "statesEditor";
+const char EVENT_TEXTEDITOR_TIME[] = "textEditor";
+const char EVENT_PROPERTYEDITOR_TIME[] = "propertyEditor";
+const char EVENT_ASSETSLIBRARY_TIME[] = "assetsLibrary";
+const char EVENT_ITEMLIBRARY_TIME[] = "itemLibrary";
+const char EVENT_TRANSLATIONVIEW_TIME[] = "translationView";
+const char EVENT_NAVIGATORVIEW_TIME[] = "navigatorView";
+const char EVENT_DESIGNMODE_TIME[] = "designMode";
+
 
 const char PROPERTY_EDITOR_CLASSNAME_PROPERTY[] = "__classNamePrivateInternal";
 

@@ -1,5 +1,5 @@
 add_qtc_plugin(RemoteLinux
-  DEPENDS QmlDebug QtcSsh
+  DEPENDS QmlDebug
   PLUGIN_DEPENDS Core Debugger ProjectExplorer
   SOURCES
     abstractpackagingstep.cpp abstractpackagingstep.h
@@ -39,6 +39,7 @@ add_qtc_plugin(RemoteLinux
     remotelinuxsignaloperation.cpp remotelinuxsignaloperation.h
     remotelinuxx11forwardingaspect.cpp remotelinuxx11forwardingaspect.h
     rsyncdeploystep.cpp rsyncdeploystep.h
+    sshkeycreationdialog.cpp sshkeycreationdialog.h sshkeycreationdialog.ui
     sshprocessinterface.h
     tarpackagecreationstep.cpp tarpackagecreationstep.h
     uploadandinstalltarpackagestep.cpp uploadandinstalltarpackagestep.h

@@ -26,7 +26,7 @@
 #include "qtcprocess.h"
 
 #include "algorithm.h"
-#include "commandline.h"
+#include "guard.h"
 #include "hostosinfo.h"
 #include "launcherinterface.h"
 #include "launchersocket.h"
@@ -645,6 +645,7 @@ public:
 
     void emitStarted();
     void emitFinished();
+    void emitDone();
     void emitErrorOccurred(QProcess::ProcessError error);
     void emitReadyReadStandardOutput();
     void emitReadyReadStandardError();
@@ -666,7 +667,6 @@ public:
     QList<ProcessInterfaceSignal *> m_signals;
     // =======================================
 
-
     QProcess::ProcessState m_state = QProcess::NotRunning;
     qint64 m_processId = 0;
     qint64 m_applicationMainThreadId = 0;
@@ -684,17 +684,8 @@ public:
     bool m_timeOutMessageBoxEnabled = false;
     bool m_waitingForUser = false;
 
-    class Guard {
-    public:
-        Guard(int &guard) : m_guard(guard) { ++guard; }
-        ~Guard() { --m_guard; }
-    private:
-        int &m_guard;
-    };
-    int m_callStackGuard = 0;
+    Guard m_guard;
 };
-
-#define CALL_STACK_GUARD() Guard guard(m_callStackGuard)
 
 ProcessInterfaceHandler::ProcessInterfaceHandler(QtcProcessPrivate *caller,
                                                  ProcessInterface *process)
@@ -801,9 +792,9 @@ bool QtcProcessPrivate::flushFor(SignalType signalType)
     QList<ProcessInterfaceSignal *> oldSignals;
     {
         QMutexLocker locker(&m_mutex);
-        const QList<SignalType> storedSignals =
-                Utils::transform(qAsConst(m_signals), [](const ProcessInterfaceSignal *aSignal) {
-                                   return aSignal->signalType();
+        const QList<SignalType> storedSignals = transform(qAsConst(m_signals),
+                                [](const ProcessInterfaceSignal *aSignal) {
+            return aSignal->signalType();
         });
 
         // If we are flushing for ReadyRead or Done - flush all.
@@ -979,7 +970,8 @@ QtcProcess::QtcProcess(QObject *parent)
 
 QtcProcess::~QtcProcess()
 {
-    QTC_CHECK(d->m_callStackGuard == 0);
+    QTC_ASSERT(!d->m_guard.isLocked(), qWarning("Deleting QtcProcess instance directly from "
+               "one of its signal handlers will lead to crash!"));
     delete d;
 }
 
@@ -1942,7 +1934,7 @@ void QtcProcessPrivate::handleDone(const ProcessResultData &data)
     if (m_resultData.m_error != QProcess::FailedToStart)
         emitFinished();
 
-    emit q->done();
+    emitDone();
     m_processId = 0;
     m_applicationMainThreadId = 0;
 }
@@ -1960,31 +1952,37 @@ void QtcProcessPrivate::handleError()
 
 void QtcProcessPrivate::emitStarted()
 {
-    CALL_STACK_GUARD();
+    GuardLocker locker(m_guard);
     emit q->started();
 }
 
 void QtcProcessPrivate::emitFinished()
 {
-    CALL_STACK_GUARD();
+    GuardLocker locker(m_guard);
     emit q->finished();
+}
+
+void QtcProcessPrivate::emitDone()
+{
+    GuardLocker locker(m_guard);
+    emit q->done();
 }
 
 void QtcProcessPrivate::emitErrorOccurred(QProcess::ProcessError error)
 {
-    CALL_STACK_GUARD();
+    GuardLocker locker(m_guard);
     emit q->errorOccurred(error);
 }
 
 void QtcProcessPrivate::emitReadyReadStandardOutput()
 {
-    CALL_STACK_GUARD();
+    GuardLocker locker(m_guard);
     emit q->readyReadStandardOutput();
 }
 
 void QtcProcessPrivate::emitReadyReadStandardError()
 {
-    CALL_STACK_GUARD();
+    GuardLocker locker(m_guard);
     emit q->readyReadStandardError();
 }
 

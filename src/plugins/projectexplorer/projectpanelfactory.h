@@ -27,8 +27,7 @@
 
 #include "projectexplorer_export.h"
 
-#include "panelswidget.h"
-#include "projectwindow.h"
+#include "projectsettingswidget.h"
 
 #include <utils/id.h>
 #include <utils/treemodel.h>
@@ -57,7 +56,7 @@ public:
     // interface for users of ProjectPanelFactory
     bool supports(Project *project);
 
-    using WidgetCreator = std::function<QWidget *(Project *)>;
+    using WidgetCreator = std::function<ProjectSettingsWidget *(Project *)>;
 
     // interface for "implementations" of ProjectPanelFactory
     // by default all projects are supported, only set a custom supports function
@@ -73,7 +72,7 @@ public:
     Utils::TreeItem *createPanelItem(Project *project);
 
     void setCreateWidgetFunction(const WidgetCreator &createWidgetFunction);
-    QWidget *createWidget(Project *project) const;
+    ProjectSettingsWidget *createWidget(Project *project) const;
 
 private:
     friend class ProjectExplorerPlugin;

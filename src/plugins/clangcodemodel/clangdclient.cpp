@@ -57,9 +57,18 @@
 #include <cppeditor/cppvirtualfunctionproposalitem.h>
 #include <cppeditor/semantichighlighter.h>
 #include <cppeditor/cppsemanticinfo.h>
+#include <languageclient/diagnosticmanager.h>
+#include <languageclient/documentsymbolcache.h>
+#include <languageclient/languageclientcompletionassist.h>
+#include <languageclient/languageclientfunctionhint.h>
+#include <languageclient/languageclienthoverhandler.h>
 #include <languageclient/languageclientinterface.h>
 #include <languageclient/languageclientmanager.h>
+#include <languageclient/languageclientquickfix.h>
+#include <languageclient/languageclientsymbolsupport.h>
 #include <languageclient/languageclientutils.h>
+#include <languageserverprotocol/clientcapabilities.h>
+#include <languageserverprotocol/progresssupport.h>
 #include <projectexplorer/project.h>
 #include <projectexplorer/projecttree.h>
 #include <projectexplorer/session.h>
@@ -606,7 +615,7 @@ private:
         const QStringList suffixes = mimeType.suffixes();
 
         QList<AssistProposalItemInterface *> completions;
-        foreach (const ProjectExplorer::HeaderPath &headerPath, allHeaderPaths) {
+        for (const ProjectExplorer::HeaderPath &headerPath : qAsConst(allHeaderPaths)) {
             QString realPath = headerPath.path;
             if (!directoryPrefix.isEmpty()) {
                 realPath += QLatin1Char('/');
@@ -898,6 +907,8 @@ public:
 
     void handleDeclDefSwitchReplies();
 
+    Utils::optional<QString> getContainingFunctionName(const ClangdAstPath &astPath, const Range& range);
+
     static CppEditor::CppEditorWidget *widgetFromDocument(const TextDocument *doc);
     QString searchTermFromCursor(const QTextCursor &cursor) const;
     QTextCursor adjustedCursor(const QTextCursor &cursor, const TextDocument *doc);
@@ -1154,13 +1165,12 @@ ClangdClient::ClangdClient(Project *project, const Utils::FilePath &jsonDbDir)
         QJsonObject initOptions;
         const Utils::FilePath includeDir
                 = CppEditor::ClangdSettings(d->settings).clangdIncludePath();
-        const CppEditor::ClangDiagnosticConfig warningsConfig = warningsConfigForProject(nullptr);
         CppEditor::CompilerOptionsBuilder optionsBuilder = clangOptionsBuilder(
                     *CppEditor::CppModelManager::instance()->fallbackProjectPart(),
-                    warningsConfig, includeDir);
+                    warningsConfigForProject(nullptr), includeDir);
         const CppEditor::UsePrecompiledHeaders usePch = CppEditor::getPchUsage();
         const QJsonArray projectPartOptions = fullProjectPartOptions(
-                    optionsBuilder, optionsForProject(nullptr, warningsConfig));
+                    optionsBuilder, globalClangOptions());
         const QJsonArray clangOptions = clangOptionsForFile({}, optionsBuilder.projectPart(),
                                                             projectPartOptions, usePch);
         initOptions.insert("fallbackFlags", clangOptions);
@@ -1271,13 +1281,13 @@ void ClangdClient::openExtraFile(const Utils::FilePath &filePath, const QString 
     item.setUri(DocumentUri::fromFilePath(filePath));
     item.setText(!content.isEmpty() ? content : QString::fromUtf8(cxxFile.readAll()));
     item.setVersion(0);
-    sendContent(DidOpenTextDocumentNotification(DidOpenTextDocumentParams(item)),
+    sendMessage(DidOpenTextDocumentNotification(DidOpenTextDocumentParams(item)),
                 SendDocUpdates::Ignore);
 }
 
 void ClangdClient::closeExtraFile(const Utils::FilePath &filePath)
 {
-    sendContent(DidCloseTextDocumentNotification(DidCloseTextDocumentParams(
+    sendMessage(DidCloseTextDocumentNotification(DidCloseTextDocumentParams(
             TextDocumentIdentifier{DocumentUri::fromFilePath(filePath)})),
                 SendDocUpdates::Ignore);
 }
@@ -1321,7 +1331,7 @@ void ClangdClient::findUsages(TextDocument *document, const QTextCursor &cursor,
             return;
         d->findUsages(doc.data(), adjustedCursor, sd.name(), replacement, categorize);
     });
-    sendContent(symReq);
+    sendMessage(symReq);
 }
 
 void ClangdClient::handleDiagnostics(const PublishDiagnosticsParams &params)
@@ -1599,20 +1609,19 @@ void ClangdClient::updateParserConfig(const Utils::FilePath &filePath,
         return;
     QJsonObject cdbChanges;
     const Utils::FilePath includeDir = CppEditor::ClangdSettings(d->settings).clangdIncludePath();
-    const CppEditor::ClangDiagnosticConfig warningsConfig = warningsConfigForProject(project());
     CppEditor::CompilerOptionsBuilder optionsBuilder = clangOptionsBuilder(
-                *projectPart, warningsConfig, includeDir);
+                *projectPart, warningsConfigForProject(project()), includeDir);
     const CppEditor::ProjectFile file(filePath.toString(),
                                       CppEditor::ProjectFile::classify(filePath.toString()));
     const QJsonArray projectPartOptions = fullProjectPartOptions(
-                optionsBuilder, optionsForProject(project(), warningsConfig));
+                optionsBuilder, globalClangOptions());
     addToCompilationDb(cdbChanges, *projectPart, CppEditor::getPchUsage(), projectPartOptions,
                        filePath.parentDir(), file);
     QJsonObject settings;
     addCompilationDb(settings, cdbChanges);
     DidChangeConfigurationParams configChangeParams;
     configChangeParams.setSettings(settings);
-    sendContent(DidChangeConfigurationNotification(configChangeParams));
+    sendMessage(DidChangeConfigurationNotification(configChangeParams));
 }
 
 void ClangdClient::switchIssuePaneEntries(const Utils::FilePath &filePath)
@@ -1755,9 +1764,10 @@ void ClangdClient::Private::addSearchResultsForFile(ReferencesData &refData,
     qCDebug(clangdLog) << file << "has valid AST:" << fileData.ast.isValid();
     for (const auto &rangeWithText : fileData.rangesAndLineText) {
         const Range &range = rangeWithText.first;
-        const Usage::Type usageType = fileData.ast.isValid()
-                ? getUsageType(getAstPath(fileData.ast, qAsConst(range)))
-                : Usage::Type::Other;
+        const ClangdAstPath astPath = getAstPath(fileData.ast, range);
+        const Usage::Type usageType = fileData.ast.isValid() ? getUsageType(astPath)
+                                                             : Usage::Type::Other;
+
         SearchResultItem item;
         item.setUserData(int(usageType));
         item.setStyle(CppEditor::colorStyleForUsageType(usageType));
@@ -1765,6 +1775,8 @@ void ClangdClient::Private::addSearchResultsForFile(ReferencesData &refData,
         item.setMainRange(SymbolSupport::convertRange(range));
         item.setUseTextEditorFont(true);
         item.setLineText(rangeWithText.second);
+        item.setContainingFunctionName(getContainingFunctionName(astPath, range));
+
         if (refData.search->supportsReplace()) {
             const bool fileInSession = SessionManager::projectForFile(file);
             item.setSelectForReplacement(fileInSession);
@@ -1914,7 +1926,7 @@ void ClangdClient::switchHeaderSource(const Utils::FilePath &filePath, bool inNe
                 CppEditor::openEditor(filePath, inNextSplit);
         }
     });
-    sendContent(req);
+    sendMessage(req);
 }
 
 void ClangdClient::findLocalUsages(TextDocument *document, const QTextCursor &cursor,
@@ -2103,7 +2115,7 @@ void ClangdClient::gatherHelpItemForTooltip(const HoverRequest::Response &hoverR
                 // with mainOverload = true, such information would get ignored anyway.
                 d->setHelpItemForTooltip(id, fqn, HelpItem::Function, isFunction ? type : "()");
             });
-            sendContent(symReq, SendDocUpdates::Ignore);
+            sendMessage(symReq, SendDocUpdates::Ignore);
             return;
         }
         if ((node.role() == "expression" && node.kind() == "DeclRef")
@@ -2216,7 +2228,7 @@ void ClangdClient::Private::sendGotoImplementationRequest(const Utils::Link &lin
         followSymbolData->pendingGotoImplRequests.removeOne(reqId);
         handleGotoImplementationResult(response);
     });
-    q->sendContent(req, SendDocUpdates::Ignore);
+    q->sendMessage(req, SendDocUpdates::Ignore);
     followSymbolData->pendingGotoImplRequests << req.id();
     qCDebug(clangdLog) << "sending go to implementation request" << link.targetLine;
 }
@@ -2303,7 +2315,7 @@ void ClangdClient::Private::handleGotoImplementationResult(
         });
         followSymbolData->pendingSymbolInfoRequests << symReq.id();
         qCDebug(clangdLog) << "sending symbol info request";
-        q->sendContent(symReq, SendDocUpdates::Ignore);
+        q->sendMessage(symReq, SendDocUpdates::Ignore);
 
         if (link == followSymbolData->defLink)
             continue;
@@ -2337,7 +2349,7 @@ void ClangdClient::Private::handleGotoImplementationResult(
         followSymbolData->pendingGotoDefRequests << defReq.id();
         qCDebug(clangdLog) << "sending additional go to definition request"
                            << link.targetFilePath << link.targetLine;
-        q->sendContent(defReq, SendDocUpdates::Ignore);
+        q->sendMessage(defReq, SendDocUpdates::Ignore);
     }
 
     const Utils::FilePath defLinkFilePath = followSymbolData->defLink.targetFilePath;
@@ -2409,6 +2421,31 @@ void ClangdClient::Private::handleDeclDefSwitchReplies()
                         true, false);
     }
     switchDeclDefData.reset();
+}
+
+Utils::optional<QString> ClangdClient::Private::getContainingFunctionName(
+    const ClangdAstPath &astPath, const Range& range)
+{
+    const ClangdAstNode* containingFuncNode{nullptr};
+    const ClangdAstNode* lastCompoundStmtNode{nullptr};
+
+    for (auto it = astPath.crbegin(); it != astPath.crend(); ++it) {
+        if (it->arcanaContains("CompoundStmt"))
+            lastCompoundStmtNode = &*it;
+
+        if (it->isFunction()) {
+            if (lastCompoundStmtNode && lastCompoundStmtNode->hasRange()
+                && lastCompoundStmtNode->range().contains(range)) {
+                containingFuncNode = &*it;
+                break;
+            }
+        }
+    }
+
+    if (!containingFuncNode || !containingFuncNode->isValid())
+        return Utils::nullopt;
+
+    return containingFuncNode->detail();
 }
 
 CppEditor::CppEditorWidget *ClangdClient::Private::widgetFromDocument(const TextDocument *doc)
@@ -4094,7 +4131,7 @@ void MemoryUsageWidget::getMemoryTree()
     });
     qCDebug(clangdLog) << "sending memory usage request";
     m_currentRequest = request.id();
-    m_client->sendContent(request, ClangdClient::SendDocUpdates::Ignore);
+    m_client->sendMessage(request, ClangdClient::SendDocUpdates::Ignore);
 }
 
 } // namespace Internal

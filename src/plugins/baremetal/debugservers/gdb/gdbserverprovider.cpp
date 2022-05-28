@@ -35,8 +35,6 @@
 #include <utils/qtcassert.h>
 #include <utils/pathchooser.h>
 
-#include <ssh/sshconnection.h>
-
 #include <QComboBox>
 #include <QFormLayout>
 #include <QLineEdit>
@@ -201,11 +199,9 @@ RunWorker *GdbServerProvider::targetRunner(RunControl *runControl) const
     if (m_startupMode != GdbServerProvider::StartupOnNetwork)
         return nullptr;
 
-    Runnable r;
-    r.command = command();
     // Command arguments are in host OS style as the bare metal's GDB servers are launched
     // on the host, not on that target.
-    return new GdbServerProviderRunner(runControl, r);
+    return new GdbServerProviderRunner(runControl, command());
 }
 
 bool GdbServerProvider::fromMap(const QVariantMap &data)
@@ -343,14 +339,15 @@ QString GdbServerProviderConfigWidget::defaultResetCommandsTooltip()
 // GdbServerProviderRunner
 
 GdbServerProviderRunner::GdbServerProviderRunner(ProjectExplorer::RunControl *runControl,
-                                                 const ProjectExplorer::Runnable &runnable)
+                                                 const Utils::CommandLine &commandLine)
     : SimpleTargetRunner(runControl)
 {
     setId("BareMetalGdbServer");
     // Baremetal's GDB servers are launched on the host, not on the target.
-    Runnable devicelessRunnable = runnable;
-    devicelessRunnable.device.reset();
-    setStarter([this, devicelessRunnable] { doStart(devicelessRunnable); });
+    setStartModifier([this, commandLine] {
+        setCommandLine(commandLine);
+        forceRunOnHost();
+    });
 }
 
 } // namespace Internal

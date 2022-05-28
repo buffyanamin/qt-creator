@@ -28,12 +28,12 @@
 #include "utils_global.h"
 
 #include "commandline.h"
-#include "fileutils.h"
 
 #include <QObject>
 
 namespace Utils {
 
+class FilePath;
 class QtcProcess;
 
 class QTCREATOR_UTILS_EXPORT Archive : public QObject
@@ -53,8 +53,8 @@ signals:
     void finished(bool success);
 
 private:
-    Utils::CommandLine m_commandLine;
-    Utils::FilePath m_workingDirectory;
+    CommandLine m_commandLine;
+    FilePath m_workingDirectory;
     std::unique_ptr<QtcProcess> m_process;
 };
 

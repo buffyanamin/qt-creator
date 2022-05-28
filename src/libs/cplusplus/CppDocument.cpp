@@ -96,6 +96,86 @@ protected:
     }
 };
 
+class ContainingFunctionAt: protected SymbolVisitor
+{
+    TranslationUnit *translationUnit;
+    Symbol *root;
+    int line;
+    int column;
+    Symbol *functionSymbol;
+    bool foundFunction;
+    bool foundBlock;
+
+    bool scopeContains(Scope* scope, int line, int column){
+        if (!scope)
+            return false;
+
+        int scopeStartLine{-1}, scopeStartColumn{-1}, scopeEndLine{-1}, scopeEndColumn{-1};
+        translationUnit->getPosition(scope->startOffset(), &scopeStartLine, &scopeStartColumn);
+        translationUnit->getPosition(scope->endOffset(), &scopeEndLine, &scopeEndColumn);
+
+        if (line < scopeStartLine || line > scopeEndLine)
+            return false;
+
+        if (line > scopeStartLine && line < scopeEndLine)
+            return true;
+
+        if (scopeStartLine == line && column >= scopeStartColumn)
+            return true;
+
+        if (scopeEndLine == line && column <= scopeEndColumn)
+            return true;
+
+        return false;
+    }
+
+public:
+    ContainingFunctionAt(TranslationUnit *unit, Symbol *root)
+        : translationUnit(unit), root(root), line(0), column(0), functionSymbol(nullptr)
+        , foundFunction(false), foundBlock(false) {}
+
+    Symbol *operator()(int line, int column)
+    {
+        this->line = line;
+        this->column = column;
+        this->functionSymbol = nullptr;
+        accept(root);
+
+        return foundBlock ? functionSymbol : nullptr;
+    }
+
+protected:
+    bool preVisit(Symbol *s) final
+    {
+        if (foundBlock)
+            return false;
+
+        if (foundFunction) {
+            auto block = s->asBlock();
+            if (!block)
+                return true;
+
+            if (scopeContains(block->asScope(), line, column)) {
+                foundBlock = true;
+                return false;
+            }
+            return true;
+        }
+
+        auto asFunction = s->asFunction();
+        if (asFunction) {
+            if (s->line() < line || (s->line() == line && s->column() <= column)) {
+                foundFunction = scopeContains(s->asScope(), line, column);
+                if (foundFunction)
+                    functionSymbol = asFunction;
+            }
+        }
+
+        return true;
+    }
+};
+
+
 class FindScopeAt: protected SymbolVisitor
 {
     TranslationUnit *_unit;
@@ -356,7 +436,7 @@ QString Document::fileName() const
 QStringList Document::includedFiles() const
 {
     QStringList files;
-    foreach (const Include &i, _resolvedIncludes)
+    for (const Include &i : qAsConst(_resolvedIncludes))
         files.append(i.resolvedFileName());
     files.removeDuplicates();
     return files;
@@ -387,7 +467,7 @@ void Document::addMacroUse(const Macro &macro,
                  utf16charsOffset, utf16charsOffset + utf16charLength,
                  beginLine);
 
-    foreach (const MacroArgumentReference &actual, actuals) {
+    for (const MacroArgumentReference &actual : actuals) {
         const Block arg(actual.bytesOffset(),
                         actual.bytesOffset() + actual.bytesLength(),
                         actual.utf16charsOffset(),
@@ -512,19 +592,11 @@ QString Document::functionAt(int line, int column, int *lineOpeningDeclaratorPar
     if (line < 1 || column < 1)
         return QString();
 
-    Symbol *symbol = lastVisibleSymbolAt(line, column);
+    Symbol *symbol = ContainingFunctionAt{translationUnit(), globalNamespace()}(line, column);
     if (!symbol)
         return QString();
 
-    // Find the enclosing function scope (which might be several levels up, or we might be standing
-    // on it)
     Scope *scope = symbol->asScope();
-    if (!scope)
-        scope = symbol->enclosingScope();
-
-    while (scope && !scope->isFunction() )
-        scope = scope->enclosingScope();
-
     if (!scope)
         return QString();
 
@@ -555,7 +627,7 @@ Symbol *Document::lastVisibleSymbolAt(int line, int column) const
 
 const Macro *Document::findMacroDefinitionAt(int line) const
 {
-    foreach (const Macro &macro, _definedMacros) {
+    for (const Macro &macro : qAsConst(_definedMacros)) {
         if (macro.line() == line)
             return &macro;
     }
@@ -564,7 +636,7 @@ const Macro *Document::findMacroDefinitionAt(int line) const
 
 const Document::MacroUse *Document::findMacroUseAt(int utf16charsOffset) const
 {
-    foreach (const Document::MacroUse &use, _macroUses) {
+    for (const Document::MacroUse &use : qAsConst(_macroUses)) {
         if (use.containsUtf16charOffset(utf16charsOffset)
                 && (utf16charsOffset < use.utf16charsBegin() + use.macro().nameToQString().size())) {
             return &use;
@@ -575,7 +647,7 @@ const Document::MacroUse *Document::findMacroUseAt(int utf16charsOffset) const
 
 const Document::UndefinedMacroUse *Document::findUndefinedMacroUseAt(int utf16charsOffset) const
 {
-    foreach (const Document::UndefinedMacroUse &use, _undefinedMacroUses) {
+    for (const Document::UndefinedMacroUse &use : qAsConst(_undefinedMacroUses)) {
         if (use.containsUtf16charOffset(utf16charsOffset)
                 && (utf16charsOffset < use.utf16charsBegin()
                     + QString::fromUtf8(use.name(), use.name().size()).length()))
@@ -776,7 +848,7 @@ static QList<Macro> macrosDefinedUntilLine(const QList<Macro> &macros, int line)
 {
     QList<Macro> filtered;
 
-    foreach (const Macro &macro, macros) {
+    for (const Macro &macro : macros) {
         if (macro.line() <= line)
             filtered.append(macro);
         else
@@ -859,7 +931,8 @@ QList<Snapshot::IncludeLocation> Snapshot::includeLocationsOfDocument(const QStr
     QList<IncludeLocation> result;
     for (const_iterator cit = begin(), citEnd = end(); cit != citEnd; ++cit) {
         const Document::Ptr doc = cit.value();
-        foreach (const Document::Include &includeFile, doc->resolvedIncludes()) {
+        const QList<Document::Include> includeFiles = doc->resolvedIncludes();
+        for (const Document::Include &includeFile : includeFiles) {
             if (includeFile.resolvedFileName() == fileName)
                 result.append(qMakePair(doc, includeFile.line()));
         }
@@ -901,7 +974,8 @@ Snapshot Snapshot::simplified(Document::Ptr doc) const
 
     if (doc) {
         snapshot.insert(doc);
-        foreach (const QString &fileName, allIncludesForDocument(doc->fileName()))
+        const QSet<QString> fileNames = allIncludesForDocument(doc->fileName());
+        for (const QString &fileName : fileNames)
             if (Document::Ptr inc = document(fileName))
                 snapshot.insert(inc);
     }

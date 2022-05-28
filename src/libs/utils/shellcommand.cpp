@@ -26,7 +26,6 @@
 #include "shellcommand.h"
 
 #include "environment.h"
-#include "fileutils.h"
 #include "qtcassert.h"
 #include "qtcprocess.h"
 #include "runextensions.h"
@@ -203,7 +202,7 @@ void ShellCommand::execute()
     if (d->m_jobs.empty())
         return;
 
-    QFuture<void> task = Utils::runAsync(&ShellCommand::run, this);
+    QFuture<void> task = runAsync(&ShellCommand::run, this);
     d->m_watcher.setFuture(task);
     if (!(d->m_flags & SuppressCommandLogging))
         addTask(task);

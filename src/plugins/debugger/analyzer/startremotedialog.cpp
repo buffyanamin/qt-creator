@@ -26,11 +26,12 @@
 #include "startremotedialog.h"
 
 #include <coreplugin/icore.h>
+
 #include <projectexplorer/devicesupport/idevice.h>
+#include <projectexplorer/devicesupport/sshparameters.h>
 #include <projectexplorer/kitchooser.h>
 #include <projectexplorer/kitinformation.h>
 #include <projectexplorer/runcontrol.h>
-#include <ssh/sshconnection.h>
 
 #include <QDialogButtonBox>
 #include <QFormLayout>
@@ -131,9 +132,13 @@ void StartRemoteDialog::validate()
 Runnable StartRemoteDialog::runnable() const
 {
     Kit *kit = d->kitChooser->currentKit();
+    IDevice::ConstPtr device = DeviceKitAspect::device(kit);
+    FilePath filePath = FilePath::fromString(d->executable->text());
+    if (device)
+        filePath = device->filePath(d->arguments->text());
+
     Runnable r;
-    r.device = DeviceKitAspect::device(kit);
-    r.command = {FilePath::fromString(d->executable->text()), d->arguments->text(), CommandLine::Raw};
+    r.command = {filePath, d->arguments->text(), CommandLine::Raw};
     r.workingDirectory = FilePath::fromString(d->workingDirectory->text());
     return r;
 }

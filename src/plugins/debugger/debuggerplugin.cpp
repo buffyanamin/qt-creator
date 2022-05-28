@@ -90,6 +90,7 @@
 #include <projectexplorer/buildmanager.h>
 #include <projectexplorer/devicesupport/idevice.h>
 #include <projectexplorer/devicesupport/deviceprocessesdialog.h>
+#include <projectexplorer/devicesupport/sshparameters.h>
 #include <projectexplorer/itaskhandler.h>
 #include <projectexplorer/project.h>
 #include <projectexplorer/projectexplorer.h>
@@ -101,7 +102,6 @@
 #include <projectexplorer/target.h>
 #include <projectexplorer/taskhub.h>
 #include <projectexplorer/toolchain.h>
-#include <ssh/sshconnection.h>
 
 #include <texteditor/texteditor.h>
 #include <texteditor/textdocument.h>
@@ -1835,7 +1835,7 @@ void DebuggerPluginPrivate::attachToQmlPort()
     qmlServer.setPort(dlg.port());
     debugger->setQmlServer(qmlServer);
 
-    QSsh::SshConnectionParameters sshParameters = device->sshParameters();
+    SshParameters sshParameters = device->sshParameters();
     debugger->setRemoteChannel(sshParameters.host(), sshParameters.port());
     debugger->setStartMode(AttachToQmlServer);
 

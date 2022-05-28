@@ -51,6 +51,7 @@
 #include <QFutureWatcher>
 #include <QGridLayout>
 #include <QGroupBox>
+#include <QJsonDocument>
 #include <QPushButton>
 #include <QRegularExpression>
 #include <QTimer>
@@ -471,7 +472,7 @@ public:
                     DidChangeWorkspaceFoldersParams params;
                     params.setEvent(event);
                     DidChangeWorkspaceFoldersNotification change(params);
-                    sendContent(change);
+                    sendMessage(change);
                     extraWorkspaceDirs.append(workspacePath);
                 }
             }

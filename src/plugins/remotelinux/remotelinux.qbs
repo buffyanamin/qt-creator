@@ -5,7 +5,6 @@ Project {
 
     QtcPlugin {
         Depends { name: "Qt.widgets" }
-        Depends { name: "QtcSsh" }
         Depends { name: "QmlDebug" }
         Depends { name: "Utils" }
 
@@ -83,6 +82,9 @@ Project {
             "remotelinuxx11forwardingaspect.h",
             "rsyncdeploystep.cpp",
             "rsyncdeploystep.h",
+            "sshkeycreationdialog.cpp",
+            "sshkeycreationdialog.h",
+            "sshkeycreationdialog.ui",
             "sshprocessinterface.h",
             "tarpackagecreationstep.cpp",
             "tarpackagecreationstep.h",
@@ -103,7 +105,6 @@ Project {
         Export {
             Depends { name: "Debugger" }
             Depends { name: "Core" }
-            Depends { name: "QtcSsh" }
         }
     }
 }

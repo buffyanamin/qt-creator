@@ -25,13 +25,13 @@
 
 #include "terminalprocess_p.h"
 
-#include <utils/environment.h>
-#include <utils/hostosinfo.h>
-#include <utils/commandline.h>
-#include <utils/qtcassert.h>
-#include <utils/qtcprocess.h>
-#include <utils/terminalcommand.h>
-#include <utils/winutils.h>
+#include "commandline.h"
+#include "environment.h"
+#include "hostosinfo.h"
+#include "qtcassert.h"
+#include "qtcprocess.h"
+#include "terminalcommand.h"
+#include "winutils.h"
 
 #include <QCoreApplication>
 #include <QLocalServer>
@@ -122,7 +122,8 @@ class TerminalProcessPrivate
 {
 public:
     TerminalProcessPrivate(QObject *parent)
-        : m_process(parent) {}
+        : m_stubServer(parent)
+        , m_process(parent) {}
 
     qint64 m_processId = 0;
     ProcessResultData m_result;
@@ -373,7 +374,7 @@ void TerminalImpl::start()
 
     const QStringList env = m_setup.m_environment.toStringList();
     if (!env.isEmpty()) {
-        d->m_tempFile = new QTemporaryFile();
+        d->m_tempFile = new QTemporaryFile(this);
         if (!d->m_tempFile->open()) {
             cleanupAfterStartFailure(msgCannotCreateTempFile(d->m_tempFile->errorString()));
             return;
@@ -436,14 +437,14 @@ void TerminalImpl::cleanupAfterStartFailure(const QString &errorMessage)
 void TerminalImpl::sendControlSignal(ControlSignal controlSignal)
 {
     switch (controlSignal) {
-    case Utils::ControlSignal::Terminate:
-    case Utils::ControlSignal::Kill:
+    case ControlSignal::Terminate:
+    case ControlSignal::Kill:
         stopProcess();
         break;
-    case Utils::ControlSignal::Interrupt:
+    case ControlSignal::Interrupt:
         sendCommand('i');
         break;
-    case Utils::ControlSignal::KickOff:
+    case ControlSignal::KickOff:
         sendCommand('c');
         break;
     }

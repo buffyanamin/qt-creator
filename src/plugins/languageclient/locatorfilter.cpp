@@ -25,6 +25,7 @@
 
 #include "locatorfilter.h"
 
+#include "documentsymbolcache.h"
 #include "languageclient_global.h"
 #include "languageclientmanager.h"
 #include "languageclientutils.h"
@@ -288,7 +289,7 @@ void WorkspaceLocatorFilter::prepareSearch(const QString &entry,
                 handleResponse(client, response);
             });
         m_pendingRequests[client] = request.id();
-        client->sendContent(request);
+        client->sendMessage(request);
     }
 }
 

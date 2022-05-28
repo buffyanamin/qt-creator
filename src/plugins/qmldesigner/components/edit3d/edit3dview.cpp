@@ -67,16 +67,7 @@ void Edit3DView::createEdit3DWidget()
 
 void Edit3DView::checkImports()
 {
-    bool has3dImport = false;
-    const QList<Import> imports = model()->imports();
-    for (const auto &import : imports) {
-        if (import.url() == "QtQuick3D") {
-            has3dImport = true;
-            break;
-        }
-    }
-
-    edit3DWidget()->showCanvas(has3dImport);
+    edit3DWidget()->showCanvas(model()->hasImport("QtQuick3D"));
 }
 
 WidgetInfo Edit3DView::widgetInfo()
@@ -220,8 +211,10 @@ void Edit3DView::modelAboutToBeDetached(Model *model)
     QTC_ASSERT(edit3DWidget()->canvas(), return);
 
     // Hide the canvas when model is detached (i.e. changing documents)
-    m_canvasCache.insert(model, edit3DWidget()->canvas()->renderImage());
-    edit3DWidget()->showCanvas(false);
+    if (edit3DWidget() && edit3DWidget()->canvas()) {
+        m_canvasCache.insert(model, edit3DWidget()->canvas()->renderImage());
+        edit3DWidget()->showCanvas(false);
+    }
 
     AbstractView::modelAboutToBeDetached(model);
 }

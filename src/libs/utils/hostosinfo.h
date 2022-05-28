@@ -29,7 +29,9 @@
 
 #include "osspecificaspects.h"
 
-#include <QString>
+QT_BEGIN_NAMESPACE
+class QString;
+QT_END_NAMESPACE
 
 #ifdef Q_OS_WIN
 #define QTC_HOST_EXE_SUFFIX QTC_WIN_EXE_SUFFIX

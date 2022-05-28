@@ -27,7 +27,11 @@
 
 #include "utils_global.h"
 
-#include <QTemporaryFile>
+#include <QFile>
+
+QT_BEGIN_NAMESPACE
+class QTemporaryFile;
+QT_END_NAMESPACE
 
 #include <memory>
 

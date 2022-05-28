@@ -27,7 +27,6 @@
 
 #include "appoutputpane.h"
 #include "buildpropertiessettings.h"
-#include "buildsteplist.h"
 #include "buildsystem.h"
 #include "compileoutputwindow.h"
 #include "configtaskhandler.h"
@@ -48,7 +47,6 @@
 #include "appoutputpane.h"
 #include "buildconfiguration.h"
 #include "buildmanager.h"
-#include "buildsettingspropertiespage.h"
 #include "codestylesettingspropertiespage.h"
 #include "copytaskhandler.h"
 #include "currentprojectfilter.h"
@@ -60,6 +58,7 @@
 #include "devicesupport/desktopdevicefactory.h"
 #include "devicesupport/devicemanager.h"
 #include "devicesupport/devicesettingspage.h"
+#include "devicesupport/sshsettings.h"
 #include "devicesupport/sshsettingspage.h"
 #include "editorsettingspropertiespage.h"
 #include "filesinallprojectsfind.h"
@@ -86,7 +85,6 @@
 #include "projectwindow.h"
 #include "removetaskhandler.h"
 #include "runconfigurationaspects.h"
-#include "runsettingspropertiespage.h"
 #include "sanitizerparser.h"
 #include "selectablefilesmodel.h"
 #include "session.h"
@@ -94,14 +92,15 @@
 #include "showineditortaskhandler.h"
 #include "simpleprojectwizard.h"
 #include "target.h"
-#include "targetsettingspanel.h"
 #include "taskhub.h"
 #include "toolchainmanager.h"
 #include "toolchainoptionspage.h"
 #include "vcsannotatetaskhandler.h"
 
+#ifdef Q_OS_WIN
 #include "windebuginterface.h"
 #include "msvctoolchain.h"
+#endif
 
 #include "projecttree.h"
 #include "projectwelcomepage.h"
@@ -131,8 +130,6 @@
 #include <coreplugin/vcsmanager.h>
 #include <extensionsystem/pluginmanager.h>
 #include <extensionsystem/pluginspec.h>
-#include <ssh/sshconnection.h>
-#include <ssh/sshsettings.h>
 #include <texteditor/findinfiles.h>
 #include <texteditor/textdocument.h>
 #include <texteditor/texteditorconstants.h>
@@ -396,6 +393,7 @@ class ProjectEnvironmentWidget : public NamedWidget
 public:
     explicit ProjectEnvironmentWidget(Project *project) : NamedWidget(tr("Project Environment"))
     {
+        setUseGlobalSettingsCheckBoxVisible(false);
         const auto vbox = new QVBoxLayout(this);
         vbox->setContentsMargins(0, 0, 0, 0);
         const auto envWidget = new EnvironmentWidget(this, EnvironmentWidget::TypeLocal);
@@ -2252,7 +2250,7 @@ void ProjectExplorerPlugin::extensionsInitialized()
     TaskHub::addCategory(Constants::TASK_CATEGORY_SANITIZER,
                          tr("Sanitizer", "Category for sanitizer issues listed under 'Issues'"));
 
-    QSsh::SshSettings::loadSettings(Core::ICore::settings());
+    SshSettings::loadSettings(Core::ICore::settings());
     const auto searchPathRetriever = [] {
         FilePaths searchPaths = {Core::ICore::libexecPath()};
         if (HostOsInfo::isWindowsHost()) {
@@ -2271,7 +2269,7 @@ void ProjectExplorerPlugin::extensionsInitialized()
         }
         return searchPaths;
     };
-    QSsh::SshSettings::setExtraSearchPathRetriever(searchPathRetriever);
+    SshSettings::setExtraSearchPathRetriever(searchPathRetriever);
 
     const auto parseIssuesAction = new QAction(tr("Parse Build Output..."), this);
     ActionContainer *mtools = ActionManager::actionContainer(Core::Constants::M_TOOLS);

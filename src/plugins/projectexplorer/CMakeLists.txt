@@ -1,5 +1,5 @@
 add_qtc_plugin(ProjectExplorer
-  DEPENDS QtcSsh Qt5::Qml
+  DEPENDS Qt5::Qml
   PLUGIN_DEPENDS Core TextEditor
   PLUGIN_TEST_DEPENDS GenericProjectManager
   SOURCES
@@ -9,7 +9,6 @@ add_qtc_plugin(ProjectExplorer
     addrunconfigdialog.cpp addrunconfigdialog.h
     allprojectsfilter.cpp allprojectsfilter.h
     allprojectsfind.cpp allprojectsfind.h
-    applicationlauncher.cpp applicationlauncher.h
     appoutputpane.cpp appoutputpane.h
     baseprojectwizarddialog.cpp baseprojectwizarddialog.h
     buildaspects.cpp buildaspects.h
@@ -67,6 +66,8 @@ add_qtc_plugin(ProjectExplorer
     devicesupport/idevicewidget.h
     devicesupport/localprocesslist.cpp devicesupport/localprocesslist.h
     devicesupport/sshdeviceprocesslist.cpp devicesupport/sshdeviceprocesslist.h
+    devicesupport/sshparameters.cpp devicesupport/sshparameters.h
+    devicesupport/sshsettings.cpp devicesupport/sshsettings.h
     devicesupport/sshsettingspage.cpp devicesupport/sshsettingspage.h
     editorconfiguration.cpp editorconfiguration.h
     editorsettingspropertiespage.cpp editorsettingspropertiespage.h editorsettingspropertiespage.ui
@@ -142,6 +143,7 @@ add_qtc_plugin(ProjectExplorer
     projectmodels.cpp projectmodels.h
     projectnodes.cpp projectnodes.h
     projectpanelfactory.cpp projectpanelfactory.h
+    projectsettingswidget.cpp projectsettingswidget.h
     projecttree.cpp projecttree.h
     projecttreewidget.cpp projecttreewidget.h
     projectwelcomepage.cpp projectwelcomepage.h
@@ -189,8 +191,8 @@ extend_qtc_plugin(ProjectExplorer
   DEFINES "PROJECT_USER_FILE_EXTENSION=${PROJECT_USER_FILE_EXTENSION}"
 )
 
-if (TARGET libclang)
-  set(CLANG_BINDIR "$<TARGET_FILE_DIR:libclang>")
+if (TARGET clangd)
+  set(CLANG_BINDIR "$<TARGET_FILE_DIR:clangd>")
 endif()
 extend_qtc_plugin(ProjectExplorer
   DEFINES "CLANG_BINDIR=\"${CLANG_BINDIR}\""

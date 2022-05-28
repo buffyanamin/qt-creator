@@ -52,15 +52,11 @@ ClangProjectSettingsWidget::ClangProjectSettingsWidget(ProjectExplorer::Project 
     : m_projectSettings(ClangModelManagerSupport::instance()->projectSettings(project))
 {
     m_ui.setupUi(this);
+    setGlobalSettingsId(CppEditor::Constants::CPP_CODE_MODEL_SETTINGS_ID);
 
     using namespace CppEditor;
 
     m_ui.delayedTemplateParseCheckBox->setVisible(Utils::HostOsInfo::isWindowsHost());
-
-    // Links
-    connect(m_ui.gotoGlobalSettingsLabel, &QLabel::linkActivated, [](const QString &) {
-        Core::ICore::showOptionsDialog(CppEditor::Constants::CPP_CODE_MODEL_SETTINGS_ID);
-    });
 
     connect(m_ui.clangDiagnosticConfigsSelectionWidget,
             &ClangDiagnosticConfigsSelectionWidget::changed,
@@ -78,11 +74,10 @@ ClangProjectSettingsWidget::ClangProjectSettingsWidget(ProjectExplorer::Project 
                 CppEditor::codeModelSettings()->toSettings(Core::ICore::settings());
             });
 
+    connect(this, &ProjectSettingsWidget::useGlobalSettingsChanged,
+            this, &ClangProjectSettingsWidget::onGlobalCustomChanged);
     connect(m_ui.delayedTemplateParseCheckBox, &QCheckBox::toggled,
             this, &ClangProjectSettingsWidget::onDelayedTemplateParseClicked);
-    connect(m_ui.globalOrCustomComboBox,
-            QOverload<int>::of(&QComboBox::currentIndexChanged),
-            this, &ClangProjectSettingsWidget::onGlobalCustomChanged);
     connect(project, &ProjectExplorer::Project::aboutToSaveSettings,
             this, &ClangProjectSettingsWidget::onAboutToSaveProjectSettings);
 
@@ -109,9 +104,9 @@ void ClangProjectSettingsWidget::onDelayedTemplateParseClicked(bool checked)
     m_projectSettings.setCommandLineOptions(options);
 }
 
-void ClangProjectSettingsWidget::onGlobalCustomChanged(int index)
+void ClangProjectSettingsWidget::onGlobalCustomChanged(bool useGlobalSettings)
 {
-    m_projectSettings.setUseGlobalConfig(index == 0 ? true : false);
+    m_projectSettings.setUseGlobalConfig(useGlobalSettings);
     syncOtherWidgetsToComboBox();
 }
 
@@ -122,13 +117,8 @@ void ClangProjectSettingsWidget::onAboutToSaveProjectSettings()
 
 void ClangProjectSettingsWidget::syncWidgets()
 {
-    syncGlobalCustomComboBox();
+    setUseGlobalSettings(m_projectSettings.useGlobalConfig());
     syncOtherWidgetsToComboBox();
-}
-
-void ClangProjectSettingsWidget::syncGlobalCustomComboBox()
-{
-    m_ui.globalOrCustomComboBox->setCurrentIndex(m_projectSettings.useGlobalConfig() ? 0 : 1);
 }
 
 void ClangProjectSettingsWidget::syncOtherWidgetsToComboBox()

@@ -27,7 +27,12 @@
 
 #include <app/app_version.h>
 #include <coreplugin/editormanager/editormanager.h>
+#include <languageclient/diagnosticmanager.h>
+#include <languageclient/languageclienthoverhandler.h>
 #include <languageclient/languageclientinterface.h>
+#include <languageclient/languageclientsettings.h>
+#include <languageserverprotocol/diagnostics.h>
+#include <languageserverprotocol/initializemessages.h>
 #include <projectexplorer/project.h>
 #include <texteditor/texteditor.h>
 #include <texteditor/texteditorsettings.h>
@@ -47,6 +52,7 @@ CocoLanguageClient::CocoLanguageClient(const FilePath &coco, const FilePath &csm
     : Client(clientInterface(coco, csmes))
 {
     setName("Coco");
+    hoverHandler()->setPreferDiagnosticts(false);
     setActivateDocumentAutomatically(false);
     LanguageFilter allFiles;
     allFiles.filePattern = QStringList{"*"};

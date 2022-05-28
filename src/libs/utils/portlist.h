@@ -26,9 +26,12 @@
 #pragma once
 
 #include "utils_global.h"
+
 #include "port.h"
 
-QT_FORWARD_DECLARE_CLASS(QString)
+QT_BEGIN_NAMESPACE
+class QString;
+QT_END_NAMESPACE
 
 namespace Utils {
 namespace Internal { class PortListPrivate; }

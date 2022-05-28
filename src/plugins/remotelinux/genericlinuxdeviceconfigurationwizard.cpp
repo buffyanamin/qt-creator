@@ -30,11 +30,11 @@
 #include "remotelinux_constants.h"
 
 #include <projectexplorer/devicesupport/idevice.h>
+#include <projectexplorer/devicesupport/sshparameters.h>
 #include <utils/portlist.h>
 #include <utils/fileutils.h>
 
 using namespace ProjectExplorer;
-using namespace QSsh;
 
 namespace RemoteLinux {
 namespace Internal {
@@ -69,7 +69,7 @@ GenericLinuxDeviceConfigurationWizard::GenericLinuxDeviceConfigurationWizard(QWi
     d->device->setType(Constants::GenericLinuxOsType);
     d->device->setMachineType(IDevice::Hardware);
     d->device->setFreePorts(Utils::PortList::fromString(QLatin1String("10000-10100")));
-    SshConnectionParameters sshParams;
+    SshParameters sshParams;
     sshParams.timeout = 10;
     d->device->setSshParameters(sshParams);
     d->setupPage.setDevice(d->device);

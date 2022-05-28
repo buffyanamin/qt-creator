@@ -27,7 +27,11 @@
 
 #include "remotelinux_export.h"
 
+#include "filetransfer.h"
+
 #include <projectexplorer/devicesupport/idevice.h>
+
+namespace Utils { class ProcessResultData; }
 
 namespace RemoteLinux {
 
@@ -45,8 +49,8 @@ public:
     void stopTest() override;
 
 private:
-    void handleConnectionFailure();
-    void handleConnected();
+    void testEcho();
+    void handleEchoDone();
 
     void testUname();
     void handleUnameDone();
@@ -55,11 +59,8 @@ private:
     void handlePortsGathererError(const QString &message);
     void handlePortsGathererDone();
 
-    void testSftp();
-    void handleSftpDone(const QString &error);
-
-    void testRsync();
-    void handleRsyncDone();
+    void testFileTransfer(FileTransferMethod method);
+    void handleFileTransferDone(const Utils::ProcessResultData &resultData);
 
     void setFinished(ProjectExplorer::DeviceTester::TestResult result);
 

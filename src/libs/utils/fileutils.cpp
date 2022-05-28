@@ -32,7 +32,10 @@
 #include <QDataStream>
 #include <QDebug>
 #include <QOperatingSystemVersion>
+#include <QTemporaryFile>
 #include <QTextStream>
+#include <QXmlStreamWriter>
+
 #include <qplatformdefs.h>
 
 #ifdef QT_GUI_LIB
