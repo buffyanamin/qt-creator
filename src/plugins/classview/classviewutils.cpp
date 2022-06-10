@@ -43,7 +43,7 @@ namespace Internal {
 QSet<SymbolLocation> roleToLocations(const QList<QVariant> &locationsVar)
 {
     QSet<SymbolLocation> locations;
-    foreach (const QVariant &loc, locationsVar) {
+    for (const QVariant &loc : locationsVar) {
         if (loc.canConvert<SymbolLocation>())
             locations.insert(loc.value<SymbolLocation>());
     }
@@ -65,15 +65,7 @@ SymbolInformation symbolInformationFromItem(const QStandardItem *item)
 
     const QString &name = item->data(Constants::SymbolNameRole).toString();
     const QString &type = item->data(Constants::SymbolTypeRole).toString();
-    int iconType = 0;
-
-    QVariant var = item->data(Constants::IconTypeRole);
-    bool ok = false;
-    int value;
-    if (var.isValid())
-        value = var.toInt(&ok);
-    if (ok)
-        iconType = value;
+    int iconType = item->data(Constants::IconTypeRole).toInt();
 
     return SymbolInformation(name, type, iconType);
 }

@@ -51,16 +51,15 @@ public:
     FollowSymbolUnderCursor &followSymbolInterface() { return *m_followSymbol; }
 
 private:
-    void followSymbol(const CursorInEditor &data, Utils::ProcessLinkCallback &&processLinkCallback,
+    void followSymbol(const CursorInEditor &data, const Utils::LinkHandler &processLinkCallback,
                       bool resolveTarget, bool inNextSplit) override;
     void switchDeclDef(const CursorInEditor &data,
-                       Utils::ProcessLinkCallback &&processLinkCallback) override;
+                       const Utils::LinkHandler &processLinkCallback) override;
     void startLocalRenaming(const CursorInEditor &data,
                             const ProjectPart *projectPart,
                             RenameCallback &&renameSymbolsCallback) override;
-    void globalRename(const CursorInEditor &data, UsagesCallback &&,
-                      const QString &replacement) override;
-    void findUsages(const CursorInEditor &data, UsagesCallback &&) const override;
+    void globalRename(const CursorInEditor &data, const QString &replacement) override;
+    void findUsages(const CursorInEditor &data) const override;
     void switchHeaderSource(const Utils::FilePath &filePath, bool inNextSplit) override;
 
     QScopedPointer<CppCompletionAssistProvider> m_completionAssistProvider;

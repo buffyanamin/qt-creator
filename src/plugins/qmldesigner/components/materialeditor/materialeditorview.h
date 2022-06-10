@@ -73,6 +73,9 @@ public:
     void customNotification(const AbstractView *view, const QString &identifier,
                             const QList<ModelNode> &nodeList, const QList<QVariant> &data) override;
 
+    void dragStarted(QMimeData *mimeData) override;
+    void dragEnded() override;
+
     void changeValue(const QString &name);
     void changeExpression(const QString &name);
     void exportPropertyAsAlias(const QString &name);
@@ -93,6 +96,7 @@ private:
     static QString materialEditorResourcesPath();
 
     void reloadQml();
+    void highlightSupportedProperties(bool highlight = true);
     QString generateIdFromName(const QString &name);
 
     void ensureMaterialLibraryNode();
@@ -106,6 +110,7 @@ private:
     void commitAuxValueToModel(const PropertyName &propertyName, const QVariant &value);
     void removePropertyFromModel(const PropertyName &propertyName);
     void renameMaterial(ModelNode &material, const QString &newName);
+    void duplicateMaterial(const ModelNode &material);
 
     bool noValidSelection() const;
 

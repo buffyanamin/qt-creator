@@ -42,6 +42,8 @@ QtcPlugin {
         "clangdqpropertyhighlighter.h",
         "clangdquickfixfactory.cpp",
         "clangdquickfixfactory.h",
+        "clangdsemantichighlighting.cpp",
+        "clangdsemantichighlighting.h",
         "clangeditordocumentprocessor.cpp",
         "clangeditordocumentprocessor.h",
         "clangfixitoperation.cpp",
@@ -52,10 +54,10 @@ QtcPlugin {
         "clangpreprocessorassistproposalitem.h",
         "clangtextmark.cpp",
         "clangtextmark.h",
-        "clanguiheaderondiskmanager.cpp",
-        "clanguiheaderondiskmanager.h",
         "clangutils.cpp",
         "clangutils.h",
+        "tasktimers.cpp",
+        "tasktimers.h",
     ]
 
     Group {

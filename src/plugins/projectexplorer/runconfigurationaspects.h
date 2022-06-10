@@ -81,7 +81,8 @@ class PROJECTEXPLORER_EXPORT WorkingDirectoryAspect : public Utils::BaseAspect
     Q_OBJECT
 
 public:
-    explicit WorkingDirectoryAspect(EnvironmentAspect *envAspect);
+    explicit WorkingDirectoryAspect(const Utils::MacroExpander *expander,
+                                    EnvironmentAspect *envAspect);
 
     void addToLayout(Utils::LayoutBuilder &builder) override;
 
@@ -102,7 +103,7 @@ private:
     Utils::FilePath m_defaultWorkingDirectory;
     QPointer<Utils::PathChooser> m_chooser;
     QPointer<QToolButton> m_resetButton;
-    Utils::MacroExpander *m_macroExpander = nullptr;
+    const Utils::MacroExpander *m_macroExpander = nullptr;
 };
 
 class PROJECTEXPLORER_EXPORT ArgumentsAspect : public Utils::BaseAspect
@@ -174,7 +175,9 @@ class PROJECTEXPLORER_EXPORT ExecutableAspect : public Utils::BaseAspect
     Q_OBJECT
 
 public:
-    explicit ExecutableAspect(Target *target); // Uses device from target if non-null.
+    enum ExecutionDeviceSelector { HostDevice, BuildDevice, RunDevice };
+
+    explicit ExecutableAspect(Target *target, ExecutionDeviceSelector selector);
     ~ExecutableAspect() override;
 
     Utils::FilePath executable() const;
@@ -206,6 +209,7 @@ private:
     Utils::StringAspect m_executable;
     Utils::StringAspect *m_alternativeExecutable = nullptr;
     Target *m_target = nullptr;
+    ExecutionDeviceSelector m_selector = RunDevice;
 };
 
 class PROJECTEXPLORER_EXPORT SymbolFileAspect : public Utils::StringAspect

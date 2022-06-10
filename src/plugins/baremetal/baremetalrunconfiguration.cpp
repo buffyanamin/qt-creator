@@ -48,12 +48,12 @@ public:
     explicit BareMetalRunConfiguration(Target *target, Id id)
         : RunConfiguration(target, id)
     {
-        const auto exeAspect = addAspect<ExecutableAspect>(target);
+        const auto exeAspect = addAspect<ExecutableAspect>(target, ExecutableAspect::RunDevice);
         exeAspect->setDisplayStyle(StringAspect::LabelDisplay);
         exeAspect->setPlaceHolderText(tr("Unknown"));
 
         addAspect<ArgumentsAspect>(macroExpander());
-        addAspect<WorkingDirectoryAspect>(nullptr);
+        addAspect<WorkingDirectoryAspect>(macroExpander(), nullptr);
 
         setUpdater([this, exeAspect] {
             const BuildTargetInfo bti = buildTargetInfo();
@@ -72,7 +72,7 @@ public:
     explicit BareMetalCustomRunConfiguration(Target *target, Id id)
         : RunConfiguration(target, id)
     {
-        const auto exeAspect = addAspect<ExecutableAspect>(target);
+        const auto exeAspect = addAspect<ExecutableAspect>(target, ExecutableAspect::RunDevice);
         exeAspect->setSettingsKey("BareMetal.CustomRunConfig.Executable");
         exeAspect->setPlaceHolderText(tr("Unknown"));
         exeAspect->setDisplayStyle(StringAspect::PathChooserDisplay);
@@ -80,7 +80,7 @@ public:
         exeAspect->setExpectedKind(PathChooser::Any);
 
         addAspect<ArgumentsAspect>(macroExpander());
-        addAspect<WorkingDirectoryAspect>(nullptr);
+        addAspect<WorkingDirectoryAspect>(macroExpander(), nullptr);
 
         setDefaultDisplayName(RunConfigurationFactory::decoratedTargetName(tr("Custom Executable"), target));
     }

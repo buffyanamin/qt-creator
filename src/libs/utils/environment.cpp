@@ -40,10 +40,20 @@ Q_GLOBAL_STATIC_WITH_ARGS(Environment, staticSystemEnvironment,
 
 Q_GLOBAL_STATIC(QVector<EnvironmentProvider>, environmentProviders)
 
+NameValueItems Environment::diff(const Environment &other, bool checkAppendPrepend) const
+{
+    return m_dict.diff(other.m_dict, checkAppendPrepend);
+}
+
+int Environment::isValid() const
+{
+    return m_dict.size() != 0;
+}
+
 QProcessEnvironment Environment::toProcessEnvironment() const
 {
     QProcessEnvironment result;
-    for (auto it = m_values.constBegin(); it != m_values.constEnd(); ++it) {
+    for (auto it = m_dict.m_values.constBegin(); it != m_dict.m_values.constEnd(); ++it) {
         if (it.value().second)
             result.insert(it.key().name, expandedValueForKey(key(it)));
     }
@@ -52,28 +62,28 @@ QProcessEnvironment Environment::toProcessEnvironment() const
 
 void Environment::appendOrSetPath(const FilePath &value)
 {
-    QTC_CHECK(value.osType() == m_osType);
+    QTC_CHECK(value.osType() == osType());
     if (value.isEmpty())
         return;
     appendOrSet("PATH", value.nativePath(),
-                QString(OsSpecificAspects::pathListSeparator(m_osType)));
+                QString(OsSpecificAspects::pathListSeparator(osType())));
 }
 
 void Environment::prependOrSetPath(const FilePath &value)
 {
-    QTC_CHECK(value.osType() == m_osType);
+    QTC_CHECK(value.osType() == osType());
     if (value.isEmpty())
         return;
     prependOrSet("PATH", value.nativePath(),
-                 QString(OsSpecificAspects::pathListSeparator(m_osType)));
+                 QString(OsSpecificAspects::pathListSeparator(osType())));
 }
 
 void Environment::appendOrSet(const QString &key, const QString &value, const QString &sep)
 {
     QTC_ASSERT(!key.contains('='), return );
-    const auto it = findKey(key);
-    if (it == m_values.end()) {
-        m_values.insert(DictKey(key, nameCaseSensitivity()), qMakePair(value, true));
+    const auto it = m_dict.findKey(key);
+    if (it == m_dict.m_values.end()) {
+        m_dict.m_values.insert(DictKey(key, m_dict.nameCaseSensitivity()), qMakePair(value, true));
     } else {
         // Append unless it is already there
         const QString toAppend = sep + value;
@@ -85,9 +95,9 @@ void Environment::appendOrSet(const QString &key, const QString &value, const QS
 void Environment::prependOrSet(const QString &key, const QString &value, const QString &sep)
 {
     QTC_ASSERT(!key.contains('='), return );
-    const auto it = findKey(key);
-    if (it == m_values.end()) {
-        m_values.insert(DictKey(key, nameCaseSensitivity()), qMakePair(value, true));
+    const auto it = m_dict.findKey(key);
+    if (it == m_dict.m_values.end()) {
+        m_dict.m_values.insert(DictKey(key, m_dict.nameCaseSensitivity()), qMakePair(value, true));
     } else {
         // Prepend unless it is already there
         const QString toPrepend = value + sep;
@@ -98,8 +108,8 @@ void Environment::prependOrSet(const QString &key, const QString &value, const Q
 
 void Environment::prependOrSetLibrarySearchPath(const FilePath &value)
 {
-    QTC_CHECK(value.osType() == m_osType);
-    switch (m_osType) {
+    QTC_CHECK(value.osType() == osType());
+    switch (osType()) {
     case OsTypeWindows: {
         const QChar sep = ';';
         prependOrSet("PATH", value.nativePath(), QString(sep));
@@ -137,8 +147,8 @@ Environment Environment::systemEnvironment()
 
 void Environment::setupEnglishOutput()
 {
-    set("LC_MESSAGES", "en_US.utf8");
-    set("LANGUAGE", "en_US:en");
+    m_dict.set("LC_MESSAGES", "en_US.utf8");
+    m_dict.set("LANGUAGE", "en_US:en");
 }
 
 static FilePath searchInDirectory(const QStringList &execs,
@@ -166,7 +176,7 @@ QStringList Environment::appendExeExtensions(const QString &executable) const
 {
     QStringList execs(executable);
     const QFileInfo fi(executable);
-    if (m_osType == OsTypeWindows) {
+    if (osType() == OsTypeWindows) {
         // Check all the executable extensions on windows:
         // PATHEXT is only used if the executable has no extension
         if (fi.suffix().isEmpty()) {
@@ -202,7 +212,7 @@ bool Environment::isSameExecutable(const QString &exe1, const QString &exe2) con
 
 QString Environment::expandedValueForKey(const QString &key) const
 {
-    return expandVariables(value(key));
+    return expandVariables(m_dict.value(key));
 }
 
 static FilePath searchInDirectoriesHelper(const Environment &env,
@@ -308,7 +318,7 @@ FilePaths Environment::path() const
 FilePaths Environment::pathListValue(const QString &varName) const
 {
     const QStringList pathComponents = expandedValueForKey(varName).split(
-        OsSpecificAspects::pathListSeparator(m_osType), Qt::SkipEmptyParts);
+        OsSpecificAspects::pathListSeparator(osType()), Qt::SkipEmptyParts);
     return transform(pathComponents, &FilePath::fromUserInput);
 }
 
@@ -333,12 +343,12 @@ QString Environment::expandVariables(const QString &input) const
 {
     QString result = input;
 
-    if (m_osType == OsTypeWindows) {
+    if (osType() == OsTypeWindows) {
         for (int vStart = -1, i = 0; i < result.length(); ) {
             if (result.at(i++) == '%') {
                 if (vStart > 0) {
-                    const auto it = findKey(result.mid(vStart, i - vStart - 1));
-                    if (it != m_values.constEnd()) {
+                    const auto it = m_dict.findKey(result.mid(vStart, i - vStart - 1));
+                    if (it != m_dict.m_values.constEnd()) {
                         result.replace(vStart - 1, i - vStart + 1, it->first);
                         i = vStart - 1 + it->first.length();
                         vStart = -1;
@@ -428,44 +438,61 @@ optional<EnvironmentProvider> EnvironmentProvider::provider(const QByteArray &id
 
 void EnvironmentChange::addSetValue(const QString &key, const QString &value)
 {
-    m_changeItems.append([key, value](Environment &env) { env.set(key, value); });
+    m_changeItems.append({Item::SetValue, QVariant::fromValue(QPair<QString, QString>(key, value))});
 }
 
 void EnvironmentChange::addUnsetValue(const QString &key)
 {
-    m_changeItems.append([key](Environment &env) { env.unset(key); });
+    m_changeItems.append({Item::UnsetValue, key});
 }
 
 void EnvironmentChange::addPrependToPath(const FilePaths &values)
 {
     for (int i = values.size(); --i >= 0; ) {
         const FilePath value = values.at(i);
-        m_changeItems.append([value](Environment &env) { env.prependOrSetPath(value); });
+        m_changeItems.append({Item::PrependToPath, value.toVariant()});
     }
 }
 
 void EnvironmentChange::addAppendToPath(const FilePaths &values)
 {
     for (const FilePath &value : values)
-        m_changeItems.append([value](Environment &env) { env.appendOrSetPath(value); });
-}
-
-void EnvironmentChange::addModify(const NameValueItems &items)
-{
-    m_changeItems.append([items](Environment &env) { env.modify(items); });
+        m_changeItems.append({Item::AppendToPath, value.toVariant()});
 }
 
 EnvironmentChange EnvironmentChange::fromFixedEnvironment(const Environment &fixedEnv)
 {
     EnvironmentChange change;
-    change.m_changeItems.append([fixedEnv](Environment &env) { env = fixedEnv; });
+    change.m_changeItems.append({Item::SetFixedEnvironment, QVariant::fromValue(fixedEnv)});
     return change;
 }
 
 void EnvironmentChange::applyToEnvironment(Environment &env) const
 {
-    for (const Item &item : m_changeItems)
-        item(env);
+    for (const Item &item : m_changeItems) {
+        switch (item.type) {
+        case Item::SetSystemEnvironment:
+            env = Environment::systemEnvironment();
+            break;
+        case Item::SetFixedEnvironment:
+            env = item.data.value<Environment>();
+            break;
+        case Item::SetValue: {
+            auto data = item.data.value<QPair<QString, QString>>();
+            env.set(data.first, data.second);
+            break;
+        }
+        case Item::UnsetValue:
+            env.unset(item.data.toString());
+            break;
+        case Item::PrependToPath:
+            env.prependOrSetPath(FilePath::fromVariant(item.data));
+            break;
+        case Item::AppendToPath:
+            env.appendOrSetPath(FilePath::fromVariant(item.data));
+            break;
+        }
+    }
 }
 
 } // namespace Utils

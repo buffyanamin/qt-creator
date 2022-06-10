@@ -25,13 +25,16 @@
 
 #pragma once
 
-#include "abstractremotelinuxdeployservice.h"
 #include "remotelinux_export.h"
+
+#include "abstractremotelinuxdeployservice.h"
 
 #include <QList>
 
-QT_FORWARD_DECLARE_CLASS(QDateTime)
-QT_FORWARD_DECLARE_CLASS(QString)
+QT_BEGIN_NAMESPACE
+class QDateTime;
+class QString;
+QT_END_NAMESPACE
 
 namespace ProjectExplorer { class DeployableFile; }
 namespace Utils { class QtcProcess; }
@@ -55,16 +58,13 @@ public:
 protected:
     bool isDeploymentNecessary() const override;
 
-    void doDeviceSetup() override;
-    void stopDeviceSetup() override;
-
     void doDeploy() override;
     void stopDeployment() override;
 
 private:
     void runStat(const ProjectExplorer::DeployableFile &file);
     QDateTime timestampFromStat(const ProjectExplorer::DeployableFile &file,
-                                Utils::QtcProcess *statProc, const QString &errorMsg);
+                                Utils::QtcProcess *statProc);
     void checkForStateChangeOnRemoteProcFinished();
 
     QList<ProjectExplorer::DeployableFile> collectFilesToUpload(

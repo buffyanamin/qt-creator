@@ -663,127 +663,6 @@ void CppEditorWidget::onIfdefedOutBlocksUpdated(unsigned revision,
     textDocument()->setIfdefedOutBlocks(ifdefedOutBlocks);
 }
 
-static QString getDocumentLine(QTextDocument *document, int line)
-{
-    if (document)
-        return document->findBlockByNumber(line - 1).text();
-
-    return {};
-}
-
-static std::unique_ptr<QTextDocument> getCurrentDocument(const QString &path)
-{
-    const QTextCodec *defaultCodec = Core::EditorManager::defaultTextCodec();
-    QString contents;
-    Utils::TextFileFormat format;
-    QString error;
-    if (Utils::TextFileFormat::readFile(Utils::FilePath::fromString(path),
-                                        defaultCodec,
-                                        &contents,
-                                        &format,
-                                        &error)
-        != Utils::TextFileFormat::ReadSuccess) {
-        qWarning() << "Error reading file " << path << " : " << error;
-        return {};
-    }
-
-    return std::make_unique<QTextDocument>(contents);
-}
-
-static void onReplaceUsagesClicked(const QString &text,
-                                   const QList<SearchResultItem> &items,
-                                   bool preserveCase)
-{
-    CppModelManager *modelManager = CppModelManager::instance();
-    if (!modelManager)
-        return;
-
-    const FilePaths filePaths = TextEditor::BaseFileFind::replaceAll(text, items, preserveCase);
-    if (!filePaths.isEmpty()) {
-        modelManager->updateSourceFiles(Utils::transform<QSet>(filePaths, &FilePath::toString));
-        SearchResultWindow::instance()->hide();
-    }
-}
-
-static QTextDocument *getOpenDocument(const QString &path)
-{
-    const IDocument *document = DocumentModel::documentForFilePath(FilePath::fromString(path));
-    if (document)
-        return qobject_cast<const TextDocument *>(document)->document();
-
-    return {};
-}
-
-static void addSearchResults(Usages usages, SearchResult &search, const QString &text)
-{
-    std::sort(usages.begin(), usages.end());
-
-    std::unique_ptr<QTextDocument> currentDocument;
-    QString lastPath;
-
-    for (const Usage &usage : usages) {
-        QTextDocument *document = getOpenDocument(usage.path);
-
-        if (!document) {
-            if (usage.path != lastPath) {
-                currentDocument = getCurrentDocument(usage.path);
-                lastPath = usage.path;
-            }
-            document = currentDocument.get();
-        }
-
-        const QString lineContent = getDocumentLine(document, usage.line);
-
-        if (!lineContent.isEmpty()) {
-            Search::TextRange range{Search::TextPosition(usage.line, usage.column - 1),
-                                    Search::TextPosition(usage.line, usage.column + text.length() - 1)};
-            SearchResultItem item;
-            item.setFilePath(FilePath::fromString(usage.path));
-            item.setLineText(lineContent);
-            item.setMainRange(range);
-            item.setUseTextEditorFont(true);
-            search.addResult(item);
-        }
-    }
-}
-
-static void findRenameCallback(CppEditorWidget *widget,
-                               const QTextCursor &baseCursor,
-                               const Usages &usages,
-                               bool rename = false,
-                               const QString &replacement = QString())
-{
-    QTextCursor cursor = Utils::Text::wordStartCursor(baseCursor);
-    cursor.movePosition(QTextCursor::EndOfWord, QTextCursor::KeepAnchor);
-    const QString text = cursor.selectedText();
-    SearchResultWindow::SearchMode mode = SearchResultWindow::SearchOnly;
-    if (rename)
-        mode = SearchResultWindow::SearchAndReplace;
-    SearchResult *search = SearchResultWindow::instance()->startNewSearch(
-                QObject::tr("C++ Usages:"),
-                QString(),
-                text,
-                mode,
-                SearchResultWindow::PreserveCaseDisabled,
-                QLatin1String("CppEditor"));
-    search->setTextToReplace(replacement);
-    search->setSearchAgainSupported(true);
-    QObject::connect(search, &SearchResult::replaceButtonClicked, &onReplaceUsagesClicked);
-    QObject::connect(search, &SearchResult::searchAgainRequested,
-                     [widget, rename, replacement, baseCursor]() {
-        rename ? widget->renameUsages(replacement, baseCursor) : widget->findUsages(baseCursor);
-    });
-
-    addSearchResults(usages, *search, text);
-
-    search->finishSearch(false);
-    QObject::connect(search, &SearchResult::activated,
-                     [](const Core::SearchResultItem& item) {
-                         Core::EditorManager::openEditorAtSearchResult(item);
-                     });
-    search->popup();
-}
-
 void CppEditorWidget::findUsages()
 {
     findUsages(textCursor());
@@ -792,32 +671,18 @@ void CppEditorWidget::findUsages()
 void CppEditorWidget::findUsages(QTextCursor cursor)
 {
     // 'this' in cursorInEditor is never used (and must never be used) asynchronously.
-    const CursorInEditor cursorInEditor{cursor, textDocument()->filePath(), this,
-                textDocument()};
+    const CursorInEditor cursorInEditor{cursor, textDocument()->filePath(), this, textDocument()};
     QPointer<CppEditorWidget> cppEditorWidget = this;
-    d->m_modelManager->findUsages(cursorInEditor,
-                                  [=](const Usages &usages) {
-                                      if (!cppEditorWidget)
-                                          return;
-                                      findRenameCallback(cppEditorWidget.data(), cursor, usages);
-                                  });
+    d->m_modelManager->findUsages(cursorInEditor);
 }
 
 void CppEditorWidget::renameUsages(const QString &replacement, QTextCursor cursor)
 {
     if (cursor.isNull())
         cursor = textCursor();
-    CursorInEditor cursorInEditor{cursor, textDocument()->filePath(), this,
-                textDocument()};
+    CursorInEditor cursorInEditor{cursor, textDocument()->filePath(), this, textDocument()};
     QPointer<CppEditorWidget> cppEditorWidget = this;
-    d->m_modelManager->globalRename(cursorInEditor,
-                                    [=](const Usages &usages) {
-                                        if (!cppEditorWidget)
-                                            return;
-                                        findRenameCallback(cppEditorWidget.data(), cursor, usages,
-                                                           true, replacement);
-                                    },
-                                    replacement);
+    d->m_modelManager->globalRename(cursorInEditor, replacement);
 }
 
 bool CppEditorWidget::selectBlockUp()
@@ -1024,7 +889,7 @@ void CppEditorWidget::switchDeclarationDefinition(bool inNextSplit)
 }
 
 void CppEditorWidget::findLinkAt(const QTextCursor &cursor,
-                                 ProcessLinkCallback &&processLinkCallback,
+                                 const LinkHandler &processLinkCallback,
                                  bool resolveTarget,
                                  bool inNextSplit)
 {
@@ -1037,8 +902,8 @@ void CppEditorWidget::findLinkAt(const QTextCursor &cursor,
     // UI header.
     QTextCursor c(cursor);
     c.select(QTextCursor::WordUnderCursor);
-    ProcessLinkCallback callbackWrapper = [start = c.selectionStart(), end = c.selectionEnd(),
-            doc = QPointer(cursor.document()), callback = std::move(processLinkCallback),
+    LinkHandler callbackWrapper = [start = c.selectionStart(), end = c.selectionEnd(),
+            doc = QPointer(cursor.document()), callback = processLinkCallback,
             filePath](const Link &link) {
         const int linkPos = doc ? Text::positionInText(doc, link.targetLine, link.targetColumn + 1)
                                 : -1;
@@ -1062,7 +927,7 @@ void CppEditorWidget::findLinkAt(const QTextCursor &cursor,
     };
     CppModelManager::followSymbol(
                 CursorInEditor{cursor, filePath, this, textDocument()},
-                std::move(callbackWrapper),
+                callbackWrapper,
                 resolveTarget,
                 inNextSplit);
 }

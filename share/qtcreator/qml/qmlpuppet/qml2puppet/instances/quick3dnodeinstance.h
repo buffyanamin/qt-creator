@@ -27,16 +27,14 @@
 
 #include <QtGlobal>
 
-#include "objectnodeinstance.h"
-
-#include <designersupportdelegate.h>
+#include "quick3drenderablenodeinstance.h"
 
 QT_FORWARD_DECLARE_CLASS(QQuick3DNode)
 
 namespace QmlDesigner {
 namespace Internal {
 
-class Quick3DNodeInstance : public ObjectNodeInstance
+class Quick3DNodeInstance : public Quick3DRenderableNodeInstance
 {
 public:
     using Pointer = QSharedPointer<Quick3DNodeInstance>;
@@ -47,28 +45,11 @@ public:
     void initialize(const ObjectNodeInstance::Pointer &objectNodeInstance,
                     InstanceContainer::NodeFlags flags) override;
 
-    QImage renderImage() const override;
-    QImage renderPreviewImage(const QSize &previewImageSize) const override;
-
-    bool isRenderable() const override;
-    bool hasContent() const override;
-    QRectF boundingRect() const override;
-    QRectF contentItemBoundingBox() const override;
-    QPointF position() const override;
-    QSizeF size() const override;
-
-    QList<ServerNodeInstance> stateInstances() const override;
-
-    QQuickItem *contentItem() const override;
-
 protected:
     explicit Quick3DNodeInstance(QObject *node);
 
 private:
-    Qt5NodeInstanceServer *qt5NodeInstanceServer() const;
     QQuick3DNode *quick3DNode() const;
-
-    QQuickItem *m_dummyRootView = nullptr;
 };
 
 } // namespace Internal

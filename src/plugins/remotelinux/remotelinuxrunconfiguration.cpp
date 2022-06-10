@@ -26,8 +26,8 @@
 #include "remotelinuxrunconfiguration.h"
 
 #include "remotelinux_constants.h"
-#include "remotelinuxx11forwardingaspect.h"
 #include "remotelinuxenvironmentaspect.h"
+#include "x11forwardingaspect.h"
 
 #include <projectexplorer/buildsystem.h>
 #include <projectexplorer/buildtargetinfo.h>
@@ -59,7 +59,7 @@ RemoteLinuxRunConfiguration::RemoteLinuxRunConfiguration(Target *target, Id id)
 {
     auto envAspect = addAspect<RemoteLinuxEnvironmentAspect>(target);
 
-    auto exeAspect = addAspect<ExecutableAspect>(target);
+    auto exeAspect = addAspect<ExecutableAspect>(target, ExecutableAspect::RunDevice);
     exeAspect->setLabelText(tr("Executable on device:"));
     exeAspect->setPlaceHolderText(tr("Remote path not set"));
     exeAspect->makeOverridable("RemoteLinux.RunConfig.AlternateRemoteExecutable",
@@ -71,11 +71,11 @@ RemoteLinuxRunConfiguration::RemoteLinuxRunConfiguration(Target *target, Id id)
     symbolsAspect->setDisplayStyle(SymbolFileAspect::LabelDisplay);
 
     addAspect<ArgumentsAspect>(macroExpander());
-    addAspect<WorkingDirectoryAspect>(envAspect);
+    addAspect<WorkingDirectoryAspect>(macroExpander(), envAspect);
     if (HostOsInfo::isAnyUnixHost())
         addAspect<TerminalAspect>();
     if (HostOsInfo::isAnyUnixHost())
-        addAspect<X11ForwardingAspect>();
+        addAspect<X11ForwardingAspect>(macroExpander());
 
     setUpdater([this, target, exeAspect, symbolsAspect] {
         BuildTargetInfo bti = buildTargetInfo();
@@ -88,7 +88,7 @@ RemoteLinuxRunConfiguration::RemoteLinuxRunConfiguration(Target *target, Id id)
 
     setRunnableModifier([this](Runnable &r) {
         if (const auto * const forwardingAspect = aspect<X11ForwardingAspect>())
-            r.extraData.insert("Ssh.X11ForwardToDisplay", forwardingAspect->display(macroExpander()));
+            r.extraData.insert("Ssh.X11ForwardToDisplay", forwardingAspect->display());
     });
 
     connect(target, &Target::buildSystemUpdated, this, &RunConfiguration::update);

@@ -140,18 +140,13 @@ void ItemLibraryWidget::resizeEvent(QResizeEvent *event)
     isHorizontalLayout = event->size().width() >= HORIZONTAL_LAYOUT_WIDTH_LIMIT;
 }
 
-ItemLibraryWidget::ItemLibraryWidget(AsynchronousImageCache &imageCache,
-                                     AsynchronousImageCache &asynchronousFontImageCache,
-                                     SynchronousImageCache &synchronousFontImageCache)
+ItemLibraryWidget::ItemLibraryWidget(AsynchronousImageCache &imageCache)
     : m_itemIconSize(24, 24)
-    , m_fontImageCache(synchronousFontImageCache)
     , m_itemLibraryModel(new ItemLibraryModel(this))
     , m_addModuleModel(new ItemLibraryAddImportModel(this))
     , m_itemsWidget(new QQuickWidget(this))
     , m_imageCache{imageCache}
 {
-    Q_UNUSED(asynchronousFontImageCache)
-
     m_compressionTimer.setInterval(200);
     m_compressionTimer.setSingleShot(true);
     ItemLibraryModel::registerQmlTypes();
@@ -283,7 +278,7 @@ void ItemLibraryWidget::handleAddImport(int index)
     imports.append(import);
     model->changeImports(imports, {});
 
-    QMetaObject::invokeMethod(m_itemsWidget->rootObject(), "switchToComponentsView");
+    switchToComponentsView();
     updateSearch();
 }
 
@@ -315,7 +310,7 @@ void ItemLibraryWidget::setModel(Model *model)
             m_subCompEditMode = subCompEditMode;
             // Switch out of add module view if it's active
             if (m_subCompEditMode)
-                QMetaObject::invokeMethod(m_itemsWidget->rootObject(), "switchToComponentsView");
+                switchToComponentsView();
             emit subCompEditModeChanged();
         }
     }
@@ -333,6 +328,11 @@ QString ItemLibraryWidget::qmlSourcesPath()
 void ItemLibraryWidget::clearSearchFilter()
 {
     QMetaObject::invokeMethod(m_itemsWidget->rootObject(), "clearSearchFilter");
+}
+
+void ItemLibraryWidget::switchToComponentsView()
+{
+    QMetaObject::invokeMethod(m_itemsWidget->rootObject(), "switchToComponentsView");
 }
 
 void ItemLibraryWidget::reloadQmlSource()

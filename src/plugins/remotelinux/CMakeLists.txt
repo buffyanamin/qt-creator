@@ -2,18 +2,18 @@ add_qtc_plugin(RemoteLinux
   DEPENDS QmlDebug
   PLUGIN_DEPENDS Core Debugger ProjectExplorer
   SOURCES
-    abstractpackagingstep.cpp abstractpackagingstep.h
     abstractremotelinuxdeployservice.cpp abstractremotelinuxdeployservice.h
     abstractremotelinuxdeploystep.cpp abstractremotelinuxdeploystep.h
-    abstractuploadandinstallpackageservice.cpp abstractuploadandinstallpackageservice.h
+    checkforfreediskspacestep.cpp checkforfreediskspacestep.h
+    customcommanddeploystep.cpp customcommanddeploystep.h
     deploymenttimeinfo.cpp deploymenttimeinfo.h
-    filetransfer.h
     genericdirectuploadservice.cpp genericdirectuploadservice.h
     genericdirectuploadstep.cpp genericdirectuploadstep.h
     genericlinuxdeviceconfigurationwidget.cpp genericlinuxdeviceconfigurationwidget.h genericlinuxdeviceconfigurationwidget.ui
     genericlinuxdeviceconfigurationwizard.cpp genericlinuxdeviceconfigurationwizard.h
     genericlinuxdeviceconfigurationwizardpages.cpp genericlinuxdeviceconfigurationwizardpages.h
     genericlinuxdeviceconfigurationwizardsetuppage.ui
+    killappstep.cpp killappstep.h
     linuxdevice.cpp linuxdevice.h
     linuxdevicetester.cpp linuxdevicetester.h
     linuxprocessinterface.h
@@ -22,27 +22,22 @@ add_qtc_plugin(RemoteLinux
     remotelinux.qrc
     remotelinux_constants.h
     remotelinux_export.h
-    remotelinuxcheckforfreediskspacestep.cpp remotelinuxcheckforfreediskspacestep.h
-    remotelinuxcustomcommanddeploymentstep.cpp remotelinuxcustomcommanddeploymentstep.h
     remotelinuxcustomrunconfiguration.cpp remotelinuxcustomrunconfiguration.h
     remotelinuxdebugsupport.cpp remotelinuxdebugsupport.h
     remotelinuxdeployconfiguration.cpp remotelinuxdeployconfiguration.h
     remotelinuxenvironmentaspect.cpp remotelinuxenvironmentaspect.h
     remotelinuxenvironmentaspectwidget.cpp remotelinuxenvironmentaspectwidget.h
     remotelinuxenvironmentreader.cpp remotelinuxenvironmentreader.h
-    remotelinuxkillappservice.cpp remotelinuxkillappservice.h
-    remotelinuxkillappstep.cpp remotelinuxkillappstep.h
-    remotelinuxpackageinstaller.cpp remotelinuxpackageinstaller.h
     remotelinuxplugin.cpp remotelinuxplugin.h
     remotelinuxqmltoolingsupport.cpp remotelinuxqmltoolingsupport.h
     remotelinuxrunconfiguration.cpp remotelinuxrunconfiguration.h
     remotelinuxsignaloperation.cpp remotelinuxsignaloperation.h
-    remotelinuxx11forwardingaspect.cpp remotelinuxx11forwardingaspect.h
     rsyncdeploystep.cpp rsyncdeploystep.h
     sshkeycreationdialog.cpp sshkeycreationdialog.h sshkeycreationdialog.ui
     sshprocessinterface.h
     tarpackagecreationstep.cpp tarpackagecreationstep.h
-    uploadandinstalltarpackagestep.cpp uploadandinstalltarpackagestep.h
+    tarpackagedeploystep.cpp tarpackagedeploystep.h
+    x11forwardingaspect.cpp x11forwardingaspect.h
 )
 
 extend_qtc_plugin(RemoteLinux

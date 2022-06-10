@@ -165,6 +165,7 @@ extend_qtc_plugin(QmlDesigner
   edit3dcanvas.cpp edit3dcanvas.h
   edit3dactions.cpp edit3dactions.h
   edit3dvisibilitytogglesmenu.cpp edit3dvisibilitytogglesmenu.h
+  backgroundcolorselection.cpp backgroundcolorselection.h
   edit3d.qrc
 )
 
@@ -322,6 +323,7 @@ extend_qtc_plugin(QmlDesigner
     materialeditorqmlbackend.cpp materialeditorqmlbackend.h
     materialeditortransaction.cpp materialeditortransaction.h
     materialeditorview.cpp materialeditorview.h
+    materialeditor.qrc
 )
 
 extend_qtc_plugin(QmlDesigner

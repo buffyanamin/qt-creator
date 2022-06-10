@@ -100,6 +100,30 @@ static const QList<TextEditor::TextDocument *> allCppDocuments()
     return Utils::qobject_container_cast<TextEditor::TextDocument *>(documents);
 }
 
+static bool fileIsProjectBuildArtifact(const Client *client, const Utils::FilePath &filePath)
+{
+    if (const auto p = client->project()) {
+        if (const auto t = p->activeTarget()) {
+            if (const auto bc = t->activeBuildConfiguration()) {
+                if (filePath.isChildOf(bc->buildDirectory()))
+                    return true;
+            }
+        }
+    }
+    return false;
+}
+
+static Client *clientForGeneratedFile(const Utils::FilePath &filePath)
+{
+    for (Client * const client : LanguageClientManager::clients()) {
+        if (qobject_cast<ClangdClient *>(client) && client->reachable()
+                && fileIsProjectBuildArtifact(client, filePath)) {
+            return client;
+        }
+    }
+    return nullptr;
+}
+
 ClangModelManagerSupport::ClangModelManagerSupport()
 {
     QTC_CHECK(!m_instance);
@@ -167,32 +191,31 @@ CppEditor::CppCompletionAssistProvider *ClangModelManagerSupport::functionHintAs
 }
 
 void ClangModelManagerSupport::followSymbol(const CppEditor::CursorInEditor &data,
-                  Utils::ProcessLinkCallback &&processLinkCallback, bool resolveTarget,
+                  const Utils::LinkHandler &processLinkCallback, bool resolveTarget,
                   bool inNextSplit)
 {
     if (ClangdClient * const client = clientForFile(data.filePath());
             client && client->isFullyIndexed()) {
         client->followSymbol(data.textDocument(), data.cursor(), data.editorWidget(),
-                             std::move(processLinkCallback), resolveTarget, inNextSplit);
+                             processLinkCallback, resolveTarget, inNextSplit);
         return;
     }
 
-    CppModelManager::followSymbol(data, std::move(processLinkCallback), resolveTarget, inNextSplit,
+    CppModelManager::followSymbol(data, processLinkCallback, resolveTarget, inNextSplit,
                                   CppModelManager::Backend::Builtin);
 }
 
 void ClangModelManagerSupport::switchDeclDef(const CppEditor::CursorInEditor &data,
-                   Utils::ProcessLinkCallback &&processLinkCallback)
+                   const Utils::LinkHandler &processLinkCallback)
 {
     if (ClangdClient * const client = clientForFile(data.filePath());
             client && client->isFullyIndexed()) {
         client->switchDeclDef(data.textDocument(), data.cursor(), data.editorWidget(),
-                              std::move(processLinkCallback));
+                              processLinkCallback);
         return;
     }
 
-    CppModelManager::switchDeclDef(data, std::move(processLinkCallback),
-                                   CppModelManager::Backend::Builtin);
+    CppModelManager::switchDeclDef(data, processLinkCallback, CppModelManager::Backend::Builtin);
 }
 
 void ClangModelManagerSupport::startLocalRenaming(const CppEditor::CursorInEditor &data,
@@ -211,8 +234,7 @@ void ClangModelManagerSupport::startLocalRenaming(const CppEditor::CursorInEdito
 }
 
 void ClangModelManagerSupport::globalRename(const CppEditor::CursorInEditor &cursor,
-                                     CppEditor::UsagesCallback &&callback,
-                                     const QString &replacement)
+                                            const QString &replacement)
 {
     if (ClangdClient * const client = clientForFile(cursor.filePath());
             client && client->isFullyIndexed()) {
@@ -221,12 +243,10 @@ void ClangModelManagerSupport::globalRename(const CppEditor::CursorInEditor &cur
         client->findUsages(cursor.textDocument(), cursor.cursor(), replacement);
         return;
     }
-    CppModelManager::globalRename(cursor, std::move(callback), replacement,
-                                  CppModelManager::Backend::Builtin);
+    CppModelManager::globalRename(cursor, replacement, CppModelManager::Backend::Builtin);
 }
 
-void ClangModelManagerSupport::findUsages(const CppEditor::CursorInEditor &cursor,
-                                   CppEditor::UsagesCallback &&callback) const
+void ClangModelManagerSupport::findUsages(const CppEditor::CursorInEditor &cursor) const
 {
     if (ClangdClient * const client = clientForFile(cursor.filePath());
             client && client->isFullyIndexed()) {
@@ -236,7 +256,7 @@ void ClangModelManagerSupport::findUsages(const CppEditor::CursorInEditor &curso
 
         return;
     }
-    CppModelManager::findUsages(cursor, std::move(callback), CppModelManager::Backend::Builtin);
+    CppModelManager::findUsages(cursor, CppModelManager::Backend::Builtin);
 }
 
 void ClangModelManagerSupport::switchHeaderSource(const Utils::FilePath &filePath, bool inNextSplit)
@@ -347,7 +367,7 @@ void ClangModelManagerSupport::updateLanguageClient(
         if (Client * const oldClient = clientForProject(project))
             LanguageClientManager::shutdownClient(oldClient);
         ClangdClient * const client = createClient(project, jsonDbDir);
-        connect(client, &Client::initialized, this, [client, project, projectInfo, jsonDbDir] {
+        connect(client, &Client::initialized, this, [this, client, project, projectInfo, jsonDbDir] {
             using namespace ProjectExplorer;
             if (!SessionManager::hasProject(project))
                 return;
@@ -386,6 +406,23 @@ void ClangModelManagerSupport::updateLanguageClient(
                     hasDocuments = true;
                 }
             }
+
+            for (auto it = m_queuedShadowDocuments.begin(); it != m_queuedShadowDocuments.end();) {
+                if (fileIsProjectBuildArtifact(client, it.key())) {
+                    if (it.value().isEmpty())
+                        client->removeShadowDocument(it.key());
+                    else
+                        client->setShadowDocument(it.key(), it.value());
+                    ClangdClient::handleUiHeaderChange(it.key().fileName());
+                    it = m_queuedShadowDocuments.erase(it);
+                } else {
+                    ++it;
+                }
+            }
+            connect(client, &Client::shadowDocumentSwitched, this,
+                    [](const Utils::FilePath &fp) {
+                        ClangdClient::handleUiHeaderChange(fp.fileName());
+            });
 
             if (client->state() == Client::Initialized)
                 updateParserConfig();
@@ -596,18 +633,28 @@ void ClangModelManagerSupport::onAbstractEditorSupportContentsUpdated(const QStr
 
     if (content.size() == 0)
         return; // Generation not yet finished.
-
-    m_uiHeaderOnDiskManager.write(filePath, content);
-    ClangdClient::handleUiHeaderChange(Utils::FilePath::fromString(filePath).fileName());
+    const auto fp = Utils::FilePath::fromString(filePath);
+    const QString stringContent = QString::fromUtf8(content);
+    if (Client * const client = clientForGeneratedFile(fp)) {
+        client->setShadowDocument(fp, stringContent);
+        ClangdClient::handleUiHeaderChange(fp.fileName());
+        QTC_CHECK(m_queuedShadowDocuments.remove(fp) == 0);
+    } else  {
+        m_queuedShadowDocuments.insert(fp, stringContent);
+    }
 }
 
 void ClangModelManagerSupport::onAbstractEditorSupportRemoved(const QString &filePath)
 {
     QTC_ASSERT(!filePath.isEmpty(), return);
 
-    if (!cppModelManager()->cppEditorDocument(filePath)) {
-        m_uiHeaderOnDiskManager.remove(filePath);
-        ClangdClient::handleUiHeaderChange(Utils::FilePath::fromString(filePath).fileName());
+    const auto fp = Utils::FilePath::fromString(filePath);
+    if (Client * const client = clientForGeneratedFile(fp)) {
+        client->removeShadowDocument(fp);
+        ClangdClient::handleUiHeaderChange(fp.fileName());
+        QTC_CHECK(m_queuedShadowDocuments.remove(fp) == 0);
+    } else {
+        m_queuedShadowDocuments.insert(fp, {});
     }
 }
 
@@ -739,16 +786,6 @@ void ClangModelManagerSupport::reinitializeBackendDocuments(const QStringList &p
 ClangModelManagerSupport *ClangModelManagerSupport::instance()
 {
     return m_instance;
-}
-
-QString ClangModelManagerSupport::dummyUiHeaderOnDiskPath(const QString &filePath) const
-{
-    return m_uiHeaderOnDiskManager.mapPath(filePath);
-}
-
-QString ClangModelManagerSupport::dummyUiHeaderOnDiskDirPath() const
-{
-    return m_uiHeaderOnDiskManager.directoryPath();
 }
 
 QString ClangModelManagerSupportProvider::id() const

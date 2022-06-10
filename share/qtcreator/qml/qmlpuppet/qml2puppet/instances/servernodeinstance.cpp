@@ -39,6 +39,7 @@
 #include "qt3dpresentationnodeinstance.h"
 
 #include "quickitemnodeinstance.h"
+#include "quick3dmaterialnodeinstance.h"
 #include "quick3dnodeinstance.h"
 #include "quick3dtexturenodeinstance.h"
 
@@ -203,6 +204,8 @@ Internal::ObjectNodeInstance::Pointer ServerNodeInstance::createInstance(QObject
         instance = Internal::Quick3DTextureNodeInstance::create(objectToBeWrapped);
     else if (isSubclassOf(objectToBeWrapped, "QQuick3DNode"))
         instance = Internal::Quick3DNodeInstance::create(objectToBeWrapped);
+    else if (isSubclassOf(objectToBeWrapped, "QQuick3DMaterial"))
+        instance = Internal::Quick3DMaterialNodeInstance::create(objectToBeWrapped);
     else if (isSubclassOf(objectToBeWrapped, "QQmlComponent"))
         instance = Internal::ComponentNodeInstance::create(objectToBeWrapped);
     else if (objectToBeWrapped->inherits("QQmlAnchorChanges"))
@@ -320,8 +323,12 @@ ServerNodeInstance ServerNodeInstance::create(NodeInstanceServer *nodeInstanceSe
 
     instance.internalInstance()->initialize(instance.m_nodeInstance, instanceContainer.metaFlags());
 
+#if QT_VERSION < QT_VERSION_CHECK(6, 2, 1)
     // Handle hidden state to initialize pickable state
     nodeInstanceServer->handleInstanceHidden(instance, false, false);
+#else
+    nodeInstanceServer->handlePickTarget(instance);
+#endif
 
     return instance;
 }

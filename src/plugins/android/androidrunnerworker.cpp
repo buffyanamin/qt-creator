@@ -28,11 +28,11 @@
 #include "androidconfigurations.h"
 #include "androidconstants.h"
 #include "androidmanager.h"
-#include "androidrunconfiguration.h"
 
 #include <debugger/debuggerkitinformation.h>
 #include <debugger/debuggerrunconfigurationaspect.h>
 
+#include <projectexplorer/buildconfiguration.h>
 #include <projectexplorer/projectexplorerconstants.h>
 #include <projectexplorer/environmentaspect.h>
 #include <projectexplorer/runconfigurationaspects.h>
@@ -274,9 +274,8 @@ AndroidRunnerWorker::AndroidRunnerWorker(RunWorker *runner, const QString &packa
     qCDebug(androidRunWorkerLog) << "Environment variables for the app"
                                  << m_extraEnvVars.toStringList();
 
-    if (target->buildConfigurations().first()->buildType() != BuildConfiguration::BuildType::Release) {
-        m_extraAppParams = runControl->runnable().command.arguments();
-    }
+    if (target->buildConfigurations().first()->buildType() != BuildConfiguration::BuildType::Release)
+        m_extraAppParams = runControl->commandLine().arguments();
 
     if (auto aspect = runControl->aspect(Constants::ANDROID_AM_START_ARGS)) {
         QTC_CHECK(aspect->value.type() == QVariant::String);
@@ -646,7 +645,7 @@ void AndroidRunnerWorker::asyncStartHelper()
              << QString::fromLatin1(appArgs.join(' ').toUtf8().toBase64());
     }
 
-    if (m_extraEnvVars.size() > 0) {
+    if (m_extraEnvVars.isValid()) {
         args << "-e" << "extraenvvars"
              << QString::fromLatin1(m_extraEnvVars.toStringList().join('\t')
                                     .toUtf8().toBase64());

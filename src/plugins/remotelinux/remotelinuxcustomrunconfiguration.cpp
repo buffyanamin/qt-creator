@@ -27,7 +27,7 @@
 
 #include "remotelinux_constants.h"
 #include "remotelinuxenvironmentaspect.h"
-#include "remotelinuxx11forwardingaspect.h"
+#include "x11forwardingaspect.h"
 
 #include <projectexplorer/runconfigurationaspects.h>
 #include <projectexplorer/runcontrol.h>
@@ -59,7 +59,7 @@ RemoteLinuxCustomRunConfiguration::RemoteLinuxCustomRunConfiguration(Target *tar
 {
     auto envAspect = addAspect<RemoteLinuxEnvironmentAspect>(target);
 
-    auto exeAspect = addAspect<ExecutableAspect>(target);
+    auto exeAspect = addAspect<ExecutableAspect>(target, ExecutableAspect::RunDevice);
     exeAspect->setSettingsKey("RemoteLinux.CustomRunConfig.RemoteExecutable");
     exeAspect->setLabelText(tr("Remote executable:"));
     exeAspect->setDisplayStyle(StringAspect::LineEditDisplay);
@@ -72,15 +72,15 @@ RemoteLinuxCustomRunConfiguration::RemoteLinuxCustomRunConfiguration(Target *tar
     symbolsAspect->setDisplayStyle(SymbolFileAspect::PathChooserDisplay);
 
     addAspect<ArgumentsAspect>(macroExpander());
-    addAspect<WorkingDirectoryAspect>(envAspect);
+    addAspect<WorkingDirectoryAspect>(macroExpander(), envAspect);
     if (HostOsInfo::isAnyUnixHost())
         addAspect<TerminalAspect>();
     if (HostOsInfo::isAnyUnixHost())
-        addAspect<X11ForwardingAspect>();
+        addAspect<X11ForwardingAspect>(macroExpander());
 
     setRunnableModifier([this](Runnable &r) {
         if (const auto * const forwardingAspect = aspect<X11ForwardingAspect>())
-            r.extraData.insert("Ssh.X11ForwardToDisplay", forwardingAspect->display(macroExpander()));
+            r.extraData.insert("Ssh.X11ForwardToDisplay", forwardingAspect->display());
     });
 
     setDefaultDisplayName(runConfigDefaultDisplayName());

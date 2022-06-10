@@ -25,23 +25,22 @@
 
 #include "remotelinuxplugin.h"
 
+#include "checkforfreediskspacestep.h"
+#include "customcommanddeploystep.h"
+#include "genericdirectuploadstep.h"
+#include "killappstep.h"
 #include "linuxdevice.h"
+#include "makeinstallstep.h"
 #include "remotelinux_constants.h"
+#include "remotelinuxdeployconfiguration.h"
 #include "remotelinuxqmltoolingsupport.h"
 #include "remotelinuxcustomrunconfiguration.h"
 #include "remotelinuxdebugsupport.h"
 #include "remotelinuxdeployconfiguration.h"
 #include "remotelinuxrunconfiguration.h"
-
-#include "genericdirectuploadstep.h"
-#include "makeinstallstep.h"
-#include "remotelinuxcheckforfreediskspacestep.h"
-#include "remotelinuxdeployconfiguration.h"
-#include "remotelinuxcustomcommanddeploymentstep.h"
-#include "remotelinuxkillappstep.h"
 #include "rsyncdeploystep.h"
 #include "tarpackagecreationstep.h"
-#include "uploadandinstalltarpackagestep.h"
+#include "tarpackagedeploystep.h"
 
 #ifdef WITH_TESTS
 #include "filesystemaccess_test.h"
@@ -63,7 +62,7 @@ public:
     {
         registerStep<Step>(Step::stepId());
         setDisplayName(Step::displayName());
-        setSupportedConfiguration(genericDeployConfigurationId());
+        setSupportedConfiguration(RemoteLinux::Constants::DeployToGenericLinux);
         setSupportedStepList(ProjectExplorer::Constants::BUILDSTEPS_DEPLOY);
     }
 };
@@ -76,14 +75,12 @@ public:
     RemoteLinuxCustomRunConfigurationFactory customRunConfigurationFactory;
     RemoteLinuxDeployConfigurationFactory deployConfigurationFactory;
     GenericDeployStepFactory<TarPackageCreationStep> tarPackageCreationStepFactory;
-    GenericDeployStepFactory<UploadAndInstallTarPackageStep> uploadAndInstallTarPackageStepFactory;
+    TarPackageDeployStepFactory tarPackageDeployStepFactory;
     GenericDeployStepFactory<GenericDirectUploadStep> genericDirectUploadStepFactory;
     GenericDeployStepFactory<RsyncDeployStep> rsyncDeployStepFactory;
-    GenericDeployStepFactory<RemoteLinuxCustomCommandDeploymentStep>
-        customCommandDeploymentStepFactory;
-    GenericDeployStepFactory<RemoteLinuxCheckForFreeDiskSpaceStep>
-        checkForFreeDiskSpaceStepFactory;
-    GenericDeployStepFactory<RemoteLinuxKillAppStep> remoteLinuxKillAppStepFactory;
+    CustomCommandDeployStepFactory customCommandDeployStepFactory;
+    GenericDeployStepFactory<CheckForFreeDiskSpaceStep> checkForFreeDiskSpaceStepFactory;
+    GenericDeployStepFactory<KillAppStep> killAppStepFactory;
     GenericDeployStepFactory<MakeInstallStep> makeInstallStepFactory;
 
     const QList<Utils::Id> supportedRunConfigs {

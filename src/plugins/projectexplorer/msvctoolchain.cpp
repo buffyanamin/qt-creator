@@ -158,12 +158,23 @@ static bool hostSupportsPlatform(MsvcToolChain::Platform platform)
 {
     if (hostPrefersPlatform(platform))
         return true;
+
+    switch (HostOsInfo::hostArchitecture()) {
     // The x86 host toolchains are not the preferred toolchains on amd64 but they are still
     // supported by that host
-    return HostOsInfo::hostArchitecture() == HostOsInfo::HostArchitectureAMD64
-           && (platform == MsvcToolChain::x86 || platform == MsvcToolChain::x86_amd64
+    case HostOsInfo::HostArchitectureAMD64:
+        return platform == MsvcToolChain::x86 || platform == MsvcToolChain::x86_amd64
                || platform == MsvcToolChain::x86_ia64 || platform == MsvcToolChain::x86_arm
-               || platform == MsvcToolChain::x86_arm64);
+               || platform == MsvcToolChain::x86_arm64;
+    // The Arm64 host can run the cross-compilers via emulation of x86 and amd64
+    case HostOsInfo::HostArchitectureArm:
+        return platform == MsvcToolChain::x86_arm || platform == MsvcToolChain::x86_arm64
+               || platform == MsvcToolChain::amd64_arm || platform == MsvcToolChain::amd64_arm64
+               || platform == MsvcToolChain::x86 || platform == MsvcToolChain::x86_amd64
+               || platform == MsvcToolChain::amd64 || platform == MsvcToolChain::amd64_x86;
+    default:
+        return false;
+    }
 }
 
 static QString fixRegistryPath(const QString &path)
@@ -1134,7 +1145,7 @@ ToolChain::BuiltInHeaderPathsRunner MsvcToolChain::createBuiltInHeaderPathsRunne
 void MsvcToolChain::addToEnvironment(Utils::Environment &env) const
 {
     // We cache the full environment (incoming + modifications by setup script).
-    if (!m_resultEnvironment.size() || env != m_lastEnvironment) {
+    if (m_resultEnvironment.isValid() || env != m_lastEnvironment) {
         qCDebug(Log) << "addToEnvironment: " << displayName();
         m_lastEnvironment = env;
         m_resultEnvironment = readEnvironmentSetting(env);
@@ -2110,7 +2121,7 @@ Utils::optional<QString> MsvcToolChain::generateEnvironmentSettings(const Utils:
     // Windows SDK setup scripts require command line switches for environment expansion.
     CommandLine cmd(cmdPath, {"/E:ON", "/V:ON", "/c", saver.filePath().toUserOutput()});
     qCDebug(Log) << "readEnvironmentSetting: " << call << cmd.toUserOutput()
-                 << " Env: " << runEnv.size();
+                 << " Env: " << runEnv.toStringList().size();
     run.setCodec(QTextCodec::codecForName("UTF-8"));
     run.setCommand(cmd);
     run.runBlocking();

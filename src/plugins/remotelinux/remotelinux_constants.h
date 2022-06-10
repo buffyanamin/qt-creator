@@ -30,11 +30,13 @@ namespace Constants {
 
 const char GenericLinuxOsType[] = "GenericLinuxOsType";
 
+const char DeployToGenericLinux[] = "DeployToGenericLinux";
+
 const char CheckForFreeDiskSpaceId[] = "RemoteLinux.CheckForFreeDiskSpaceStep";
 const char DirectUploadStepId[] = "RemoteLinux.DirectUploadStep";
 const char MakeInstallStepId[] = "RemoteLinux.MakeInstall";
 const char TarPackageCreationStepId[]  = "MaemoTarPackageCreationStep";
-const char UploadAndInstallTarPackageStepId[] = "MaemoUploadAndInstallTarPackageStep";
+const char TarPackageDeployStepId[] = "MaemoUploadAndInstallTarPackageStep";
 const char RsyncDeployStepId[] = "RemoteLinux.RsyncDeployStep";
 const char CustomCommandDeployStepId[] = "RemoteLinux.GenericRemoteLinuxCustomCommandDeploymentStep";
 const char KillAppStepId[] = "RemoteLinux.KillAppStep";

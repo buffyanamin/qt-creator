@@ -29,6 +29,7 @@
 #include "materialeditorcontextobject.h"
 #include "propertyeditorvalue.h"
 #include "materialeditortransaction.h"
+#include "assetslibrarywidget.h"
 
 #include <qmldesignerconstants.h>
 #include <qmltimeline.h>
@@ -86,28 +87,35 @@ void MaterialEditorView::ensureMaterialLibraryNode()
     if (m_materialLibrary.isValid())
         return;
 
-    const QList<ModelNode> materials = rootModelNode().subModelNodesOfType("QtQuick3D.Material");
-    if (materials.isEmpty())
-        return;
-
     // create material library node
-    TypeName nodeType = rootModelNode().isSubclassOf("QtQuick3D.Node") ? "Quick3D.Node" : "QtQuick.Item";
+    TypeName nodeType = rootModelNode().isSubclassOf("QtQuick3D.Node") ? "QtQuick3D.Node" : "QtQuick.Item";
     NodeMetaInfo metaInfo = model()->metaInfo(nodeType);
     m_materialLibrary = createModelNode(nodeType, metaInfo.majorVersion(), metaInfo.minorVersion());
 
     m_materialLibrary.setIdWithoutRefactoring(Constants::MATERIAL_LIB_ID);
     rootModelNode().defaultNodeListProperty().reparentHere(m_materialLibrary);
 
-    // move all materials to under material library node
-    for (const ModelNode &node : materials) {
-        // if material has no name, set name to id
-        QString matName = node.variantProperty("objectName").value().toString();
-        if (matName.isEmpty()) {
-            VariantProperty objNameProp = node.variantProperty("objectName");
-            objNameProp.setValue(node.id());
-        }
+    const QList<ModelNode> materials = rootModelNode().subModelNodesOfType("QtQuick3D.Material");
+    if (materials.isEmpty())
+        return;
 
-        m_materialLibrary.defaultNodeListProperty().reparentHere(node);
+    RewriterTransaction transaction = beginRewriterTransaction(
+        "MaterialEditorView::ensureMaterialLibraryNode");
+
+    try {
+        // move all materials to under material library node
+        for (const ModelNode &node : materials) {
+            // if material has no name, set name to id
+            QString matName = node.variantProperty("objectName").value().toString();
+            if (matName.isEmpty()) {
+                VariantProperty objNameProp = node.variantProperty("objectName");
+                objNameProp.setValue(node.id());
+            }
+
+            m_materialLibrary.defaultNodeListProperty().reparentHere(node);
+        }
+    } catch (Exception &e) {
+        e.showException();
     }
 }
 
@@ -559,8 +567,6 @@ void MaterialEditorView::modelAttached(Model *model)
 
     m_hasQuick3DImport = model->hasImport("QtQuick3D");
 
-    ensureMaterialLibraryNode();
-
     if (!m_setupCompleted) {
         reloadQml();
         m_setupCompleted = true;
@@ -675,6 +681,8 @@ WidgetInfo MaterialEditorView::widgetInfo()
 void MaterialEditorView::selectedNodesChanged(const QList<ModelNode> &selectedNodeList,
                                               const QList<ModelNode> &lastSelectedNodeList)
 {
+    Q_UNUSED(lastSelectedNodeList)
+
     m_selectedModels.clear();
 
     for (const ModelNode &node : selectedNodeList) {
@@ -730,10 +738,12 @@ void MaterialEditorView::modelNodePreviewPixmapChanged(const ModelNode &node, co
 
 void MaterialEditorView::importsChanged(const QList<Import> &addedImports, const QList<Import> &removedImports)
 {
+    Q_UNUSED(addedImports)
+    Q_UNUSED(removedImports)
+
     m_hasQuick3DImport = model()->hasImport("QtQuick3D");
     m_qmlBackEnd->contextObject()->setHasQuick3DImport(m_hasQuick3DImport);
 
-    ensureMaterialLibraryNode(); // create the material lib if Quick3D import is added
     resetView();
 }
 
@@ -749,9 +759,46 @@ void MaterialEditorView::renameMaterial(ModelNode &material, const QString &newN
     });
 }
 
+void MaterialEditorView::duplicateMaterial(const ModelNode &material)
+{
+    QTC_ASSERT(material.isValid(), return);
+
+    ensureMaterialLibraryNode();
+
+    TypeName matType = material.type();
+    QmlObjectNode sourceMat(material);
+
+    executeInTransaction(__FUNCTION__, [&] {
+        // create the duplicate material
+        NodeMetaInfo metaInfo = model()->metaInfo(matType);
+        QmlObjectNode duplicateMat = createModelNode(matType, metaInfo.majorVersion(), metaInfo.minorVersion());
+
+        // set name and id
+        QString newName = sourceMat.modelNode().variantProperty("objectName").value().toString() + " copy";
+        duplicateMat.modelNode().variantProperty("objectName").setValue(newName);
+        duplicateMat.modelNode().setIdWithoutRefactoring(generateIdFromName(newName));
+
+        // sync properties
+        const QList<AbstractProperty> props = material.properties();
+        for (const AbstractProperty &prop : props) {
+            if (prop.name() == "objectName")
+                continue;
+
+            if (prop.isVariantProperty())
+                duplicateMat.setVariantProperty(prop.name(), prop.toVariantProperty().value());
+            else if (prop.isBindingProperty())
+                duplicateMat.setBindingProperty(prop.name(), prop.toBindingProperty().expression());
+        }
+
+        m_materialLibrary.defaultNodeListProperty().reparentHere(duplicateMat);
+    });
+}
+
 void MaterialEditorView::customNotification(const AbstractView *view, const QString &identifier,
                                             const QList<ModelNode> &nodeList, const QList<QVariant> &data)
 {
+    Q_UNUSED(view)
+
     if (identifier == "selected_material_changed") {
         m_selectedMaterial = nodeList.first();
         QTimer::singleShot(0, this, &MaterialEditorView::resetView);
@@ -762,7 +809,42 @@ void MaterialEditorView::customNotification(const AbstractView *view, const QStr
             renameMaterial(m_selectedMaterial, data.first().toString());
     } else if (identifier == "add_new_material") {
         handleToolBarAction(MaterialEditorContextObject::AddNewMaterial);
+    } else if (identifier == "duplicate_material") {
+        duplicateMaterial(nodeList.first());
     }
+}
+
+void QmlDesigner::MaterialEditorView::highlightSupportedProperties(bool highlight)
+{
+    DesignerPropertyMap &propMap = m_qmlBackEnd->backendValuesPropertyMap();
+    const QStringList propNames = propMap.keys();
+
+    for (const QString &propName : propNames) {
+        if (propName.endsWith("Map")) {
+            QObject *propEditorValObj = propMap.value(propName).value<QObject *>();
+            PropertyEditorValue *propEditorVal = qobject_cast<PropertyEditorValue *>(propEditorValObj);
+            propEditorVal->setHasActiveDrag(highlight);
+        }
+    }
+}
+
+void MaterialEditorView::dragStarted(QMimeData *mimeData)
+{
+    if (!mimeData->hasFormat(Constants::MIME_TYPE_ASSETS))
+        return;
+
+    const QString assetPath = QString::fromUtf8(mimeData->data(Constants::MIME_TYPE_ASSETS)).split(',')[0];
+    QString assetType = AssetsLibraryWidget::getAssetTypeAndData(assetPath).first;
+
+    if (assetType != Constants::MIME_TYPE_ASSET_IMAGE) // currently only image assets have dnd-supported properties
+        return;
+
+    highlightSupportedProperties();
+}
+
+void MaterialEditorView::dragEnded()
+{
+    highlightSupportedProperties(false);
 }
 
 // from model to material editor
