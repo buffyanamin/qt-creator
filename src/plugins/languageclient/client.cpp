@@ -319,6 +319,7 @@ public:
     bool m_autoRequestCodeActions = true;
     QTimer m_shutdownTimer;
     LanguageServerProtocol::ClientInfo m_clientInfo;
+    QJsonValue m_configuration;
 };
 
 Client::Client(BaseClientInterface *clientInterface)
@@ -895,8 +896,7 @@ void Client::setShadowDocument(const Utils::FilePath &filePath, const QString &c
         return;
     const auto uri = DocumentUri::fromFilePath(filePath);
     if (isNew) {
-        const QString mimeType = mimeTypeForFile(
-                    filePath.toString(), MimeMatchMode::MatchExtension).name();
+        const QString mimeType = mimeTypeForFile(filePath, MimeMatchMode::MatchExtension).name();
         d->sendOpenNotification(filePath, mimeType, content, 0);
     }
 
@@ -1303,8 +1303,10 @@ void Client::projectClosed(ProjectExplorer::Project *project)
 
 void Client::updateConfiguration(const QJsonValue &configuration)
 {
-    if (d->m_dynamicCapabilities.isRegistered(DidChangeConfigurationNotification::methodName)
-            .value_or(true)) {
+    d->m_configuration = configuration;
+    if (reachable() && !configuration.isNull()
+        && d->m_dynamicCapabilities.isRegistered(DidChangeConfigurationNotification::methodName)
+               .value_or(true)) {
         DidChangeConfigurationParams params;
         params.setSettings(configuration);
         DidChangeConfigurationNotification notification(params);
@@ -1915,11 +1917,7 @@ void ClientPrivate::initializeCallback(const InitializeRequest::Response &initRe
         }
     }
 
-    if (const BaseSettings *settings = LanguageClientManager::settingForClient(q)) {
-        const QJsonValue configuration = settings->configuration();
-        if (!configuration.isNull())
-            q->updateConfiguration(configuration);
-    }
+    q->updateConfiguration(m_configuration);
 
     m_tokenSupport.clearTokens(); // clear cached tokens from a pre reset run
     for (TextEditor::TextDocument *doc : m_postponedDocuments)

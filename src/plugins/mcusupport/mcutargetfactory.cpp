@@ -27,6 +27,7 @@
 #include "mcuhelpers.h"
 #include "mcupackage.h"
 #include "mcusupportconstants.h"
+#include "mcusupportversiondetection.h"
 #include "mcutarget.h"
 #include "mcutargetdescription.h"
 
@@ -36,9 +37,6 @@
 #include <QVersionNumber>
 
 namespace McuSupport::Internal {
-
-using Sdk::McuTargetDescription;
-using Sdk::PackageDescription;
 
 bool isToolchainDescriptionValid(const McuTargetDescription::Toolchain &t)
 {
@@ -81,12 +79,15 @@ QPair<Targets, Packages> McuTargetFactory::createTargets(const McuTargetDescript
         if (!toolchain || !toolchainFile)
             continue;
         Packages targetPackages = createPackages(desc);
+        McuToolChainPackagePtr toolchainPtr{toolchain};
+        targetPackages.insert({toolchainPtr});
+        targetPackages.unite({toolchainFile});
         packages.unite(targetPackages);
         mcuTargets.append(McuTargetPtr{new McuTarget{QVersionNumber::fromString(desc.qulVersion),
                                                      platform,
                                                      deduceOperatingSystem(desc),
                                                      targetPackages,
-                                                     McuToolChainPackagePtr{toolchain},
+                                                     toolchainPtr,
                                                      toolchainFile,
                                                      colorDepth}});
     }
@@ -96,7 +97,7 @@ QPair<Targets, Packages> McuTargetFactory::createTargets(const McuTargetDescript
 QList<PackageDescription> aggregatePackageEntries(const McuTargetDescription &desc)
 {
     QList<PackageDescription> result;
-    result.append(desc.boardSdk.packages);
+    result.append(desc.boardSdk);
     result.append(desc.freeRTOS.packages);
     return result;
 }
@@ -123,6 +124,7 @@ McuPackagePtr McuTargetFactory::createPackage(const PackageDescription &pkgDesc)
         pkgDesc.setting,
         pkgDesc.cmakeVar,
         pkgDesc.envVar,
+        pkgDesc.versions,
     }};
 }
 
@@ -135,7 +137,14 @@ McuToolChainPackage *McuTargetFactory::createToolchain(
         = toolchainTypeMapping.value(toolchain.id, McuToolChainPackage::ToolChainType::Unsupported);
 
     if (isDesktopToolchain(toolchainType))
-        return new McuToolChainPackage{settingsHandler, {}, {}, {}, {}, toolchainType};
+        return new McuToolChainPackage{settingsHandler,
+                                       {},
+                                       {},
+                                       {},
+                                       {},
+                                       toolchainType,
+                                       toolchain.versions,
+                                       compilerDescription.cmakeVar};
     else if (!isToolchainDescriptionValid(toolchain))
         toolchainType = McuToolChainPackage::ToolChainType::Unsupported;
 
@@ -146,6 +155,7 @@ McuToolChainPackage *McuTargetFactory::createToolchain(
         compilerDescription.validationPath,
         compilerDescription.setting,
         toolchainType,
+        toolchain.versions,
         compilerDescription.cmakeVar,
         compilerDescription.envVar,
         nullptr, // McuPackageVersionDetector

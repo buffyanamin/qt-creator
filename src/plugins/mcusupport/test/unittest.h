@@ -63,6 +63,7 @@ private slots:
     void test_legacy_createTargetWithToolchainPackages();
     void test_createTargetWithToolchainPackages_data();
     void test_createTargetWithToolchainPackages();
+    void test_legacy_createQtMCUsPackage();
 
     void test_createFreeRtosPackageWithCorrectSetting_data();
     void test_createFreeRtosPackageWithCorrectSetting();
@@ -87,6 +88,11 @@ private slots:
     void test_legacy_getPredefinedToolchainFilePackage();
     void test_legacy_createUnsupportedToolchainFilePackage();
 
+    void test_legacy_createBoardSdk_data();
+    void test_legacy_createBoardSdk();
+    void test_createBoardSdk_data();
+    void test_createBoardSdk();
+
 private:
     QVersionNumber currentQulVersion{2, 0};
     PackageMock *freeRtosPackage{new PackageMock};
@@ -96,7 +102,9 @@ private:
 
     QSharedPointer<SettingsHandlerMock> settingsMockPtr{new SettingsHandlerMock};
     McuTargetFactory targetFactory;
-    Sdk::McuTargetDescription targetDescription;
+    PackageDescription compilerDescription;
+    PackageDescription toochainFileDescription;
+    McuTargetDescription targetDescription;
     McuToolChainPackagePtr toolchainPackagePtr;
     McuToolChainPackagePtr armGccToolchainPackagePtr;
     McuToolChainPackagePtr iarToolchainPackagePtr;

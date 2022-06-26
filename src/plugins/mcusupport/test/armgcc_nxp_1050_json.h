@@ -61,7 +61,8 @@ constexpr auto armgcc_nxp_1050_json = R"({
   "toolchain": {
     "id": "armgcc",
     "versions": [
-      "9.3.1"
+      "9.3.1",
+      "10.3.1"
     ],
     "compiler": {
         "id": "ARMGCC_DIR",
@@ -84,18 +85,14 @@ constexpr auto armgcc_nxp_1050_json = R"({
   },
   "boardSdk": {
     "envVar": "EVKB_IMXRT1050_SDK_PATH",
-    "versions": [
-      "2.10.0"
-    ],
-    "cmakeEntries": [
-      {
-        "id": "NXP_SDK_DIR",
-        "label": "Board SDK for MIMXRT1050-EVK",
-        "cmakeVar": "QUL_BOARD_SDK_DIR",
-        "type": "path",
-        "optional": false
-      }
-    ]
+    "versions": [ "2.11.0" ],
+    "id": "NXP_SDK_DIR",
+    "label": "Board SDK for MIMXRT1050-EVK",
+    "cmakeVar": "QUL_BOARD_SDK_DIR",
+    "envVar": "EVKB_IMXRT1050_SDK_PATH",
+    "setting": "EVKB_IMXRT1050_SDK_PATH",
+    "type": "path",
+    "optional": false
   },
   "freeRTOS": {
     "envVar": "IMXRT1050_FREERTOS_DIR",

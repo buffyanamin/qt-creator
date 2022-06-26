@@ -260,7 +260,7 @@ QString SshSharedConnection::fullProcessError() const
 {
     const QString errorString = m_masterProcess->exitStatus() == QProcess::CrashExit
             ? m_masterProcess->errorString() : QString();
-    const QString standardError = m_masterProcess->stdErr();
+    const QString standardError = m_masterProcess->cleanedStdErr();
     const QString errorPrefix = errorString.isEmpty() && standardError.isEmpty()
             ? tr("SSH connection failure.") : tr("SSH connection failure:");
     QStringList allErrors {errorPrefix, errorString, standardError};
@@ -495,27 +495,6 @@ void SshProcessInterface::start()
 qint64 SshProcessInterface::write(const QByteArray &data)
 {
     return d->m_process.writeRaw(data);
-}
-
-bool SshProcessInterface::waitForStarted(int msecs)
-{
-    Q_UNUSED(msecs)
-    QTC_CHECK(false);
-    return false;
-}
-
-bool SshProcessInterface::waitForReadyRead(int msecs)
-{
-    Q_UNUSED(msecs)
-    QTC_CHECK(false);
-    return false;
-}
-
-bool SshProcessInterface::waitForFinished(int msecs)
-{
-    Q_UNUSED(msecs)
-    QTC_CHECK(false);
-    return false;
 }
 
 LinuxProcessInterface::LinuxProcessInterface(const LinuxDevice *linuxDevice)
@@ -1125,20 +1104,6 @@ QString LinuxDevice::userAtHost() const
     return sshParameters().userAtHost();
 }
 
-FilePath LinuxDevice::mapToGlobalPath(const FilePath &pathOnDevice) const
-{
-    if (pathOnDevice.needsDevice()) {
-        // Already correct form, only sanity check it's ours...
-        QTC_CHECK(handlesFile(pathOnDevice));
-        return pathOnDevice;
-    }
-    FilePath result;
-    result.setScheme("device");
-    result.setHost(id().toString());
-    result.setPath(pathOnDevice.path());
-    return result;
-}
-
 bool LinuxDevice::handlesFile(const FilePath &filePath) const
 {
     if (filePath.scheme() == "device" && filePath.host() == id().toString())
@@ -1345,7 +1310,7 @@ bool LinuxDevice::renameFile(const FilePath &filePath, const FilePath &target) c
 QDateTime LinuxDevice::lastModified(const FilePath &filePath) const
 {
     QTC_ASSERT(handlesFile(filePath), return {});
-    const QByteArray output = d->outputForRunInShell({"stat", {"-c", "%Y", filePath.path()}});
+    const QByteArray output = d->outputForRunInShell({"stat", {"-L", "-c", "%Y", filePath.path()}});
     const qint64 secs = output.toLongLong();
     const QDateTime dt = QDateTime::fromSecsSinceEpoch(secs, Qt::UTC);
     return dt;
@@ -1362,7 +1327,7 @@ FilePath LinuxDevice::symLinkTarget(const FilePath &filePath) const
 qint64 LinuxDevice::fileSize(const FilePath &filePath) const
 {
     QTC_ASSERT(handlesFile(filePath), return -1);
-    const QByteArray output = d->outputForRunInShell({"stat", {"-c", "%s", filePath.path()}});
+    const QByteArray output = d->outputForRunInShell({"stat", {"-L", "-c", "%s", filePath.path()}});
     return output.toLongLong();
 }
 
@@ -1383,7 +1348,7 @@ qint64 LinuxDevice::bytesAvailable(const FilePath &filePath) const
 QFileDevice::Permissions LinuxDevice::permissions(const FilePath &filePath) const
 {
     QTC_ASSERT(handlesFile(filePath), return {});
-    const QByteArray output = d->outputForRunInShell({"stat", {"-c", "%a", filePath.path()}});
+    const QByteArray output = d->outputForRunInShell({"stat", {"-L", "-c", "%a", filePath.path()}});
     const uint bits = output.toUInt(nullptr, 8);
     QFileDevice::Permissions perm = {};
 #define BIT(n, p) if (bits & (1<<n)) perm |= QFileDevice::p

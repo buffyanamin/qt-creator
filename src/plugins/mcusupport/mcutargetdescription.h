@@ -31,7 +31,7 @@
 #include <QVector>
 #include <QVersionNumber>
 
-namespace McuSupport::Internal::Sdk {
+namespace McuSupport::Internal {
 
 struct PackageDescription
 {
@@ -42,7 +42,7 @@ struct PackageDescription
     QString setting;
     Utils::FilePath defaultPath;
     Utils::FilePath validationPath;
-    QList<QVersionNumber> versions;
+    QStringList versions;
     bool shouldAddToSystemPath;
 }; //struct PackageDescription
 
@@ -67,14 +67,7 @@ struct McuTargetDescription
         PackageDescription compiler;
         PackageDescription file;
     } toolchain;
-    struct BoardSdk
-    {
-        QString name;
-        Utils::FilePath defaultPath;
-        QString envVar;
-        QStringList versions;
-        QList<PackageDescription> packages;
-    } boardSdk;
+    PackageDescription boardSdk;
     struct FreeRTOS
     {
         QString envVar;
@@ -83,6 +76,6 @@ struct McuTargetDescription
     } freeRTOS;
 };
 
-} // namespace McuSupport::Internal::Sdk
+} // namespace McuSupport::Internal
 
-Q_DECLARE_METATYPE(McuSupport::Internal::Sdk::McuTargetDescription)
+Q_DECLARE_METATYPE(McuSupport::Internal::McuTargetDescription)

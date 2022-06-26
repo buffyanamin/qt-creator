@@ -32,11 +32,9 @@
 #include "editorconfiguration.h"
 #include "kit.h"
 #include "kitinformation.h"
-#include "makestep.h"
 #include "projectexplorer.h"
 #include "projectnodes.h"
 #include "runconfiguration.h"
-#include "runcontrol.h"
 #include "session.h"
 #include "target.h"
 #include "taskhub.h"
@@ -969,18 +967,6 @@ void Project::configureAsExampleProject(Kit * /*kit*/)
 bool Project::hasMakeInstallEquivalent() const
 {
     return d->m_hasMakeInstallEquivalent;
-}
-
-MakeInstallCommand Project::makeInstallCommand(const Target *target, const QString &installRoot)
-{
-    QTC_ASSERT(hasMakeInstallEquivalent(), return MakeInstallCommand());
-    MakeInstallCommand cmd;
-    if (const BuildConfiguration * const bc = target->activeBuildConfiguration()) {
-        if (const auto makeStep = bc->buildSteps()->firstOfType<MakeStep>())
-            cmd.command = makeStep->makeExecutable();
-    }
-    cmd.arguments << "install" << ("INSTALL_ROOT=" + QDir::toNativeSeparators(installRoot));
-    return cmd;
 }
 
 void Project::setup(const QList<BuildInfo> &infoList)

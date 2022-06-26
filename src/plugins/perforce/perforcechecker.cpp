@@ -107,7 +107,8 @@ void PerforceChecker::slotTimeOut()
     if (!isRunning())
         return;
     m_timedOut = true;
-    m_process.stopProcess();
+    m_process.stop();
+    m_process.waitForFinished();
     emitFailed(tr("\"%1\" timed out after %2 ms.").arg(m_binary.toUserOutput()).arg(m_timeOutMS));
 }
 
@@ -126,11 +127,11 @@ void PerforceChecker::slotDone()
         break;
     case QProcess::NormalExit:
         if (m_process.exitCode()) {
-            const QString stdErr = m_process.stdErr();
+            const QString stdErr = m_process.cleanedStdErr();
             emitFailed(tr("\"%1\" terminated with exit code %2: %3").
                    arg(m_binary.toUserOutput()).arg(m_process.exitCode()).arg(stdErr));
         } else {
-            parseOutput(m_process.stdOut());
+            parseOutput(m_process.cleanedStdOut());
         }
         break;
     }

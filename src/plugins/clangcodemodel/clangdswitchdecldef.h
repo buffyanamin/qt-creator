@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2022 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of Qt Creator.
@@ -25,23 +25,35 @@
 
 #pragma once
 
-#include <coreplugin/idocument.h>
+#include <utils/link.h>
 
-namespace ProjectExplorer { class Project; }
+#include <QObject>
 
-namespace TaskList {
-namespace Internal {
+namespace CppEditor { class CppEditorWidget; }
+namespace TextEditor { class TextDocument; }
 
-class TaskFile : public Core::IDocument
+QT_BEGIN_NAMESPACE
+class QTextCursor;
+QT_END_NAMESPACE
+
+namespace ClangCodeModel::Internal {
+class ClangdClient;
+
+class ClangdSwitchDeclDef : public QObject
 {
+    Q_OBJECT
 public:
-    TaskFile(QObject *parent);
+    ClangdSwitchDeclDef(ClangdClient *client, TextEditor::TextDocument *doc,
+                        const QTextCursor &cursor, CppEditor::CppEditorWidget *editorWidget,
+                        const Utils::LinkHandler &callback);
+    ~ClangdSwitchDeclDef();
 
-    ReloadBehavior reloadBehavior(ChangeTrigger state, ChangeType type) const override;
-    bool reload(QString *errorString, ReloadFlag flag, ChangeType type) override;
+signals:
+    void done();
 
-    bool load(QString *errorString, const Utils::FilePath &fileName);
+private:
+    class Private;
+    Private * const d;
 };
 
-} // namespace Internal
-} // namespace TaskList
+} // namespace ClangCodeModel::Internal

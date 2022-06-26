@@ -51,9 +51,7 @@ public:
 
     bool isObjCEnabled() const;
     void setCompletionAssistProvider(TextEditor::CompletionAssistProvider *provider) override;
-    void setFunctionHintAssistProvider(TextEditor::CompletionAssistProvider *provider) override;
     TextEditor::CompletionAssistProvider *completionAssistProvider() const override;
-    TextEditor::CompletionAssistProvider *functionHintAssistProvider() const override;
     TextEditor::IAssistProvider *quickFixAssistProvider() const override;
 
     void recalculateSemanticInfoDetached();
@@ -96,6 +94,8 @@ private:
 
     void onAboutToReload();
     void onReloadFinished();
+    void onDiagnosticsChanged(const QString &fileName, const QString &kind);
+
 
     void reparseWithPreferredParseContext(const QString &id);
 
@@ -128,7 +128,6 @@ private:
     QScopedPointer<BaseEditorDocumentProcessor> m_processor;
 
     CppCompletionAssistProvider *m_completionAssistProvider = nullptr;
-    CppCompletionAssistProvider *m_functionHintAssistProvider = nullptr;
 
     // (Un)Registration in CppModelManager
     QScopedPointer<CppEditorDocumentHandle> m_editorDocumentHandle;

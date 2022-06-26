@@ -527,10 +527,11 @@ QString FilePath::fileNameWithPathComponents(int pathComponents) const
             ;
     }
 
-    // If there are no more slashes before the found one, return the entire string
     if (i > 0 && m_data.lastIndexOf(slash, i) != -1)
         return m_data.mid(component);
-    return m_data;
+
+    // If there are no more slashes before the found one, return the entire string
+    return displayName();
 }
 
 /// \returns the base name of the file without the path.
@@ -944,8 +945,30 @@ QString FilePath::displayName(const QString &args) const
             .arg(m_data, args, deviceName);
 }
 
-/// Constructs a FilePath from \a filename
-/// \a filename is not checked for validity.
+/*!
+   Constructs a FilePath from \a filepath
+
+   \a filepath is not checked for validity. It can be given in the following forms:
+
+   \list
+   \li  /some/absolute/local/path
+   \li  some/relative/path
+   \li  scheme://host/absolute/path
+   \li  scheme://host/./relative/path    \note the ./ is verbatim part of the path
+   \endlist
+
+   Some decoding happens when parsing the \a filepath
+   A sequence %25 present in the host part is replaced by % in the host name,
+   a sequence %2f present in the host part is replaced by / in the host name.
+
+   The path part might consist of several parts separated by /, independent
+   of the platform or file system.
+
+   To create FilePath objects from strings possibly containing backslashes as
+   path separator, use \c fromUserInput.
+
+   \sa toString, fromUserInput
+ */
 FilePath FilePath::fromString(const QString &filepath)
 {
     FilePath fn;
@@ -1284,9 +1307,16 @@ FilePath FilePath::searchInDirectories(const FilePaths &dirs) const
     return Environment::systemEnvironment().searchInDirectories(path(), dirs);
 }
 
-FilePath FilePath::searchInPath(const QList<FilePath> &additionalDirs) const
+FilePath FilePath::searchInPath(const FilePaths &additionalDirs, PathAmending amending) const
 {
-    return searchInDirectories(deviceEnvironment().path() + additionalDirs);
+    FilePaths directories = deviceEnvironment().path();
+    if (!additionalDirs.isEmpty()) {
+        if (amending == AppendToPath)
+            directories.append(additionalDirs);
+        else
+            directories = additionalDirs + directories;
+    }
+    return searchInDirectories(directories);
 }
 
 Environment FilePath::deviceEnvironment() const
@@ -1356,7 +1386,7 @@ FilePath FilePath::stringAppended(const QString &str) const
 QHashValueType FilePath::hash(uint seed) const
 {
     if (HostOsInfo::fileNameCaseSensitivity() == Qt::CaseInsensitive)
-        return qHash(m_data.toUpper(), seed);
+        return qHash(m_data.toCaseFolded(), seed);
     return qHash(m_data, seed);
 }
 
@@ -1496,6 +1526,6 @@ std::hash<Utils::FilePath>::result_type
     std::hash<Utils::FilePath>::operator()(const std::hash<Utils::FilePath>::argument_type &fn) const
 {
     if (fn.caseSensitivity() == Qt::CaseInsensitive)
-        return hash<string>()(fn.toString().toUpper().toStdString());
+        return hash<string>()(fn.toString().toCaseFolded().toStdString());
     return hash<string>()(fn.toString().toStdString());
 }

@@ -26,6 +26,7 @@
 #pragma once
 
 #include "mcuabstractpackage.h"
+#include "mcusupportversiondetection.h"
 #include "settingshandler.h"
 
 #include <utils/filepath.h>
@@ -61,6 +62,7 @@ public:
                const QString &settingsKey,
                const QString &cmakeVarName,
                const QString &envVarName,
+               const QStringList &versions = {},
                const QString &downloadUrl = {},
                const McuPackageVersionDetector *versionDetector = nullptr,
                const bool addToPath = false,
@@ -72,7 +74,7 @@ public:
     QString cmakeVariableName() const override;
     QString environmentVariableName() const override;
     bool isAddToSystemPath() const override;
-    void setVersions(const QStringList &versions) override;
+    QStringList versions() const override;
 
     Utils::FilePath basePath() const override;
     Utils::FilePath path() const override;
@@ -102,7 +104,7 @@ private:
     const Utils::FilePath m_defaultPath;
     const Utils::FilePath m_detectionPath;
     const QString m_settingsKey;
-    const McuPackageVersionDetector *m_versionDetector;
+    QScopedPointer<const McuPackageVersionDetector> m_versionDetector;
 
     Utils::FilePath m_path;
     Utils::FilePath m_relativePathModifier; // relative path to m_path to be returned by path()
@@ -128,7 +130,8 @@ public:
                         const Utils::FilePath &detectionPath,
                         const QString &settingsKey,
                         ToolChainType toolchainType,
-                        const QString &cmakeVarName = {},
+                        const QStringList &versions,
+                        const QString &cmakeVarName,
                         const QString &envVarName = {},
                         const McuPackageVersionDetector *versionDetector = nullptr);
 

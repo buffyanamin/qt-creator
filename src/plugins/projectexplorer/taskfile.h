@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2022 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of Qt Creator.
@@ -25,10 +25,37 @@
 
 #pragma once
 
-namespace TaskList {
-namespace Constants {
+#include "itaskhandler.h"
 
-const char TASKLISTTASK_ID[] = "TaskList.TaskListTaskId";
+#include <coreplugin/idocument.h>
 
-} // namespace Constants
-} // namespace TaskList
+namespace ProjectExplorer {
+namespace Internal {
+
+class StopMonitoringHandler : public ITaskHandler
+{
+public:
+    bool canHandle(const ProjectExplorer::Task &) const override;
+    void handle(const ProjectExplorer::Task &) override;
+    QAction *createAction(QObject *parent) const override;
+};
+
+class TaskFile : public Core::IDocument
+{
+public:
+    TaskFile(QObject *parent);
+
+    ReloadBehavior reloadBehavior(ChangeTrigger state, ChangeType type) const override;
+    bool reload(QString *errorString, ReloadFlag flag, ChangeType type) override;
+
+    bool load(QString *errorString, const Utils::FilePath &fileName);
+
+    static TaskFile *openTasks(const Utils::FilePath &filePath);
+    static void stopMonitoring();
+
+private:
+    static QList<TaskFile *> openFiles;
+};
+
+} // namespace Internal
+} // namespace ProjectExplorer

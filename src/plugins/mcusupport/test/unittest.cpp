@@ -40,6 +40,7 @@
 #include "mcusupportconstants.h"
 #include "mcusupportoptions.h"
 #include "mcusupportsdk.h"
+#include "mcusupportversiondetection.h"
 #include "mcutargetdescription.h"
 #include "mcutargetfactorylegacy.h"
 
@@ -72,6 +73,9 @@ const char armGccEnvVar[]{"ARMGCC_DIR"};
 const char armGccLabel[]{"GNU Arm Embedded Toolchain"};
 const char armGccToolchainFilePath[]{"/opt/qtformcu/2.2/lib/cmake/Qul/toolchain/armgcc.cmake"};
 const char armGcc[]{"armgcc"};
+const char armGccVersion[]{"9.3.1"};
+const char armGccNewVersion[]{"10.3.1"};
+const QStringList boardSdkVersions{{"2.11.0"}};
 const char cmakeToolchainLabel[]{"CMake Toolchain File"};
 const char fallbackDir[]{"/abc/def/fallback"};
 const char freeRtosCMakeVar[]{"FREERTOS_DIR"};
@@ -83,11 +87,13 @@ const char freeRtosSetting[]{"Freertos"};
 const char greenhillToolchainFilePath[]{"/opt/qtformcu/2.2/lib/cmake/Qul/toolchain/ghs.cmake"};
 const char greenhillCompilerDir[]{"/abs/ghs"};
 const char greenhillSetting[]{"GHSToolchain"};
+const QStringList greenhillVersions{{"2018.1.5"}};
 const char iarDir[]{"/opt/iar/compiler"};
 const char iarEnvVar[]{"IAR_ARM_COMPILER_DIR"};
 const char iarLabel[]{"IAR ARM Compiler"};
 const char iarSetting[]{"IARToolchain"};
 const char iarToolchainFilePath[]{"/opt/qtformcu/2.2/lib/cmake/Qul/toolchain/iar.cmake"};
+const QStringList iarVersions{{"8.50.9"}};
 const char iar[]{"iar"};
 const char id[]{"target_id"};
 const char name[]{"target_name"};
@@ -116,8 +122,11 @@ const QStringList jsonFiles{QString::fromUtf8(armgcc_nxp_1050_json),
 const bool runLegacy{true};
 const int colorDepth{32};
 
-const Sdk::McuTargetDescription::Platform
-    platformDescription{id, "", "", {colorDepth}, Sdk::McuTargetDescription::TargetType::MCU};
+const McuTargetDescription::Platform platformDescription{id,
+                                                         "",
+                                                         "",
+                                                         {colorDepth},
+                                                         McuTargetDescription::TargetType::MCU};
 const Utils::Id cxxLanguageId{ProjectExplorer::Constants::CXX_LANGUAGE_ID};
 } // namespace
 
@@ -129,6 +138,7 @@ using ProjectExplorer::EnvironmentKitAspect;
 using ProjectExplorer::Kit;
 using ProjectExplorer::KitManager;
 using ProjectExplorer::ToolChain;
+using ProjectExplorer::ToolChainFactory;
 using ProjectExplorer::ToolChainManager;
 
 using testing::_;
@@ -136,14 +146,14 @@ using testing::Return;
 
 void verifyIarToolchain(const McuToolChainPackagePtr &iarToolchainPackage)
 {
-    ProjectExplorer::ToolChainFactory toolchainFactory;
     Id iarId{BareMetal::Constants::IAREW_TOOLCHAIN_TYPEID};
-    ToolChain *iarToolchain{toolchainFactory.createToolChain(iarId)};
+    ToolChain *iarToolchain{ToolChainFactory::createToolChain(iarId)};
     iarToolchain->setLanguage(cxxLanguageId);
     ToolChainManager::instance()->registerToolChain(iarToolchain);
 
     QVERIFY(iarToolchainPackage != nullptr);
-    QCOMPARE(iarToolchainPackage->cmakeVariableName(), Constants::TOOLCHAIN_DIR_CMAKE_VARIABLE);
+    QCOMPARE(iarToolchainPackage->cmakeVariableName(),
+             Legacy::Constants::TOOLCHAIN_DIR_CMAKE_VARIABLE);
     QCOMPARE(iarToolchainPackage->environmentVariableName(), iarEnvVar);
     QCOMPARE(iarToolchainPackage->isDesktopToolchain(), false);
     QCOMPARE(iarToolchainPackage->toolChainName(), iar);
@@ -156,30 +166,30 @@ void verifyIarToolchain(const McuToolChainPackagePtr &iarToolchainPackage)
     QCOMPARE(iarToolchain->detection(), ToolChain::UninitializedDetection);
 }
 
-void verifyArmGccToolchain(const McuToolChainPackagePtr &armGccPackage)
+void verifyArmGccToolchain(const McuToolChainPackagePtr &armGccPackage, const QStringList &versions)
 {
     //Fake register and fake detect compiler.
-    ProjectExplorer::ToolChainFactory toolchainFactory;
     Id armGccId{ProjectExplorer::Constants::GCC_TOOLCHAIN_TYPEID};
 
-    ToolChain *armToolchain{toolchainFactory.createToolChain(armGccId)};
+    ToolChain *armToolchain{ProjectExplorer::ToolChainFactory::createToolChain(armGccId)};
     armToolchain->setLanguage(cxxLanguageId);
     ToolChainManager::instance()->registerToolChain(armToolchain);
 
     QVERIFY(armGccPackage != nullptr);
-    QCOMPARE(armGccPackage->cmakeVariableName(), Constants::TOOLCHAIN_DIR_CMAKE_VARIABLE);
+    QCOMPARE(armGccPackage->cmakeVariableName(), Legacy::Constants::TOOLCHAIN_DIR_CMAKE_VARIABLE);
     QCOMPARE(armGccPackage->environmentVariableName(), armGccEnvVar);
     QCOMPARE(armGccPackage->isDesktopToolchain(), false);
     QCOMPARE(armGccPackage->toolChainName(), armGcc);
     QCOMPARE(armGccPackage->toolchainType(), McuToolChainPackage::ToolChainType::ArmGcc);
     QCOMPARE(armGccPackage->settingsKey(), armGccDirectorySetting);
+    QCOMPARE(armGccPackage->versions(), versions);
 
     // FIXME(piotr.mucko): Re-enable when toolchains retrieval from McuToolChainPackage is unified for arm and iar.
     // armToolchain = armGccPackage->toolChain(cxxLanguageId);
     // QVERIFY(armToolchain != nullptr);
 }
 
-void verifyGccToolchain(const McuToolChainPackagePtr &gccPackage)
+void verifyGccToolchain(const McuToolChainPackagePtr &gccPackage, const QStringList &versions)
 {
     QVERIFY(gccPackage != nullptr);
     QCOMPARE(gccPackage->cmakeVariableName(), "");
@@ -187,31 +197,57 @@ void verifyGccToolchain(const McuToolChainPackagePtr &gccPackage)
     QCOMPARE(gccPackage->isDesktopToolchain(), true);
     QCOMPARE(gccPackage->toolChainName(), unsupported);
     QCOMPARE(gccPackage->toolchainType(), McuToolChainPackage::ToolChainType::GCC);
+    QCOMPARE(gccPackage->versions(), versions);
 }
 
 void verifyTargetToolchains(const Targets &targets,
                             const QString &toolchainFilePath,
                             const QString &compilerPath,
-                            const QString &compilerSetting)
+                            const QString &compilerSetting,
+                            const QStringList &versions)
 {
     QCOMPARE(targets.size(), 1);
     const auto &target{targets.first()};
 
     const auto toolchainFile{target->toolChainFilePackage()};
     QVERIFY(toolchainFile);
-    QCOMPARE(toolchainFile->cmakeVariableName(), Constants::TOOLCHAIN_FILE_CMAKE_VARIABLE);
+    QCOMPARE(toolchainFile->cmakeVariableName(), Legacy::Constants::TOOLCHAIN_FILE_CMAKE_VARIABLE);
     QCOMPARE(toolchainFile->settingsKey(), empty);
     QCOMPARE(toolchainFile->path().toString(), toolchainFilePath);
 
     const auto toolchainCompiler{target->toolChainPackage()};
     QVERIFY(toolchainCompiler);
-    QCOMPARE(toolchainCompiler->cmakeVariableName(), Constants::TOOLCHAIN_DIR_CMAKE_VARIABLE);
+    QCOMPARE(toolchainCompiler->cmakeVariableName(),
+             Legacy::Constants::TOOLCHAIN_DIR_CMAKE_VARIABLE);
     QCOMPARE(toolchainCompiler->path().toString(), compilerPath);
     QCOMPARE(toolchainCompiler->settingsKey(), compilerSetting);
+    QCOMPARE(toolchainCompiler->versions(), versions);
+}
+
+void verifyBoardSdk(const McuPackagePtr &boardSdk,
+                    const QString &environmentVariable,
+                    const QStringList &versions)
+{
+    QVERIFY(boardSdk);
+    QCOMPARE(boardSdk->cmakeVariableName(), Legacy::Constants::BOARD_SDK_CMAKE_VAR);
+    QCOMPARE(boardSdk->environmentVariableName(), environmentVariable);
+    QCOMPARE(boardSdk->settingsKey(), environmentVariable);
+    QCOMPARE(boardSdk->detectionPath().toString(), empty);
+    QCOMPARE(boardSdk->versions(), versions);
 }
 
 McuSupportTest::McuSupportTest()
     : targetFactory{settingsMockPtr}
+    , compilerDescription{armGccLabel, armGccEnvVar, Legacy::Constants::TOOLCHAIN_DIR_CMAKE_VARIABLE, armGccLabel, armGccDirectorySetting, {}, {}, {}, false}
+     , toochainFileDescription{armGccLabel, armGccEnvVar, Legacy::Constants::TOOLCHAIN_FILE_CMAKE_VARIABLE, armGccLabel, armGccDirectorySetting, {}, {}, {}, false}
+    , targetDescription {
+        "2.0.1",
+        "2",
+        platformDescription,
+        McuTargetDescription::Toolchain{armGcc, {}, compilerDescription, toochainFileDescription},
+        PackageDescription{},
+        McuTargetDescription::FreeRTOS{},
+    }
     , toolchainPackagePtr{new McuToolChainPackage{
           settingsMockPtr,
           {},                                              // label
@@ -227,7 +263,8 @@ McuSupportTest::McuSupportTest()
                                                         {}, // validation path
                                                         armGccDirectorySetting,
                                                         McuToolChainPackage::ToolChainType::ArmGcc,
-                                                        Constants::TOOLCHAIN_DIR_CMAKE_VARIABLE,
+                                                        {armGccVersion},
+                                                        Legacy::Constants::TOOLCHAIN_DIR_CMAKE_VARIABLE,
                                                         armGccEnvVar}}
     , iarToolchainPackagePtr{new McuToolChainPackage{settingsMockPtr,
                                                      iarLabel,
@@ -235,7 +272,8 @@ McuSupportTest::McuSupportTest()
                                                      {}, // validation path
                                                      iarSetting,
                                                      McuToolChainPackage::ToolChainType::IAR,
-                                                     Constants::TOOLCHAIN_DIR_CMAKE_VARIABLE,
+                                                     {armGccVersion},
+                                                     Legacy::Constants::TOOLCHAIN_DIR_CMAKE_VARIABLE,
                                                      iarEnvVar}}
     , platform{id, name, vendor}
     , mcuTarget{currentQulVersion,
@@ -251,15 +289,6 @@ McuSupportTest::McuSupportTest()
 
 void McuSupportTest::initTestCase()
 {
-    targetDescription = Sdk::McuTargetDescription{
-        "2.0.1",
-        "2",
-        platformDescription,
-        Sdk::McuTargetDescription::Toolchain{},
-        Sdk::McuTargetDescription::BoardSdk{},
-        Sdk::McuTargetDescription::FreeRTOS{},
-    };
-
     EXPECT_CALL(*freeRtosPackage, environmentVariableName())
         .WillRepeatedly(Return(QString{freeRtosEnvVar}));
     EXPECT_CALL(*freeRtosPackage, cmakeVariableName())
@@ -279,7 +308,7 @@ void McuSupportTest::initTestCase()
     EXPECT_CALL(*armGccToolchainFilePackage, environmentVariableName())
         .WillRepeatedly(Return(QString{QString{}}));
     EXPECT_CALL(*armGccToolchainFilePackage, cmakeVariableName())
-        .WillRepeatedly(Return(QString{Constants::TOOLCHAIN_FILE_CMAKE_VARIABLE}));
+        .WillRepeatedly(Return(QString{Legacy::Constants::TOOLCHAIN_FILE_CMAKE_VARIABLE}));
     EXPECT_CALL(*armGccToolchainFilePackage, isValidStatus()).WillRepeatedly(Return(true));
     EXPECT_CALL(*armGccToolchainFilePackage, path())
         .WillRepeatedly(Return(FilePath::fromString(armGccToolchainFilePath)));
@@ -306,7 +335,7 @@ void McuSupportTest::cleanup()
 
 void McuSupportTest::test_parseBasicInfoFromJson()
 {
-    const auto description = Sdk::parseDescriptionJson(iar_nxp_1064_json);
+    const auto description = parseDescriptionJson(iar_nxp_1064_json);
 
     QVERIFY(!description.freeRTOS.envVar.isEmpty());
     QVERIFY(description.freeRTOS.boardSdkSubDir.isEmpty());
@@ -314,7 +343,7 @@ void McuSupportTest::test_parseBasicInfoFromJson()
 
 void McuSupportTest::test_parseCmakeEntries()
 {
-    const auto description{Sdk::parseDescriptionJson(iar_nxp_1064_json)};
+    const auto description{parseDescriptionJson(iar_nxp_1064_json)};
 
     QVERIFY(!description.freeRTOS.packages.isEmpty());
     auto &freeRtos = description.freeRTOS.packages[0];
@@ -355,29 +384,30 @@ void McuSupportTest::test_parseToolchainFromJSON()
     QFETCH(QString, label);
     QFETCH(QString, toolchainFile);
     QFETCH(QString, id);
-    Sdk::McuTargetDescription description{Sdk::parseDescriptionJson(json.toLocal8Bit())};
+    McuTargetDescription description{parseDescriptionJson(json.toLocal8Bit())};
     QCOMPARE(description.toolchain.id, id);
 
-    const Sdk::PackageDescription &compilerPackage{description.toolchain.compiler};
-    QCOMPARE(compilerPackage.cmakeVar, Constants::TOOLCHAIN_DIR_CMAKE_VARIABLE);
+    const PackageDescription &compilerPackage{description.toolchain.compiler};
+    QCOMPARE(compilerPackage.cmakeVar, Legacy::Constants::TOOLCHAIN_DIR_CMAKE_VARIABLE);
     QCOMPARE(compilerPackage.envVar, environmentVariable);
 
-    const Sdk::PackageDescription &toolchainFilePackage{description.toolchain.file};
+    const PackageDescription &toolchainFilePackage{description.toolchain.file};
     QCOMPARE(toolchainFilePackage.label, cmakeToolchainLabel);
     QCOMPARE(toolchainFilePackage.envVar, QString{});
-    QCOMPARE(toolchainFilePackage.cmakeVar, Constants::TOOLCHAIN_FILE_CMAKE_VARIABLE);
+    QCOMPARE(toolchainFilePackage.cmakeVar, Legacy::Constants::TOOLCHAIN_FILE_CMAKE_VARIABLE);
     QCOMPARE(toolchainFilePackage.defaultPath.cleanPath().toString(), toolchainFile);
 }
 
 void McuSupportTest::test_legacy_createIarToolchain()
 {
-    McuToolChainPackagePtr iarToolchainPackage = Sdk::createIarToolChainPackage(settingsMockPtr);
+    McuToolChainPackagePtr iarToolchainPackage = Legacy::createIarToolChainPackage(settingsMockPtr,
+                                                                                   iarVersions);
     verifyIarToolchain(iarToolchainPackage);
 }
 
 void McuSupportTest::test_createIarToolchain()
 {
-    const auto description = Sdk::parseDescriptionJson(iar_stm32f469i_metal_json);
+    const auto description = parseDescriptionJson(iar_stm32f469i_metal_json);
 
     McuToolChainPackagePtr iarToolchainPackage{targetFactory.createToolchain(description.toolchain)};
     verifyIarToolchain(iarToolchainPackage);
@@ -385,30 +415,34 @@ void McuSupportTest::test_createIarToolchain()
 
 void McuSupportTest::test_legacy_createDesktopGccToolchain()
 {
-    McuToolChainPackagePtr gccPackage = Sdk::createGccToolChainPackage(settingsMockPtr);
-    verifyGccToolchain(gccPackage);
+    McuToolChainPackagePtr gccPackage = Legacy::createGccToolChainPackage(settingsMockPtr,
+                                                                          {armGccNewVersion});
+    verifyGccToolchain(gccPackage, {armGccNewVersion});
 }
 
 void McuSupportTest::test_createDesktopGccToolchain()
 {
-    const auto description = Sdk::parseDescriptionJson(gcc_desktop_json);
+    const auto description = parseDescriptionJson(gcc_desktop_json);
     McuToolChainPackagePtr gccPackage{targetFactory.createToolchain(description.toolchain)};
-    verifyGccToolchain(gccPackage);
+    verifyGccToolchain(gccPackage, {});
 }
 
 void McuSupportTest::test_verifyManuallyCreatedArmGccToolchain()
 {
-    verifyArmGccToolchain(armGccToolchainPackagePtr);
+    verifyArmGccToolchain(armGccToolchainPackagePtr, {armGccVersion});
 }
 
 void McuSupportTest::test_legacy_createArmGccToolchain()
 {
-    McuToolChainPackagePtr armGccPackage = Sdk::createArmGccToolchainPackage(settingsMockPtr);
-    verifyArmGccToolchain(armGccPackage);
+    McuToolChainPackagePtr armGccPackage = Legacy::createArmGccToolchainPackage(settingsMockPtr,
+                                                                                {armGccVersion});
+    verifyArmGccToolchain(armGccPackage, {armGccVersion});
 }
 
 void McuSupportTest::test_createArmGccToolchain_data()
 {
+    QStringList versions{armGccVersion, armGccNewVersion};
+
     QTest::addColumn<QString>("json");
     QTest::newRow("armgcc_nxp_1050_json") << armgcc_nxp_1050_json;
     QTest::newRow("armgcc_stm32f769i_freertos_json") << armgcc_stm32f769i_freertos_json;
@@ -421,27 +455,27 @@ void McuSupportTest::test_createArmGccToolchain()
 {
     QFETCH(QString, json);
 
-    const auto description = Sdk::parseDescriptionJson(json.toLocal8Bit());
+    const auto description = parseDescriptionJson(json.toLocal8Bit());
     McuToolChainPackagePtr armGccPackage{targetFactory.createToolchain(description.toolchain)};
-    verifyArmGccToolchain(armGccPackage);
+    verifyArmGccToolchain(armGccPackage, description.toolchain.versions);
 }
 
 void McuSupportTest::test_mapParsedToolchainIdToCorrespondingType_data()
 {
-    QTest::addColumn<Sdk::McuTargetDescription>("description");
+    QTest::addColumn<McuTargetDescription>("description");
     QTest::addColumn<McuToolChainPackage::ToolChainType>("toolchainType");
 
-    QTest::newRow("armgcc_stm32h750b") << Sdk::parseDescriptionJson(armgcc_stm32h750b_metal_json)
+    QTest::newRow("armgcc_stm32h750b") << parseDescriptionJson(armgcc_stm32h750b_metal_json)
                                        << McuToolChainPackage::ToolChainType::ArmGcc;
-    QTest::newRow("iar_nxp1064") << Sdk::parseDescriptionJson(iar_nxp_1064_json)
+    QTest::newRow("iar_nxp1064") << parseDescriptionJson(iar_nxp_1064_json)
                                  << McuToolChainPackage::ToolChainType::IAR;
-    QTest::newRow("iar_stm32f469i") << Sdk::parseDescriptionJson(iar_stm32f469i_metal_json)
+    QTest::newRow("iar_stm32f469i") << parseDescriptionJson(iar_stm32f469i_metal_json)
                                     << McuToolChainPackage::ToolChainType::IAR;
 }
 
 void McuSupportTest::test_mapParsedToolchainIdToCorrespondingType()
 {
-    QFETCH(Sdk::McuTargetDescription, description);
+    QFETCH(McuTargetDescription, description);
     QFETCH(McuToolChainPackage::ToolChainType, toolchainType);
 
     const McuToolChainPackage *toolchain{targetFactory.createToolchain(description.toolchain)};
@@ -462,7 +496,8 @@ void McuSupportTest::test_legacy_createPackagesWithCorrespondingSettings_data()
 
     QTest::newRow("nxp1064") << iar_nxp_1064_json
                              << QSet<QString>{{"EVK_MIMXRT1064_SDK_PATH"},
-                                              {QString{Constants::SETTINGS_KEY_FREERTOS_PREFIX}
+                                              {QString{
+                                                  Legacy::Constants::SETTINGS_KEY_FREERTOS_PREFIX}
                                                    .append("IMXRT1064")},
                                               "IARToolchain"}
                                     .unite(commonSettings);
@@ -471,7 +506,8 @@ void McuSupportTest::test_legacy_createPackagesWithCorrespondingSettings_data()
                                        commonSettings);
     QTest::newRow("nxp1050") << armgcc_nxp_1050_json
                              << QSet<QString>{{"EVKB_IMXRT1050_SDK_PATH"},
-                                              {QString{Constants::SETTINGS_KEY_FREERTOS_PREFIX}
+                                              {QString{
+                                                  Legacy::Constants::SETTINGS_KEY_FREERTOS_PREFIX}
                                                    .append("IMXRT1050")},
                                               "GNUArmEmbeddedToolchain"}
                                     .unite(commonSettings);
@@ -491,9 +527,9 @@ void McuSupportTest::test_legacy_createPackagesWithCorrespondingSettings_data()
 void McuSupportTest::test_legacy_createPackagesWithCorrespondingSettings()
 {
     QFETCH(QString, json);
-    const Sdk::McuTargetDescription description = Sdk::parseDescriptionJson(json.toLocal8Bit());
+    const McuTargetDescription description = parseDescriptionJson(json.toLocal8Bit());
     const auto [targets, packages]{
-        Sdk::targetsFromDescriptions({description}, settingsMockPtr, qtForMcuSdkPath, runLegacy)};
+        targetsFromDescriptions({description}, settingsMockPtr, qtForMcuSdkPath, runLegacy)};
     Q_UNUSED(targets);
 
     QSet<QString> settings = transform<QSet<QString>>(packages, [](const auto &package) {
@@ -509,13 +545,17 @@ void McuSupportTest::test_createFreeRtosPackageWithCorrectSetting_data()
     QTest::addColumn<QString>("expectedSettingsKey");
 
     QTest::newRow("nxp1050") << nxp1050FreeRtosEnvVar
-                             << QString{Constants::SETTINGS_KEY_FREERTOS_PREFIX}.append(nxp1050);
+                             << QString{Legacy::Constants::SETTINGS_KEY_FREERTOS_PREFIX}.append(
+                                    nxp1050);
     QTest::newRow("nxp1064") << nxp1064FreeRtosEnvVar
-                             << QString{Constants::SETTINGS_KEY_FREERTOS_PREFIX}.append(nxp1064);
+                             << QString{Legacy::Constants::SETTINGS_KEY_FREERTOS_PREFIX}.append(
+                                    nxp1064);
     QTest::newRow("nxp1170") << nxp1170FreeRtosEnvVar
-                             << QString{Constants::SETTINGS_KEY_FREERTOS_PREFIX}.append(nxp1170);
+                             << QString{Legacy::Constants::SETTINGS_KEY_FREERTOS_PREFIX}.append(
+                                    nxp1170);
     QTest::newRow("stm32f7") << stm32f7FreeRtosEnvVar
-                             << QString{Constants::SETTINGS_KEY_FREERTOS_PREFIX}.append(stm32f7);
+                             << QString{Legacy::Constants::SETTINGS_KEY_FREERTOS_PREFIX}.append(
+                                    stm32f7);
 }
 
 void McuSupportTest::test_createFreeRtosPackageWithCorrectSetting()
@@ -523,8 +563,10 @@ void McuSupportTest::test_createFreeRtosPackageWithCorrectSetting()
     QFETCH(QString, freeRtosEnvVar);
     QFETCH(QString, expectedSettingsKey);
 
-    McuPackagePtr package{
-        Sdk::createFreeRTOSSourcesPackage(settingsMockPtr, freeRtosEnvVar, FilePath{}, FilePath{})};
+    McuPackagePtr package{Legacy::createFreeRTOSSourcesPackage(settingsMockPtr,
+                                                               freeRtosEnvVar,
+                                                               FilePath{},
+                                                               FilePath{})};
     QVERIFY(package != nullptr);
 
     QCOMPARE(package->settingsKey(), expectedSettingsKey);
@@ -532,42 +574,67 @@ void McuSupportTest::test_createFreeRtosPackageWithCorrectSetting()
 
 void McuSupportTest::test_createTargets()
 {
-    Sdk::PackageDescription packageDescription{id,
-                                               nxp1064FreeRtosEnvVar,
-                                               freeRtosCMakeVar,
-                                               freeRtosSetting,
-                                               freeRtosDescription,
-                                               freeRtosPath,
-                                               "",
-                                               {},
-                                               true};
+    PackageDescription packageDescription{id,
+                                          nxp1064FreeRtosEnvVar,
+                                          freeRtosCMakeVar,
+                                          freeRtosSetting,
+                                          freeRtosDescription,
+                                          freeRtosPath,
+                                          "",
+                                          {},
+                                          true};
     targetDescription.freeRTOS.packages.append(packageDescription);
     targetDescription.toolchain.id = armGcc;
 
     const auto [targets, packages]{targetFactory.createTargets(targetDescription, qtForMcuSdkPath)};
-    QVERIFY(!targets.empty());
+    QCOMPARE(targets.size(), 1);
     const McuTargetPtr target{targets.at(0)};
-    QCOMPARE(target->colorDepth(), colorDepth);
-    const auto &tgtPackages{target->packages()};
-    QVERIFY(!tgtPackages.empty());
 
+    QCOMPARE(target->colorDepth(), colorDepth);
+
+    const auto &tgtPackages{target->packages()};
+    QCOMPARE(tgtPackages.size(), 4);
+
+    // target should contain freertos package
     QVERIFY(anyOf(tgtPackages, [](const McuPackagePtr &pkg) {
         return (pkg->environmentVariableName() == nxp1064FreeRtosEnvVar
                 && pkg->cmakeVariableName() == freeRtosCMakeVar && pkg->label() == id);
+    }));
+
+    // all packages should contain target's tooclhain compiler package.
+    QVERIFY(anyOf(packages, [](const McuPackagePtr &pkg) {
+        return (pkg->cmakeVariableName() == Legacy::Constants::TOOLCHAIN_DIR_CMAKE_VARIABLE);
+    }));
+
+    // target should contain tooclhain copmiler package.
+    QVERIFY(anyOf(tgtPackages, [](const McuPackagePtr &pkg) {
+        return (pkg->cmakeVariableName()
+                == Legacy::Constants::TOOLCHAIN_DIR_CMAKE_VARIABLE /*and pkg->disconnect*/);
+    }));
+
+    // all packages should contain target's tooclhain file package.
+    QVERIFY(anyOf(packages, [](const McuPackagePtr &pkg) {
+        return (pkg->cmakeVariableName() == Legacy::Constants::TOOLCHAIN_FILE_CMAKE_VARIABLE);
+    }));
+
+    // target should contain tooclhain file package.
+    QVERIFY(anyOf(tgtPackages, [](const McuPackagePtr &pkg) {
+        return (pkg->cmakeVariableName()
+                == Legacy::Constants::TOOLCHAIN_FILE_CMAKE_VARIABLE /*and pkg->disconnect*/);
     }));
 }
 
 void McuSupportTest::test_createPackages()
 {
-    Sdk::PackageDescription packageDescription{id,
-                                               nxp1064FreeRtosEnvVar,
-                                               freeRtosCMakeVar,
-                                               freeRtosLabel,
-                                               freeRtosSetting,
-                                               freeRtosPath,
-                                               "",
-                                               {},
-                                               true};
+    PackageDescription packageDescription{id,
+                                          nxp1064FreeRtosEnvVar,
+                                          freeRtosCMakeVar,
+                                          freeRtosLabel,
+                                          freeRtosSetting,
+                                          freeRtosPath,
+                                          "",
+                                          {},
+                                          true};
     targetDescription.freeRTOS.packages.append(packageDescription);
 
     const auto packages{targetFactory.createPackages(targetDescription)};
@@ -604,16 +671,16 @@ void McuSupportTest::test_twoDotOneUsesLegacyImplementation()
 }
 void McuSupportTest::test_useFallbackPathForToolchainWhenPathFromSettingsIsNotAvailable()
 {
-    Sdk::PackageDescription compilerDescription{armGcc,
-                                                armGccEnvVar,
-                                                Constants::TOOLCHAIN_DIR_CMAKE_VARIABLE,
-                                                armGcc,
-                                                armGccDirectorySetting,
-                                                fallbackDir,
-                                                {},
-                                                {},
-                                                false};
-    Sdk::McuTargetDescription::Toolchain toolchainDescription{armGcc, {}, compilerDescription, {}};
+    PackageDescription compilerDescription{armGcc,
+                                           armGccEnvVar,
+                                           Legacy::Constants::TOOLCHAIN_DIR_CMAKE_VARIABLE,
+                                           armGcc,
+                                           armGccDirectorySetting,
+                                           fallbackDir,
+                                           {},
+                                           {},
+                                           false};
+    McuTargetDescription::Toolchain toolchainDescription{armGcc, {}, compilerDescription, {}};
 
     EXPECT_CALL(*settingsMockPtr, getPath(QString{armGccDirectorySetting}, _, FilePath{fallbackDir}))
         .Times(2)
@@ -626,16 +693,16 @@ void McuSupportTest::test_useFallbackPathForToolchainWhenPathFromSettingsIsNotAv
 
 void McuSupportTest::test_usePathFromSettingsForToolchainPath()
 {
-    Sdk::PackageDescription compilerDescription{{},
-                                                armGccEnvVar,
-                                                Constants::TOOLCHAIN_DIR_CMAKE_VARIABLE,
-                                                armGcc,
-                                                armGccDirectorySetting,
-                                                empty,
-                                                {},
-                                                {},
-                                                false};
-    Sdk::McuTargetDescription::Toolchain toolchainDescription{armGcc, {}, compilerDescription, {}};
+    PackageDescription compilerDescription{{},
+                                           armGccEnvVar,
+                                           Legacy::Constants::TOOLCHAIN_DIR_CMAKE_VARIABLE,
+                                           armGcc,
+                                           armGccDirectorySetting,
+                                           empty,
+                                           {},
+                                           {},
+                                           false};
+    McuTargetDescription::Toolchain toolchainDescription{armGcc, {}, compilerDescription, {}};
 
     EXPECT_CALL(*settingsMockPtr, getPath(QString{armGccDirectorySetting}, _, FilePath{empty}))
         .Times(2)
@@ -665,7 +732,7 @@ void McuSupportTest::test_addNewKit()
     QCOMPARE(createdKit, newKit);
 
     const auto config = CMakeConfigurationKitAspect::configuration(newKit);
-    QVERIFY(config.size() > 0);
+    QVERIFY(!config.empty());
     QVERIFY(
         indexOf(config.toVector(),
                 [&cmakeVar](const CMakeConfigItem &item) { return item.key == cmakeVar.toUtf8(); })
@@ -680,12 +747,12 @@ void McuSupportTest::test_getFullToolchainFilePathFromTarget()
 
 void McuSupportTest::test_legacy_getPredefinedToolchainFilePackage()
 {
-    QHash<QString, ToolchainCompilerCreator> toolchainCreators{
-        {armGcc, [this] { return armGccToolchainPackagePtr; }}};
-    McuTargetFactoryLegacy legacyTargetFactory{toolchainCreators,
-                                               {{armGcc, armGccToolchainFilePackagePtr}},
-                                               {},
-                                               settingsMockPtr};
+    QHash<QString, Legacy::ToolchainCompilerCreator> toolchainCreators{
+        {armGcc, [this](const QStringList & /*versions*/) { return armGccToolchainPackagePtr; }}};
+    Legacy::McuTargetFactory legacyTargetFactory{toolchainCreators,
+                                                 {{armGcc, armGccToolchainFilePackagePtr}},
+                                                 {},
+                                                 settingsMockPtr};
     auto armToolchainFile = legacyTargetFactory.getToolchainFile(qtForMcuSdkPath, armGcc);
     QVERIFY(armToolchainFile);
     QCOMPARE(armToolchainFile, armGccToolchainFilePackagePtr);
@@ -693,18 +760,18 @@ void McuSupportTest::test_legacy_getPredefinedToolchainFilePackage()
 
 void McuSupportTest::test_legacy_createUnsupportedToolchainFilePackage()
 {
-    QHash<QString, ToolchainCompilerCreator> toolchainCreators{
-        {armGcc, [this] { return armGccToolchainPackagePtr; }}};
-    McuTargetFactoryLegacy legacyTargetFactory{toolchainCreators,
-                                               {{armGcc, armGccToolchainFilePackagePtr}},
-                                               {},
-                                               settingsMockPtr};
+    QHash<QString, Legacy::ToolchainCompilerCreator> toolchainCreators{
+        {armGcc, [this](const QStringList & /*versions*/) { return armGccToolchainPackagePtr; }}};
+    Legacy::McuTargetFactory legacyTargetFactory{toolchainCreators,
+                                                 {{armGcc, armGccToolchainFilePackagePtr}},
+                                                 {},
+                                                 settingsMockPtr};
 
     auto unsupportedToolchainFile = legacyTargetFactory.getToolchainFile(qtForMcuSdkPath, iar);
     QVERIFY(unsupportedToolchainFile);
     QCOMPARE(unsupportedToolchainFile->path().toString(), unsupportedToolchainFilePath);
     QCOMPARE(unsupportedToolchainFile->cmakeVariableName(),
-             Constants::TOOLCHAIN_FILE_CMAKE_VARIABLE);
+             Legacy::Constants::TOOLCHAIN_FILE_CMAKE_VARIABLE);
 }
 
 void McuSupportTest::test_legacy_createTargetWithToolchainPackages_data()
@@ -713,20 +780,26 @@ void McuSupportTest::test_legacy_createTargetWithToolchainPackages_data()
     QTest::addColumn<QString>("toolchainFilePath");
     QTest::addColumn<QString>("compilerPath");
     QTest::addColumn<QString>("compilerSetting");
+    QTest::addColumn<QStringList>("versions");
 
     QTest::newRow("nxp1050") << armgcc_nxp_1050_json << armGccToolchainFilePath << armGccDir
-                             << armGccDirectorySetting;
+                             << armGccDirectorySetting
+                             << QStringList{armGccVersion, armGccNewVersion};
     QTest::newRow("stm32h750b") << armgcc_stm32h750b_metal_json << armGccToolchainFilePath
-                                << armGccDir << armGccDirectorySetting;
+                                << armGccDir << armGccDirectorySetting
+                                << QStringList{armGccVersion};
     QTest::newRow("stm32f769i") << armgcc_stm32f769i_freertos_json << armGccToolchainFilePath
-                                << armGccDir << armGccDirectorySetting;
+                                << armGccDir << armGccDirectorySetting
+                                << QStringList{armGccVersion, armGccNewVersion};
     QTest::newRow("stm32f469i") << iar_stm32f469i_metal_json << iarToolchainFilePath << iarDir
-                                << iarSetting;
-    QTest::newRow("nxp1064") << iar_nxp_1064_json << iarToolchainFilePath << iarDir << iarSetting;
-    QTest::newRow("nxp1064") << iar_nxp_1064_json << iarToolchainFilePath << iarDir << iarSetting;
+                                << iarSetting << iarVersions;
+    QTest::newRow("nxp1064") << iar_nxp_1064_json << iarToolchainFilePath << iarDir << iarSetting
+                             << iarVersions;
+    QTest::newRow("nxp1064") << iar_nxp_1064_json << iarToolchainFilePath << iarDir << iarSetting
+                             << iarVersions;
     QTest::newRow("ghs_rh850_d1m1a_baremetal_json")
         << ghs_rh850_d1m1a_baremetal_json << greenhillToolchainFilePath << greenhillCompilerDir
-        << greenhillSetting;
+        << greenhillSetting << greenhillVersions;
 }
 
 void McuSupportTest::test_legacy_createTargetWithToolchainPackages()
@@ -735,8 +808,9 @@ void McuSupportTest::test_legacy_createTargetWithToolchainPackages()
     QFETCH(QString, toolchainFilePath);
     QFETCH(QString, compilerPath);
     QFETCH(QString, compilerSetting);
+    QFETCH(QStringList, versions);
 
-    const Sdk::McuTargetDescription description = Sdk::parseDescriptionJson(json.toLocal8Bit());
+    const McuTargetDescription description = parseDescriptionJson(json.toLocal8Bit());
 
     EXPECT_CALL(*settingsMockPtr,
                 getPath(QString{Constants::SETTINGS_KEY_PACKAGE_QT_FOR_MCUS_SDK}, _, _))
@@ -745,10 +819,10 @@ void McuSupportTest::test_legacy_createTargetWithToolchainPackages()
         .WillRepeatedly(Return(FilePath::fromString(compilerPath)));
 
     const auto [targets, packages]{
-        Sdk::targetsFromDescriptions({description}, settingsMockPtr, qtForMcuSdkPath, runLegacy)};
+        targetsFromDescriptions({description}, settingsMockPtr, qtForMcuSdkPath, runLegacy)};
     Q_UNUSED(packages);
 
-    verifyTargetToolchains(targets, toolchainFilePath, compilerPath, compilerSetting);
+    verifyTargetToolchains(targets, toolchainFilePath, compilerPath, compilerSetting, versions);
 }
 
 void McuSupportTest::test_createTargetWithToolchainPackages_data()
@@ -762,16 +836,20 @@ void McuSupportTest::test_createTargetWithToolchainPackages()
     QFETCH(QString, toolchainFilePath);
     QFETCH(QString, compilerPath);
     QFETCH(QString, compilerSetting);
+    QFETCH(QStringList, versions);
 
     EXPECT_CALL(*settingsMockPtr, getPath(compilerSetting, _, _))
         .WillRepeatedly(Return(FilePath::fromString(compilerPath)));
 
-    const Sdk::McuTargetDescription description = Sdk::parseDescriptionJson(json.toLocal8Bit());
+    EXPECT_CALL(*settingsMockPtr, getPath(compilerSetting, _, _))
+        .WillRepeatedly(Return(FilePath::fromString(compilerPath)));
+
+    const McuTargetDescription description = parseDescriptionJson(json.toLocal8Bit());
     const auto [targets, packages]{
-        Sdk::targetsFromDescriptions({description}, settingsMockPtr, qtForMcuSdkPath, !runLegacy)};
+        targetsFromDescriptions({description}, settingsMockPtr, qtForMcuSdkPath, !runLegacy)};
     Q_UNUSED(packages);
 
-    verifyTargetToolchains(targets, toolchainFilePath, compilerPath, compilerSetting);
+    verifyTargetToolchains(targets, toolchainFilePath, compilerPath, compilerSetting, versions);
 }
 
 void McuSupportTest::test_addToolchainFileInfoToKit()
@@ -783,7 +861,72 @@ void McuSupportTest::test_addToolchainFileInfoToKit()
 
     const auto &cmakeConfig{CMakeConfigurationKitAspect::configuration(&kit)};
     QVERIFY(!cmakeConfig.empty());
-    QCOMPARE(cmakeConfig.valueOf(Constants::TOOLCHAIN_FILE_CMAKE_VARIABLE), armGccToolchainFilePath);
+    QCOMPARE(cmakeConfig.valueOf(Legacy::Constants::TOOLCHAIN_FILE_CMAKE_VARIABLE),
+             armGccToolchainFilePath);
+}
+
+void McuSupportTest::test_legacy_createBoardSdk_data()
+{
+    QTest::addColumn<QString>("json");
+    QTest::addColumn<QString>("environmentVariable");
+    QTest::addColumn<QStringList>("versions");
+
+    QTest::newRow("armgcc_nxp_1050_json")
+        << armgcc_nxp_1050_json << "EVKB_IMXRT1050_SDK_PATH" << boardSdkVersions;
+    QTest::newRow("stm32h750b") << armgcc_stm32h750b_metal_json << "STM32Cube_FW_H7_SDK_PATH"
+                                << QStringList{"1.5.0"};
+    QTest::newRow("stm32f769i") << armgcc_stm32f769i_freertos_json << "STM32Cube_FW_F7_SDK_PATH"
+                                << QStringList{"1.16.0"};
+    QTest::newRow("stm32f469i") << iar_stm32f469i_metal_json << "STM32Cube_FW_F4_SDK_PATH"
+                                << QStringList{"1.25.0"};
+    QTest::newRow("nxp1064") << iar_nxp_1064_json << "EVK_MIMXRT1064_SDK_PATH" << boardSdkVersions;
+    QTest::newRow("ghs_rh850_d1m1a_baremetal_json")
+        << ghs_rh850_d1m1a_baremetal_json << "RGL_DIR" << QStringList{"2.0.0a"};
+}
+
+void McuSupportTest::test_legacy_createBoardSdk()
+{
+    QFETCH(QString, json);
+    QFETCH(QString, environmentVariable);
+    QFETCH(QStringList, versions);
+
+    McuTargetDescription target{parseDescriptionJson(json.toLocal8Bit())};
+    McuPackagePtr boardSdk{Legacy::createBoardSdkPackage(settingsMockPtr, target)};
+
+    verifyBoardSdk(boardSdk, environmentVariable, versions);
+}
+
+void McuSupportTest::test_createBoardSdk_data()
+{
+    test_legacy_createBoardSdk_data();
+}
+
+void McuSupportTest::test_createBoardSdk()
+{
+    QFETCH(QString, json);
+    QFETCH(QString, environmentVariable);
+    QFETCH(QStringList, versions);
+
+    McuTargetDescription target{parseDescriptionJson(json.toLocal8Bit())};
+
+    McuPackagePtr boardSdk{targetFactory.createPackage(target.boardSdk)};
+
+    verifyBoardSdk(boardSdk, environmentVariable, versions);
+}
+
+void McuSupportTest::test_legacy_createQtMCUsPackage()
+{
+    EXPECT_CALL(*settingsMockPtr,
+                getPath(QString{Constants::SETTINGS_KEY_PACKAGE_QT_FOR_MCUS_SDK}, _, _))
+        .WillRepeatedly(Return(FilePath::fromString(qtForMcuSdkPath)));
+
+    McuPackagePtr qtForMCUsSDK = createQtForMCUsPackage(settingsMockPtr);
+
+    QVERIFY(qtForMCUsSDK);
+    QCOMPARE(qtForMCUsSDK->settingsKey(), Constants::SETTINGS_KEY_PACKAGE_QT_FOR_MCUS_SDK);
+    QCOMPARE(qtForMCUsSDK->detectionPath(),
+             Legacy::Constants::QT_FOR_MCUS_SDK_PACKAGE_VALIDATION_PATH);
+    QCOMPARE(qtForMCUsSDK->path().toString(), qtForMcuSdkPath);
 }
 
 } // namespace McuSupport::Internal::Test

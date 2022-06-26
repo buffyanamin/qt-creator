@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2022 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of Qt Creator.
@@ -23,44 +23,16 @@
 **
 ****************************************************************************/
 
-#include "taskfile.h"
+#pragma once
 
-#include "tasklistplugin.h"
-
-#include <utils/fileutils.h>
-
-using namespace TaskList;
-using namespace TaskList::Internal;
-
-// --------------------------------------------------------------------------
-// TaskFile
-// --------------------------------------------------------------------------
-
-TaskFile::TaskFile(QObject *parent) : Core::IDocument(parent)
-{
-    setId("TaskList.TaskFile");
-}
-
-Core::IDocument::ReloadBehavior TaskFile::reloadBehavior(ChangeTrigger state, ChangeType type) const
-{
-    Q_UNUSED(state)
-    Q_UNUSED(type)
-    return BehaviorSilent;
-}
-
-bool TaskFile::reload(QString *errorString, ReloadFlag flag, ChangeType type)
-{
-    Q_UNUSED(flag)
-
-    if (type == TypeRemoved) {
-        deleteLater();
-        return true;
-    }
-    return load(errorString, filePath());
-}
-
-bool TaskFile::load(QString *errorString, const Utils::FilePath &fileName)
-{
-    setFilePath(fileName);
-    return TaskListPlugin::loadFile(errorString, fileName);
-}
+#ifdef SQLITE_STATIC_LIBRARY
+using sqlite3 = struct qtc_sqlite3;
+using sqlite3_stmt = struct qtc_sqlite3_stmt;
+using sqlite3_session = struct qtc_sqlite3_session;
+using sqlite3_changeset_iter = struct qtc_sqlite3_changeset_iter;
+#else
+using sqlite3 = struct sqlite3;
+using sqlite3_stmt = struct sqlite3_stmt;
+using sqlite3_session = struct sqlite3_session;
+using sqlite3_changeset_iter = struct sqlite3_changeset_iter;
+#endif

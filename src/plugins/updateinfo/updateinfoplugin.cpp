@@ -167,7 +167,7 @@ void UpdateInfoPlugin::startCheckForUpdates()
         this,
         [this, futureIf]() mutable {
             if (d->m_maintenanceToolProcess->result() == ProcessResult::FinishedWithSuccess) {
-                d->m_updateOutput = d->m_maintenanceToolProcess->stdOut();
+                d->m_updateOutput = d->m_maintenanceToolProcess->cleanedStdOut();
                 if (d->m_settings.checkForQtVersions) {
                     d->m_maintenanceToolProcess.reset(new QtcProcess);
                     d->m_maintenanceToolProcess->setCommand(
@@ -181,7 +181,7 @@ void UpdateInfoPlugin::startCheckForUpdates()
                         [this, futureIf]() mutable {
                             if (d->m_maintenanceToolProcess->result()
                                 == ProcessResult::FinishedWithSuccess) {
-                                d->m_packagesOutput = d->m_maintenanceToolProcess->stdOut();
+                                d->m_packagesOutput = d->m_maintenanceToolProcess->cleanedStdOut();
                                 d->m_maintenanceToolProcess.reset();
                                 futureIf.reportFinished();
                                 checkForUpdatesFinished();
@@ -254,9 +254,9 @@ static void showQtUpdateInfo(const QtPackage &package,
 {
     Utils::InfoBarEntry info(InstallQtUpdates,
                              UpdateInfoPlugin::tr(
-                                 "%1 is available. Check the <a "
-                                 "href=\"https://www.qt.io/blog\">Qt blog</a> for details.")
-                                 .arg(package.displayName));
+                                 "%1 is available. Check the <a %2>Qt blog</a> for details.")
+                                 .arg(package.displayName,
+                                      QString("href=\"https://www.qt.io/blog/tag/releases\"")));
     info.addCustomButton(UpdateInfoPlugin::tr("Start Package Manager"), [startPackageManager] {
         Core::ICore::infoBar()->removeInfo(InstallQtUpdates);
         startPackageManager();

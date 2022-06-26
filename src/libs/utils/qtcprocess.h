@@ -144,10 +144,10 @@ public:
     // These (or some of them) may be potentially moved outside of the class.
     // For some we may aggregate in another public utils class (or subclass of QtcProcess)?
 
-    // TODO: How below 3 methods relate to QtcProcess? Action: move them somewhere else.
+    // TODO: How below 2 methods relate to QtcProcess?
+    // Action: move/merge them somewhere else, FilePath::searchInPath() ?
     // Helpers to find binaries. Do not use it for other path variables
     // and file types.
-    static QString locateBinary(const QString &binary);
     static QString locateBinary(const QString &path, const QString &binary);
     static QString normalizeNewlines(const QString &text);
 
@@ -175,7 +175,6 @@ public:
     void setStdErrCallback(const std::function<void(const QString &)> &callback);
     void setStdErrLineCallback(const std::function<void(const QString &)> &callback);
 
-    void stopProcess();
     bool readDataFromProcess(int timeoutS, QByteArray *stdOut, QByteArray *stdErr,
                              bool showTimeOutMessageBox);
 
@@ -185,10 +184,16 @@ public:
     QByteArray allRawOutput() const;
     QString allOutput() const;
 
-    QString stdOut() const;
-    QString stdErr() const;
-
     QByteArray rawStdOut() const;
+
+    QString stdOut() const; // possibly with CR
+    QString stdErr() const; // possibly with CR
+
+    QString cleanedStdOut() const; // with sequences of CR squashed and CR LF replaced by LF
+    QString cleanedStdErr() const; // with sequences of CR squashed and CR LF replaced by LF
+
+    const QStringList stdOutLines() const; // split, CR removed
+    const QStringList stdErrLines() const; // split, CR removed
 
     QString exitMessage() const;
 

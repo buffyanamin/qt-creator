@@ -25,9 +25,7 @@
 
 #include "mesonproject.h"
 
-#include "mesonbuildsystem.h"
 #include "mesonpluginconstants.h"
-#include "exewrappers/mesontools.h"
 #include "settings/tools/kitaspect/mesontoolkitaspect.h"
 #include "settings/tools/kitaspect/ninjatoolkitaspect.h"
 
@@ -77,15 +75,6 @@ ProjectExplorer::DeploymentKnowledge MesonProject::deploymentKnowledge() const
 {
     // TODO in next releases
     return ProjectExplorer::DeploymentKnowledge::Bad;
-}
-
-ProjectExplorer::MakeInstallCommand MesonProject::makeInstallCommand(
-    const ProjectExplorer::Target *target, const QString &installRoot)
-{
-    Q_UNUSED(target)
-    Q_UNUSED(installRoot)
-    // TODO in next releases
-    return {};
 }
 
 } // namespace Internal

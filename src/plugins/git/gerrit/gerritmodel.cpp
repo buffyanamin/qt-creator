@@ -335,7 +335,8 @@ void QueryContext::errorTermination(const QString &msg)
 
 void QueryContext::terminate()
 {
-    m_process.stopProcess();
+    m_process.stop();
+    m_process.waitForFinished();
 }
 
 void QueryContext::processDone()
@@ -374,7 +375,7 @@ void QueryContext::timeout()
                     arg(timeOutMS / 1000), QMessageBox::NoButton, parent);
     QPushButton *terminateButton = box.addButton(tr("Terminate"), QMessageBox::YesRole);
     box.addButton(tr("Keep Running"), QMessageBox::NoRole);
-    connect(&m_process, &QtcProcess::finished, &box, &QDialog::reject);
+    connect(&m_process, &QtcProcess::done, &box, &QDialog::reject);
     box.exec();
     if (m_process.state() != QProcess::Running)
         return;

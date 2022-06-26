@@ -227,13 +227,22 @@ bool LanguageClientCompletionItem::isPerfectMatch(int pos, QTextDocument *doc) c
     return textToInsert == textAt(QTextCursor(doc), pos - length, length);
 }
 
+bool LanguageClientCompletionItem::isDeprecated() const
+{
+    if (const auto tags = m_item.tags(); tags && tags->contains(CompletionItem::Deprecated))
+        return true;
+    if (const auto deprecated = m_item.deprecated())
+        return *deprecated;
+    return false;
+}
+
 class LanguageClientCompletionModel : public GenericProposalModel
 {
 public:
     // GenericProposalModel interface
     bool containsDuplicates() const override { return false; }
     bool isSortable(const QString &/*prefix*/) const override;
-    void sort(const QString &/*prefix*/) override;
+    void sort(const QString &prefix) override;
     bool supportsPrefixExpansion() const override { return false; }
 
     QList<AssistProposalItemInterface *> items() const { return m_currentItems; }
@@ -247,19 +256,21 @@ bool LanguageClientCompletionModel::isSortable(const QString &) const
     });
 }
 
-void LanguageClientCompletionModel::sort(const QString &/*prefix*/)
+void LanguageClientCompletionModel::sort(const QString &prefix)
 {
     std::sort(m_currentItems.begin(), m_currentItems.end(),
-              [] (AssistProposalItemInterface *a, AssistProposalItemInterface *b){
+              [&prefix] (AssistProposalItemInterface *a, AssistProposalItemInterface *b){
         const auto lca = dynamic_cast<LanguageClientCompletionItem *>(a);
         const auto lcb = dynamic_cast<LanguageClientCompletionItem *>(b);
         if (!lca && !lcb)
             return a->text() < b->text();
         if (lca && lcb)
             return *lca < *lcb;
-        if (lca && !lcb)
-            return true;
-        return false;
+        if (prefix.isEmpty())
+            return lca && !lcb;
+        if (!lca)
+            return a->text().toLower().startsWith(prefix.toLower());
+        return !b->text().toLower().startsWith(prefix.toLower());
     });
 }
 

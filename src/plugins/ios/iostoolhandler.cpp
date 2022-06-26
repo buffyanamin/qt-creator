@@ -38,6 +38,7 @@
 #include <utils/qtcassert.h>
 #include <utils/qtcprocess.h>
 #include <utils/runextensions.h>
+#include <utils/temporarydirectory.h>
 
 #include <QCoreApplication>
 #include <QDir>
@@ -702,10 +703,14 @@ void IosDeviceToolHandlerPrivate::requestTransferApp(const QString &bundlePath,
 {
     m_bundlePath = bundlePath;
     m_deviceId = deviceId;
+    QString tmpDeltaPath = Utils::TemporaryDirectory::masterDirectoryFilePath().pathAppended("ios").toString();
     QStringList args;
     args << QLatin1String("--id") << deviceId << QLatin1String("--bundle")
          << bundlePath << QLatin1String("--timeout") << QString::number(timeout)
-         << QLatin1String("--install");
+         << QLatin1String("--install")
+         << QLatin1String("--delta-path")
+         << tmpDeltaPath;
+
     start(IosToolHandler::iosDeviceToolPath(), args);
 }
 
@@ -728,7 +733,7 @@ void IosDeviceToolHandlerPrivate::requestRunApp(const QString &bundlePath,
         args << QLatin1String("--debug");
         break;
     }
-    args << QLatin1String("--args") << extraArgs;
+    args << QLatin1String("--") << extraArgs;
     op = OpAppRun;
     start(IosToolHandler::iosDeviceToolPath(), args);
 }

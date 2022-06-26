@@ -25,11 +25,10 @@
 
 #pragma once
 
+#include <utils/id.h>
 #include <utils/qtcprocess.h>
 
 #include <QObject>
-
-namespace Utils { class Id; }
 
 namespace GitLab {
 
@@ -63,23 +62,14 @@ class QueryRunner : public QObject
     Q_OBJECT
 public:
     QueryRunner(const Query &query, const Utils::Id &id, QObject *parent = nullptr);
-    ~QueryRunner();
-
     void start();
-    void terminate();
 
 signals:
     void finished();
     void resultRetrieved(const QByteArray &json);
 
 private:
-    void errorTermination(const QString &msg);
-    void processError(QProcess::ProcessError error);
-    void processFinished();
-
     Utils::QtcProcess m_process;
-    bool m_running = false;
-    bool m_paginated = false;
 };
 
 } // namespace GitLab

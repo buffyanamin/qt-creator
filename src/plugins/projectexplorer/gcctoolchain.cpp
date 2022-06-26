@@ -442,6 +442,8 @@ static QStringList filteredFlags(const QStringList &allFlags, bool considerSysro
         } else if (a == "-arch") {
             if (++i < allFlags.length() && !filtered.contains(a))
                 filtered << a << allFlags.at(i);
+        }  else if (a == "-Xclang") {
+            filtered << a;
         } else if ((considerSysroot && (a == "--sysroot" || a == "-isysroot"))
                    || a == "-D" || a == "-U"
                    || a == "-gcc-toolchain" || a == "-target" || a == "-mllvm" || a == "-isystem") {
@@ -1578,6 +1580,27 @@ ClangToolChain::~ClangToolChain()
 {
     QObject::disconnect(m_thisToolchainRemovedConnection);
     QObject::disconnect(m_mingwToolchainAddedConnection);
+}
+
+bool ClangToolChain::matchesCompilerCommand(const Utils::FilePath &command,
+                                            const Utils::Environment &env) const
+{
+    if (!m_resolvedCompilerCommand) {
+        m_resolvedCompilerCommand = FilePath();
+        if (HostOsInfo::isMacHost()
+            && compilerCommand().parentDir() == FilePath::fromString("/usr/bin")) {
+            std::unique_ptr<QtcProcess> xcrun(new QtcProcess);
+            xcrun->setCommand({"/usr/bin/xcrun", {"-f", compilerCommand().fileName()}});
+            xcrun->runBlocking();
+            const FilePath output = FilePath::fromString(xcrun->cleanedStdOut().trimmed());
+            if (output.isExecutableFile() && output != compilerCommand())
+                m_resolvedCompilerCommand = output;
+        }
+    }
+    if (!m_resolvedCompilerCommand->isEmpty()
+        && env.isSameExecutable(m_resolvedCompilerCommand->toString(), command.toString()))
+        return true;
+    return GccToolChain::matchesCompilerCommand(command, env);
 }
 
 static FilePath mingwAwareMakeCommand(const Environment &environment)

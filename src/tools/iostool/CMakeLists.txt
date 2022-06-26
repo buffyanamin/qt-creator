@@ -1,7 +1,7 @@
 add_qtc_executable(iostool
   DESTINATION ${IDE_LIBEXEC_PATH}/ios
   DEPENDS
-    Qt5::Gui
+    Qt5::Core
     Qt5::Xml
     Qt5::Network
     ${FWCoreFoundation}
@@ -18,6 +18,7 @@ add_qtc_executable(iostool
     main.cpp
     mobiledevicelib.cpp mobiledevicelib.h
     relayserver.cpp relayserver.h
+    cfutils.h
 )
 
 if (TARGET iostool)

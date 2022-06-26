@@ -54,8 +54,6 @@ protected:
 
 private:
     ProjectExplorer::DeploymentKnowledge deploymentKnowledge() const override;
-    ProjectExplorer::MakeInstallCommand makeInstallCommand(const ProjectExplorer::Target *target,
-                                                           const QString &installRoot) override;
 
     mutable Internal::CMakeProjectImporter *m_projectImporter = nullptr;
 

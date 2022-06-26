@@ -26,7 +26,6 @@
 #include "dockerdevice.h"
 
 #include "dockerconstants.h"
-#include "dockerplugin.h"
 #include "dockerdevicewidget.h"
 #include "kitdetector.h"
 
@@ -169,10 +168,6 @@ private:
     qint64 write(const QByteArray &data) override;
     void sendControlSignal(ControlSignal controlSignal) override;
 
-    bool waitForStarted(int msecs) override;
-    bool waitForReadyRead(int msecs) override;
-    bool waitForFinished(int msecs) override;
-
 private:
     CommandLine fullLocalCommandLine(bool interactive);
 
@@ -192,6 +187,7 @@ CommandLine DockerProcessImpl::fullLocalCommandLine(bool interactive)
     QStringList args;
 
     if (!m_setup.m_workingDirectory.isEmpty()) {
+        QTC_CHECK(DeviceManager::deviceForPath(m_setup.m_workingDirectory) == m_device);
         args.append({"cd", m_setup.m_workingDirectory.path()});
         args.append("&&");
     }
@@ -287,27 +283,6 @@ void DockerProcessImpl::sendControlSignal(ControlSignal controlSignal)
     int signal = controlSignalToInt(controlSignal);
     m_devicePrivate->runInShell(
         {"kill", {QString("-%1").arg(signal), QString("%2").arg(m_remotePID)}});
-}
-
-bool DockerProcessImpl::waitForStarted(int msecs)
-{
-    Q_UNUSED(msecs)
-    QTC_CHECK(false);
-    return false;
-}
-
-bool DockerProcessImpl::waitForReadyRead(int msecs)
-{
-    Q_UNUSED(msecs)
-    QTC_CHECK(false);
-    return false;
-}
-
-bool DockerProcessImpl::waitForFinished(int msecs)
-{
-    Q_UNUSED(msecs)
-    QTC_CHECK(false);
-    return false;
 }
 
 IDeviceWidget *DockerDevice::createWidget()
@@ -469,14 +444,17 @@ void DockerDevicePrivate::startContainer()
     if (createProcess.result() != ProcessResult::FinishedWithSuccess)
         return;
 
-    m_container = createProcess.stdOut().trimmed();
+    m_container = createProcess.cleanedStdOut().trimmed();
     if (m_container.isEmpty())
         return;
     LOG("Container via process: " << m_container);
 
     m_shell = std::make_unique<ContainerShell>(m_container);
-    connect(m_shell.get(), &DeviceShell::errorOccurred, this, [this] (QProcess::ProcessError error) {
-        qCWarning(dockerDeviceLog) << "Container shell encountered error:" << error;
+    connect(m_shell.get(), &DeviceShell::done, this, [this] (const ProcessResultData &resultData) {
+        if (resultData.m_error != QProcess::UnknownError)
+            return;
+
+        qCWarning(dockerDeviceLog) << "Container shell encountered error:" << resultData.m_error;
         m_shell.reset();
 
         DockerApi::recheckDockerDaemon();
@@ -783,7 +761,7 @@ QDateTime DockerDevice::lastModified(const FilePath &filePath) const
 {
     QTC_ASSERT(handlesFile(filePath), return {});
     updateContainerAccess();
-    const QByteArray output = d->outputForRunInShell({"stat", {"-c", "%Y", filePath.path()}});
+    const QByteArray output = d->outputForRunInShell({"stat", {"-L", "-c", "%Y", filePath.path()}});
     qint64 secs = output.toLongLong();
     const QDateTime dt = QDateTime::fromSecsSinceEpoch(secs, Qt::UTC);
     return dt;
@@ -802,7 +780,7 @@ qint64 DockerDevice::fileSize(const FilePath &filePath) const
 {
     QTC_ASSERT(handlesFile(filePath), return -1);
     updateContainerAccess();
-    const QByteArray output = d->outputForRunInShell({"stat", {"-c", "%s", filePath.path()}});
+    const QByteArray output = d->outputForRunInShell({"stat", {"-L", "-c", "%s", filePath.path()}});
     return output.toLongLong();
 }
 
@@ -811,7 +789,7 @@ QFileDevice::Permissions DockerDevice::permissions(const FilePath &filePath) con
     QTC_ASSERT(handlesFile(filePath), return {});
     updateContainerAccess();
 
-    const QByteArray output = d->outputForRunInShell({"stat", {"-c", "%a", filePath.path()}});
+    const QByteArray output = d->outputForRunInShell({"stat", {"-L", "-c", "%a", filePath.path()}});
     const uint bits = output.toUInt(nullptr, 8);
     QFileDevice::Permissions perm = {};
 #define BIT(n, p) if (bits & (1<<n)) perm |= QFileDevice::p
@@ -1013,11 +991,11 @@ void DockerDevicePrivate::fetchSystemEnviroment()
     proc.setCommand(q->withDockerExecCmd({"env", {}}));
     proc.start();
     proc.waitForFinished();
-    const QString remoteOutput = proc.stdOut();
+    const QString remoteOutput = proc.cleanedStdOut();
 
     m_cachedEnviroment = Environment(remoteOutput.split('\n', Qt::SkipEmptyParts), q->osType());
 
-    const QString remoteError = proc.stdErr();
+    const QString remoteError = proc.cleanedStdErr();
     if (!remoteError.isEmpty())
         qWarning("Cannot read container environment: %s\n", qPrintable(remoteError));
 }
@@ -1151,7 +1129,7 @@ public:
         });
 
         connect(m_process, &Utils::QtcProcess::readyReadStandardError, this, [this] {
-            const QString out = DockerDevice::tr("Error: %1").arg(m_process->stdErr());
+            const QString out = DockerDevice::tr("Error: %1").arg(m_process->cleanedStdErr());
             m_log->append(DockerDevice::tr("Error: %1").arg(out));
         });
 

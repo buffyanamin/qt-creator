@@ -118,16 +118,14 @@ EnvironmentItems QnxUtils::qnxEnvironmentFromEnvFile(const FilePath &filePath)
     QApplication::setOverrideCursor(Qt::BusyCursor);
     bool waitResult = process.waitForFinished(10000);
     QApplication::restoreOverrideCursor();
-    if (!waitResult) {
-        process.stopProcess();
+    if (!waitResult)
         return items;
-    }
 
     if (process.result() != ProcessResult::FinishedWithSuccess)
         return items;
 
     // parsing process output
-    const QString output = process.stdOut();
+    const QString output = process.cleanedStdOut();
     for (const QString &line : output.split('\n')) {
         int equalIndex = line.indexOf('=');
         if (equalIndex < 0)
