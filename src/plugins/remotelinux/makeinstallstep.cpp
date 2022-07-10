@@ -34,9 +34,11 @@
 #include <projectexplorer/devicesupport/idevice.h>
 #include <projectexplorer/kitinformation.h>
 #include <projectexplorer/processparameters.h>
+#include <projectexplorer/projectexplorerconstants.h>
 #include <projectexplorer/runconfigurationaspects.h>
 #include <projectexplorer/target.h>
 #include <projectexplorer/task.h>
+
 #include <utils/algorithm.h>
 #include <utils/fileutils.h>
 #include <utils/qtcassert.h>
@@ -105,7 +107,7 @@ MakeInstallStep::MakeInstallStep(BuildStepList *parent, Id id) : MakeStep(parent
     cleanInstallRootAspect->setSettingsKey(CleanInstallRootAspectId);
     cleanInstallRootAspect->setLabel(tr("Clean install root first:"),
                                      BoolAspect::LabelPlacement::InExtraLabel);
-    cleanInstallRootAspect->setValue(false);
+    cleanInstallRootAspect->setValue(true);
 
     const auto commandLineAspect = addAspect<StringAspect>();
     commandLineAspect->setId(FullCommandLineAspectId);

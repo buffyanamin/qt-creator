@@ -64,6 +64,7 @@ QWidget *ConfigModelItemDelegate::createEditor(QWidget *parent, const QStyleOpti
             auto edit = new QComboBox(parent);
             edit->setAttribute(Qt::WA_MacSmallSize);
             edit->setFocusPolicy(Qt::StrongFocus);
+            edit->setAutoFillBackground(true);
             for (const QString &s : qAsConst(data.values))
                 edit->addItem(s);
             return edit;
@@ -114,7 +115,7 @@ void ConfigModelItemDelegate::setModelData(QWidget *editor, QAbstractItemModel *
         ConfigModel::DataItem data = ConfigModel::dataItemFromIndex(index);
         if (data.type == ConfigModel::DataItem::FILE || data.type == ConfigModel::DataItem::DIRECTORY) {
             auto edit = static_cast<Utils::PathChooser *>(editor);
-            if (edit->rawPath() != data.value)
+            if (edit->rawFilePath().toString() != data.value)
                 model->setData(index, edit->filePath().toString(), Qt::EditRole);
             return;
         } else if (!data.values.isEmpty()) {

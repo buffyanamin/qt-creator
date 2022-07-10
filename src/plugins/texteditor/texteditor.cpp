@@ -554,6 +554,7 @@ public:
     void paintCursorAsBlock(const PaintEventData &data, QPainter &painter,
                             PaintEventBlockData &blockData, int cursorPosition) const;
     void paintAdditionalVisualWhitespaces(PaintEventData &data, QPainter &painter, qreal top) const;
+    void paintIndentDepth(PaintEventData &data, QPainter &painter, const PaintEventBlockData &blockData) const;
     void paintReplacement(PaintEventData &data, QPainter &painter, qreal top) const;
     void paintWidgetBackground(const PaintEventData &data, QPainter &painter) const;
     void paintOverlays(const PaintEventData &data, QPainter &painter) const;
@@ -646,6 +647,8 @@ public:
     void updateSyntaxInfoBar(const Highlighter::Definitions &definitions, const QString &fileName);
     void removeSyntaxInfoBar();
     void configureGenericHighlighter(const KSyntaxHighlighting::Definition &definition);
+    void setupFromDefinition(const KSyntaxHighlighting::Definition &definition);
+    KSyntaxHighlighting::Definition currentDefinition();
     void rememberCurrentSyntaxDefinition();
     void openLinkUnderCursor(bool openInNextSplit);
 
@@ -1216,7 +1219,7 @@ void TextEditorWidgetPrivate::ctor(const QSharedPointer<TextDocument> &doc)
     connect(m_document->document(), &QTextDocument::modificationChanged,
             q, &TextEditorWidget::updateTextLineEndingLabel);
     q->updateTextLineEndingLabel();
-
+    setupFromDefinition(currentDefinition());
 }
 
 TextEditorWidget::~TextEditorWidget()
@@ -3293,10 +3296,7 @@ void TextEditorWidgetPrivate::configureGenericHighlighter(
 
     if (definition.isValid()) {
         highlighter->setDefinition(definition);
-        m_commentDefinition.singleLine = definition.singleLineCommentMarker();
-        m_commentDefinition.multiLineStart = definition.multiLineCommentMarker().first;
-        m_commentDefinition.multiLineEnd = definition.multiLineCommentMarker().second;
-        q->setCodeFoldingSupported(true);
+        setupFromDefinition(definition);
     } else {
         q->setCodeFoldingSupported(false);
     }
@@ -3304,12 +3304,26 @@ void TextEditorWidgetPrivate::configureGenericHighlighter(
     m_document->setFontSettings(TextEditorSettings::fontSettings());
 }
 
+void TextEditorWidgetPrivate::setupFromDefinition(const KSyntaxHighlighting::Definition &definition)
+{
+    if (!definition.isValid())
+        return;
+    m_commentDefinition.singleLine = definition.singleLineCommentMarker();
+    m_commentDefinition.multiLineStart = definition.multiLineCommentMarker().first;
+    m_commentDefinition.multiLineEnd = definition.multiLineCommentMarker().second;
+    q->setCodeFoldingSupported(true);
+}
+
+KSyntaxHighlighting::Definition TextEditorWidgetPrivate::currentDefinition()
+{
+    if (auto highlighter = qobject_cast<Highlighter *>(m_document->syntaxHighlighter()))
+        return highlighter->definition();
+    return {};
+}
+
 void TextEditorWidgetPrivate::rememberCurrentSyntaxDefinition()
 {
-    auto highlighter = qobject_cast<Highlighter *>(m_document->syntaxHighlighter());
-    if (!highlighter)
-        return;
-    const Highlighter::Definition &definition = highlighter->definition();
+    const Highlighter::Definition &definition = currentDefinition();
     if (definition.isValid())
         Highlighter::rememberDefinitionForDocument(definition, m_document.data());
 }
@@ -3362,7 +3376,7 @@ void TextEditorWidget::setMouseHidingEnabled(bool b)
 
 bool TextEditorWidget::mouseHidingEnabled() const
 {
-    return d->m_behaviorSettings.m_mouseHiding;
+    return Utils::HostOsInfo::isMacHost() ? false : d->m_behaviorSettings.m_mouseHiding;
 }
 
 void TextEditorWidget::setScrollWheelZoomingEnabled(bool b)
@@ -4330,6 +4344,47 @@ void TextEditorWidgetPrivate::paintAdditionalVisualWhitespaces(PaintEventData &d
     }
 }
 
+void TextEditorWidgetPrivate::paintIndentDepth(PaintEventData &data,
+                                               QPainter &painter,
+                                               const PaintEventBlockData &blockData) const
+{
+    if (!m_displaySettings.m_visualizeIndent)
+        return;
+
+    const QString text = data.block.text();
+    const TabSettings &tabSettings = m_document->tabSettings();
+    const int currentDepth = tabSettings.indentationColumn(text);
+
+    if (currentDepth <= tabSettings.m_indentSize || blockData.layout->lineCount() < 1)
+        return;
+
+    const qreal horizontalAdvance = QFontMetricsF(q->font()).horizontalAdvance(
+        QString(tabSettings.m_indentSize, QChar(' ')));
+
+    painter.save();
+    painter.setPen(data.visualWhitespaceFormat.foreground().color());
+
+    const QTextLine textLine = blockData.layout->lineAt(0);
+    const QRectF rect = textLine.naturalTextRect();
+    qreal x = textLine.cursorToX(0) + data.offset.x();
+    int paintColumn = tabSettings.m_indentSize;
+
+    while (paintColumn < currentDepth) {
+        x += horizontalAdvance;
+        if (x >= 0) {
+            int paintPosition = tabSettings.positionAtColumn(text, paintColumn);
+            if (blockData.layout->lineForTextPosition(paintPosition).lineNumber() != 0)
+                break;
+            const QPointF top(x, blockData.boundingRect.top());
+            const QPointF bottom(x, blockData.boundingRect.top() + rect.height());
+            const QLineF line(top, bottom);
+            painter.drawLine(line);
+        }
+        paintColumn += tabSettings.m_indentSize;
+    }
+    painter.restore();
+}
+
 void TextEditorWidgetPrivate::paintReplacement(PaintEventData &data, QPainter &painter,
                                                qreal top) const
 {
@@ -4632,7 +4687,7 @@ void TextEditorWidget::paintEvent(QPaintEvent *e)
 
             if (drawCursor && !drawCursorAsBlock)
                 d->addCursorsPosition(data, painter, blockData);
-
+            d->paintIndentDepth(data, painter, blockData);
             d->paintAdditionalVisualWhitespaces(data, painter, blockData.boundingRect.top());
             d->paintReplacement(data, painter, blockData.boundingRect.top());
             d->updateLineAnnotation(data, blockData, painter);
@@ -4780,7 +4835,7 @@ int TextEditorWidget::extraAreaWidth(int *markWidthPtr) const
     int markWidth = 0;
 
     if (d->m_marksVisible) {
-        markWidth += documentLayout->maxMarkWidthFactor * fm.lineSpacing() + 2;
+        markWidth += fm.lineSpacing() + 2;
 
 //     if (documentLayout->doubleMarkCount)
 //         markWidth += fm.lineSpacing() / 3;
@@ -4906,8 +4961,7 @@ void TextEditorWidgetPrivate::paintTextMarks(QPainter &painter, const ExtraAreaP
         if (!mark->isVisible() && !mark->icon().isNull())
             continue;
         const int height = data.lineSpacing - 1;
-        const int width = int(.5 + height * mark->widthFactor());
-        const QRect r(xoffset, int(blockBoundingRect.top()), width, height);
+        const QRect r(xoffset, int(blockBoundingRect.top()), height, height);
         mark->paintIcon(&painter, r);
         xoffset += 2;
     }
@@ -5685,8 +5739,7 @@ void TextEditorWidget::extraAreaMouseEvent(QMouseEvent *e)
             if (dist > QApplication::startDragDistance()) {
                 d->m_markDragging = true;
                 const int height = fontMetrics().lineSpacing() - 1;
-                const int width = int(.5 + height * d->m_dragMark->widthFactor());
-                d->m_markDragCursor = QCursor(d->m_dragMark->icon().pixmap({height, width}));
+                d->m_markDragCursor = QCursor(d->m_dragMark->icon().pixmap({height, height}));
                 d->m_dragMark->setVisible(false);
                 QGuiApplication::setOverrideCursor(d->m_markDragCursor);
             }

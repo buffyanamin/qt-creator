@@ -168,10 +168,10 @@ private:
                 visited.insert(declaration);
 
                 // continue working with the typedefed type and scope
-                if (type->type()->isPointerType()) {
+                if (type->type()->asPointerType()) {
                     *type = FullySpecifiedType(
                             _context.bindings()->control()->pointerType(declaration->type()));
-                } else if (type->type()->isReferenceType()) {
+                } else if (type->type()->asReferenceType()) {
                     *type = FullySpecifiedType(
                             _context.bindings()->control()->referenceType(
                                 declaration->type(),
@@ -1045,7 +1045,7 @@ ClassOrNamespace *ResolveExpression::findClass(const FullySpecifiedType &origina
     ClassOrNamespace *binding = nullptr;
 
     if (Class *klass = ty->asClassType()) {
-        if (scope->isBlock())
+        if (scope->asBlock())
             binding = _context.lookupType(klass->name(), scope, enclosingBinding);
         if (!binding)
             binding = _context.lookupType(klass, enclosingBinding);
@@ -1079,13 +1079,13 @@ ClassOrNamespace *ResolveExpression::baseExpression(const QList<LookupItem> &bas
 
         if (Q_UNLIKELY(debug)) {
             qDebug("trying result #%d", ++i);
-            qDebug() << "- before typedef resolving we have:" << oo(ty);
+            qDebug() << "- before typedef resolving we have:" << oo.prettyType(ty);
         }
 
         typedefsResolver.resolve(&ty, &scope, r.binding());
 
         if (Q_UNLIKELY(debug))
-            qDebug() << "-  after typedef resolving:" << oo(ty);
+            qDebug() << "-  after typedef resolving:" << oo.prettyType(ty);
 
         if (accessOp == T_ARROW) {
             PointerType *ptrTy = ty->asPointerType();
@@ -1129,13 +1129,13 @@ ClassOrNamespace *ResolveExpression::baseExpression(const QList<LookupItem> &bas
 
                         Function *instantiatedFunction = nullptr;
 
-                        if (overloadType->isFunctionType()) {
+                        if (overloadType->asFunctionType()) {
                             FullySpecifiedType overloadTy
                                     = instantiate(binding->templateId(), overload);
                             instantiatedFunction = overloadTy->asFunctionType();
-                        } else if (overloadType->isTemplateType()
+                        } else if (overloadType->asTemplateType()
                                    && overloadType->asTemplateType()->declaration()
-                                   && overloadType->asTemplateType()->declaration()->isFunction()) {
+                                   && overloadType->asTemplateType()->declaration()->asFunction()) {
                             instantiatedFunction = overloadType->asTemplateType()->declaration()->asFunction();
                         }
 
@@ -1146,7 +1146,7 @@ ClassOrNamespace *ResolveExpression::baseExpression(const QList<LookupItem> &bas
 
                             typedefsResolver.resolve(&retTy, &functionScope, r.binding());
 
-                            if (! retTy->isPointerType() && ! retTy->isNamedType())
+                            if (! retTy->asPointerType() && ! retTy->asNamedType())
                                 continue;
 
                             if (PointerType *ptrTy = retTy->asPointerType())
@@ -1178,7 +1178,7 @@ ClassOrNamespace *ResolveExpression::baseExpression(const QList<LookupItem> &bas
             }
         } else if (accessOp == T_DOT) {
             if (replacedDotOperator) {
-                *replacedDotOperator = originalType->isPointerType() || ty->isPointerType();
+                *replacedDotOperator = originalType->asPointerType() || ty->asPointerType();
                 if (PointerType *ptrTy = ty->asPointerType())
                     ty = ptrTy->elementType();
             }

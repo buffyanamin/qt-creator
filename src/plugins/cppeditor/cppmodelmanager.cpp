@@ -32,19 +32,16 @@
 #include "cppcodemodelinspectordumper.h"
 #include "cppcurrentdocumentfilter.h"
 #include "cppeditorconstants.h"
-#include "cppeditorplugin.h"
 #include "cppfindreferences.h"
 #include "cppincludesfilter.h"
 #include "cppindexingsupport.h"
 #include "cpplocatordata.h"
 #include "cpplocatorfilter.h"
 #include "cppbuiltinmodelmanagersupport.h"
-#include "cpprefactoringchanges.h"
 #include "cppsourceprocessor.h"
 #include "cpptoolsjsextension.h"
 #include "cpptoolsreuse.h"
 #include "editordocumenthandle.h"
-#include "stringtable.h"
 #include "symbolfinder.h"
 #include "symbolsfindfilter.h"
 
@@ -55,15 +52,20 @@
 #include <coreplugin/progressmanager/progressmanager.h>
 #include <coreplugin/vcsmanager.h>
 #include <cplusplus/ASTPath.h>
+#include <cplusplus/ExpressionUnderCursor.h>
 #include <cplusplus/TypeOfExpression.h>
 #include <extensionsystem/pluginmanager.h>
+
 #include <projectexplorer/kitinformation.h>
 #include <projectexplorer/kitmanager.h>
 #include <projectexplorer/project.h>
 #include <projectexplorer/projectexplorer.h>
+#include <projectexplorer/projectexplorerconstants.h>
 #include <projectexplorer/projectmacro.h>
 #include <projectexplorer/session.h>
+
 #include <texteditor/textdocument.h>
+
 #include <utils/fileutils.h>
 #include <utils/hostosinfo.h>
 #include <utils/qtcassert.h>
@@ -337,11 +339,29 @@ void CppModelManager::switchHeaderSource(bool inNextSplit, Backend backend)
                                                                  inNextSplit);
 }
 
-bool CppModelManager::positionRequiresSignal(const QString &filePath, const QByteArray &content,
-                                             int position) const
+int argumentPositionOf(const AST *last, const CallAST *callAst)
+{
+    if (!callAst || !callAst->expression_list)
+        return false;
+
+    int num = 0;
+    for (ExpressionListAST *it = callAst->expression_list; it; it = it->next) {
+        ++num;
+        const ExpressionAST *const arg = it->value;
+        if (arg->firstToken() <= last->firstToken()
+            && arg->lastToken() >= last->lastToken()) {
+            return num;
+        }
+    }
+    return 0;
+}
+
+SignalSlotType CppModelManager::getSignalSlotType(const QString &filePath,
+                                                  const QByteArray &content,
+                                                  int position) const
 {
     if (content.isEmpty())
-        return false;
+        return SignalSlotType::None;
 
     // Insert a dummy prefix if we don't have a real one. Otherwise the AST path will not contain
     // anything after the CallAST.
@@ -359,26 +379,17 @@ bool CppModelManager::positionRequiresSignal(const QString &filePath, const QByt
 
     // Are we at the second argument of a function call?
     const QList<AST *> path = ASTPath(document)(cursor);
-    if (path.isEmpty() || !path.last()->asSimpleName())
-        return false;
+    if (path.isEmpty())
+        return SignalSlotType::None;
     const CallAST *callAst = nullptr;
     for (auto it = path.crbegin(); it != path.crend(); ++it) {
         if ((callAst = (*it)->asCall()))
             break;
     }
-    if (!callAst)
-        return false;
-    if (!callAst->expression_list || !callAst->expression_list->next)
-        return false;
-    const ExpressionAST * const secondArg = callAst->expression_list->next->value;
-    if (secondArg->firstToken() > path.last()->firstToken()
-            || secondArg->lastToken() < path.last()->lastToken()) {
-        return false;
-    }
 
     // Is the function called "connect" or "disconnect"?
-    if (!callAst->base_expression)
-        return false;
+    if (!callAst || !callAst->base_expression)
+        return SignalSlotType::None;
     Scope *scope = document->globalNamespace();
     for (auto it = path.crbegin(); it != path.crend(); ++it) {
         if (const CompoundStatementAST * const stmtAst = (*it)->asCompoundStatement()) {
@@ -397,7 +408,7 @@ bool CppModelManager::positionRequiresSignal(const QString &filePath, const QByt
         exprType.init(document, snapshot);
         const QList<LookupItem> typeMatches = exprType(ast->base_expression, document, scope);
         if (typeMatches.isEmpty())
-            return false;
+            return SignalSlotType::None;
         const std::function<const NamedType *(const FullySpecifiedType &)> getNamedType
                 = [&getNamedType](const FullySpecifiedType &type ) -> const NamedType * {
             Type * const t = type.type();
@@ -413,22 +424,22 @@ bool CppModelManager::positionRequiresSignal(const QString &filePath, const QByt
         if (!namedType && typeMatches.first().declaration())
             namedType = getNamedType(typeMatches.first().declaration()->type());
         if (!namedType)
-            return false;
+            return SignalSlotType::None;
         const ClassOrNamespace * const result = context.lookupType(namedType->name(), scope);
         if (!result)
-            return false;
+            return SignalSlotType::None;
         scope = result->rootClass();
         if (!scope)
-            return false;
+            return SignalSlotType::None;
     }
     if (!nameAst || !nameAst->name)
-        return false;
+        return SignalSlotType::None;
     const Identifier * const id = nameAst->name->identifier();
     if (!id)
-        return false;
+        return SignalSlotType::None;
     const QString funcName = QString::fromUtf8(id->chars(), id->size());
     if (funcName != "connect" && funcName != "disconnect")
-        return false;
+        return SignalSlotType::None;
 
     // Is the function a member function of QObject?
     const QList<LookupItem> matches = context.lookup(nameAst->name, scope);
@@ -439,11 +450,29 @@ bool CppModelManager::positionRequiresSignal(const QString &filePath, const QByt
         if (!klass || !klass->name())
             continue;
         const Identifier * const classId = klass->name()->identifier();
-        if (classId && QString::fromUtf8(classId->chars(), classId->size()) == "QObject")
-            return true;
-    }
+        if (classId && QString::fromUtf8(classId->chars(), classId->size()) == "QObject") {
+            QString expression;
+            LanguageFeatures features = LanguageFeatures::defaultFeatures();
+            CPlusPlus::ExpressionUnderCursor expressionUnderCursor(features);
+            for (int i = cursor.position(); i > 0; --i)
+                if (textDocument.characterAt(i) == '(') {
+                    cursor.setPosition(i);
+                    break;
+                }
 
-    return false;
+            expression = expressionUnderCursor(cursor);
+
+            const int argumentPosition = argumentPositionOf(path.last(), callAst);
+            if ((expression.endsWith(QLatin1String("SIGNAL"))
+                 && (argumentPosition == 2 || argumentPosition == 4))
+                || (expression.endsWith(QLatin1String("SLOT")) && argumentPosition == 4))
+                return SignalSlotType::OldStyleSignal;
+
+            if (argumentPosition == 2)
+                return SignalSlotType::NewStyleSignal;
+        }
+    }
+    return SignalSlotType::None;
 }
 
 FollowSymbolUnderCursor &CppModelManager::builtinFollowSymbol()
@@ -1485,13 +1514,13 @@ QSet<QString> CppModelManager::symbolsInFiles(const QSet<Utils::FilePath> &files
 
                 const CPlusPlus::Identifier *symId = sym->identifier();
                 // Add any class, function or namespace identifiers
-                if ((sym->isClass() || sym->isFunction() || sym->isNamespace()) && symId
+                if ((sym->asClass() || sym->asFunction() || sym->asNamespace()) && symId
                     && symId->chars()) {
                     uniqueSymbols.insert(QString::fromUtf8(symId->chars()));
                 }
 
                 // Handle specific case : get "Foo" in "void Foo::function() {}"
-                if (sym->isFunction() && !sym->asFunction()->isDeclaration()) {
+                if (sym->asFunction() && !sym->asFunction()->asDeclaration()) {
                     const char *className = belongingClassName(sym->asFunction());
                     if (className)
                         uniqueSymbols.insert(QString::fromUtf8(className));
@@ -1532,7 +1561,7 @@ void CppModelManager::setupFallbackProjectPart()
         if (sysroot.isEmpty())
             sysroot = Utils::FilePath::fromString(defaultTc->sysRoot());
         Utils::Environment env = defaultKit->buildEnvironment();
-        tcInfo = ToolChainInfo(defaultTc, sysroot.toString(), env);
+        tcInfo = ToolChainInfo(defaultTc, sysroot, env);
         const auto macroInspectionWrapper = [runner = tcInfo.macroInspectionRunner](
                 const QStringList &flags) {
             ToolChain::MacroInspectionReport report = runner(flags);

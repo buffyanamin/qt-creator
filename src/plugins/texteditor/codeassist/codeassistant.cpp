@@ -64,7 +64,10 @@ public:
 
     void invoke(AssistKind kind, IAssistProvider *provider = nullptr);
     void process();
-    void requestProposal(AssistReason reason, AssistKind kind, IAssistProvider *provider = nullptr);
+    void requestProposal(AssistReason reason,
+                         AssistKind kind,
+                         IAssistProvider *provider = nullptr,
+                         bool isUpdate = false);
     void cancelCurrentRequest();
     void invalidateCurrentRequestData();
     void displayProposal(IAssistProposal *newProposal, AssistReason reason);
@@ -192,7 +195,8 @@ void CodeAssistantPrivate::process()
 
 void CodeAssistantPrivate::requestProposal(AssistReason reason,
                                            AssistKind kind,
-                                           IAssistProvider *provider)
+                                           IAssistProvider *provider,
+                                           bool isUpdate)
 {
     // make sure to cleanup old proposals if we cannot find a new assistant
     Utils::ExecuteOnDestruction earlyReturnContextClear([this]() { destroyContext(); });
@@ -266,13 +270,13 @@ void CodeAssistantPrivate::requestProposal(AssistReason reason,
             if (processor != m_asyncProcessor)
                 return;
             invalidateCurrentRequestData();
-            if (processor && processor->needsRestart() && m_receivedContentWhileWaiting) {
+            if (processor->needsRestart() && m_receivedContentWhileWaiting) {
                 delete newProposal;
                 m_receivedContentWhileWaiting = false;
                 requestProposal(reason, m_assistKind, m_requestProvider);
             } else {
                 displayProposal(newProposal, reason);
-                if (processor && processor->running())
+                if (processor->running())
                     m_asyncProcessor = processor;
                 else
                     emit q->finished();
@@ -284,6 +288,8 @@ void CodeAssistantPrivate::requestProposal(AssistReason reason,
             displayProposal(newProposal, reason);
             delete processor;
         } else if (!processor->running()) {
+            if (isUpdate)
+                destroyContext();
             delete processor;
         } else { // ...async request was triggered
             if (IAssistProposal *newProposal = processor->immediateProposal(assistInterface))
@@ -354,6 +360,7 @@ void CodeAssistantPrivate::displayProposal(IAssistProposal *newProposal, AssistR
 
     clearAbortedPosition();
     m_proposal.reset(proposalCandidate.take());
+    m_proposal->setReason(reason);
 
     if (m_proposal->isCorrective(m_editorWidget))
         m_proposal->makeCorrection(m_editorWidget);
@@ -485,7 +492,7 @@ void CodeAssistantPrivate::notifyChange()
             if (!isDisplayingProposal())
                 requestActivationCharProposal();
         } else {
-            requestProposal(ExplicitlyInvoked, m_assistKind, m_requestProvider);
+            requestProposal(m_proposal->reason(), m_assistKind, m_requestProvider, true);
         }
     }
 }

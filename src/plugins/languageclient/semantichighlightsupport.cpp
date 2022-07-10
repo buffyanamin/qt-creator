@@ -88,6 +88,7 @@ void SemanticTokenSupport::reloadSemanticTokensImpl(TextDocument *textDocument,
                              filePath,
                              documentVersion = m_client->documentVersion(filePath)](
                                 const SemanticTokensFullRequest::Response &response) {
+        m_runningRequests.remove(filePath);
         if (const auto error = response.error()) {
             qCDebug(LOGLSPHIGHLIGHT)
                 << "received error" << error->code() << error->message() << "for" << filePath;
@@ -120,6 +121,10 @@ void SemanticTokenSupport::reloadSemanticTokensImpl(TextDocument *textDocument,
         request.setResponseCallback(responseCallback);
         qCDebug(LOGLSPHIGHLIGHT) << "Requesting all tokens for" << filePath << "with version"
                                  << m_client->documentVersion(filePath);
+        MessageId &id = m_runningRequests[filePath];
+        if (id.isValid())
+            m_client->cancelRequest(id);
+        id = request.id();
         m_client->sendMessage(request);
     }
 }
@@ -151,6 +156,7 @@ void SemanticTokenSupport::updateSemanticTokensImpl(TextDocument *textDocument,
             request.setResponseCallback(
                 [this, filePath, documentVersion, remainingRerequests](
                     const SemanticTokensFullDeltaRequest::Response &response) {
+                    m_runningRequests.remove(filePath);
                     if (const auto error = response.error()) {
                         qCDebug(LOGLSPHIGHLIGHT) << "received error" << error->code()
                                                  << error->message() << "for" << filePath;
@@ -168,6 +174,10 @@ void SemanticTokenSupport::updateSemanticTokensImpl(TextDocument *textDocument,
                 });
             qCDebug(LOGLSPHIGHLIGHT)
                 << "Requesting delta for" << filePath << "with version" << documentVersion;
+            MessageId &id = m_runningRequests[filePath];
+            if (id.isValid())
+                m_client->cancelRequest(id);
+            id = request.id();
             m_client->sendMessage(request);
             return;
         }
@@ -262,7 +272,7 @@ void SemanticTokenSupport::updateFormatHash()
         case variableToken: style = C_LOCAL; break;
         case functionToken: style = C_FUNCTION; break;
         case methodToken: style = C_FUNCTION; break;
-        case macroToken: style = C_PREPROCESSOR; break;
+        case macroToken: style = C_MACRO; break;
         case keywordToken: style = C_KEYWORD; break;
         case commentToken: style = C_COMMENT; break;
         case stringToken: style = C_STRING; break;

@@ -93,12 +93,12 @@ void Database::activateLogging()
 void Database::open(LockingMode lockingMode)
 {
     m_databaseBackend.open(m_databaseFilePath, m_openMode);
-    m_databaseBackend.setLockingMode(lockingMode);
-    m_databaseBackend.setJournalMode(m_journalMode);
     if (m_busyTimeout > 0ms)
         m_databaseBackend.setBusyTimeout(m_busyTimeout);
     else
         m_databaseBackend.registerBusyHandler();
+    m_databaseBackend.setLockingMode(lockingMode);
+    m_databaseBackend.setJournalMode(m_journalMode);
     registerTransactionStatements();
     m_isOpen = true;
 }
@@ -236,22 +236,6 @@ void Database::sessionRollback()
 {
     m_statements->sessions.rollback();
     m_statements->rollbackBegin.execute();
-}
-
-void Database::lock()
-{
-    m_databaseMutex.lock();
-#ifdef UNIT_TESTS
-    m_isLocked = true;
-#endif
-}
-
-void Database::unlock()
-{
-#ifdef UNIT_TESTS
-    m_isLocked = false;
-#endif
-    m_databaseMutex.unlock();
 }
 
 DatabaseBackend &Database::backend()

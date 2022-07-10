@@ -25,9 +25,9 @@
 
 #include "cdbengine.h"
 
-#include "stringinputstream.h"
 #include "cdboptionspage.h"
 #include "cdbparsehelpers.h"
+#include "stringinputstream.h"
 
 #include <app/app_version.h>
 
@@ -35,24 +35,25 @@
 #include <debugger/debuggeractions.h>
 #include <debugger/debuggercore.h>
 #include <debugger/debuggerinternalconstants.h>
-#include <debugger/debuggerprotocol.h>
 #include <debugger/debuggermainwindow.h>
+#include <debugger/debuggerprotocol.h>
 #include <debugger/debuggerruncontrol.h>
 #include <debugger/debuggertooltipmanager.h>
+#include <debugger/debuggertr.h>
 #include <debugger/disassembleragent.h>
 #include <debugger/disassemblerlines.h>
 #include <debugger/enginemanager.h>
 #include <debugger/memoryagent.h>
 #include <debugger/moduleshandler.h>
-#include <debugger/registerhandler.h>
-#include <debugger/stackhandler.h>
-#include <debugger/threadshandler.h>
-#include <debugger/watchhandler.h>
 #include <debugger/procinterrupt.h>
-#include <debugger/sourceutils.h>
+#include <debugger/registerhandler.h>
 #include <debugger/shared/cdbsymbolpathlisteditor.h>
 #include <debugger/shared/hostutils.h>
+#include <debugger/sourceutils.h>
+#include <debugger/stackhandler.h>
 #include <debugger/terminal.h>
+#include <debugger/threadshandler.h>
+#include <debugger/watchhandler.h>
 
 #include <coreplugin/icore.h>
 #include <coreplugin/messagebox.h>
@@ -65,8 +66,8 @@
 #include <utils/checkablemessagebox.h>
 #include <utils/fileutils.h>
 #include <utils/hostosinfo.h>
-#include <utils/qtcassert.h>
 #include <utils/processinterface.h>
+#include <utils/qtcassert.h>
 #include <utils/qtcprocess.h>
 #include <utils/stringutils.h>
 #include <utils/winutils.h>
@@ -156,16 +157,6 @@ namespace Internal {
 
 static const char localsPrefixC[] = "local.";
 
-// Base data structure for command queue entries with callback
-class CdbCommand
-{
-public:
-    CdbCommand() = default;
-    CdbCommand(CdbEngine::CommandHandler h) : handler(h) {}
-
-    CdbEngine::CommandHandler handler;
-};
-
 // Accessed by DebuggerRunTool
 DebuggerEngine *createCdbEngine()
 {
@@ -214,10 +205,8 @@ CdbEngine::CdbEngine() :
             this, &CdbEngine::createFullBacktrace);
     connect(&m_process, &QtcProcess::started, this, &CdbEngine::processStarted);
     connect(&m_process, &QtcProcess::done, this, &CdbEngine::processDone);
-    connect(&m_process, &QtcProcess::readyReadStandardOutput,
-            this, &CdbEngine::readyReadStandardOut);
-    connect(&m_process, &QtcProcess::readyReadStandardError,
-            this, &CdbEngine::readyReadStandardOut);
+    m_process.setStdOutLineCallback([this](const QString &line) { parseOutputLine(line); });
+    m_process.setStdErrLineCallback([this](const QString &line) { parseOutputLine(line); });
     connect(&s->useDebuggingHelpers, &BaseAspect::changed,
             this, &CdbEngine::updateLocals);
 
@@ -240,7 +229,6 @@ void CdbEngine::init()
     m_autoBreakPointCorrection = false;
     m_wow64State = wow64Uninitialized;
 
-    m_outputBuffer.clear();
     m_commandForToken.clear();
     m_currentBuiltinResponse.clear();
     m_extensionMessageBuffer.clear();
@@ -298,7 +286,7 @@ QString CdbEngine::extensionLibraryName(bool is64Bit, bool isArm)
     return QString("%1/lib/" QT_CREATOR_CDB_EXT "%2%3/" QT_CREATOR_CDB_EXT ".dll")
         .arg(QFileInfo(QCoreApplication::applicationDirPath()).path())
         .arg(isArm ? "arm" : QString())
-        .arg(is64Bit ? "64": "32");
+        .arg(is64Bit ? QLatin1String("64") : QLatin1String("32"));
 }
 
 int CdbEngine::elapsedLogTime()
@@ -316,7 +304,7 @@ void CdbEngine::createFullBacktrace()
 void CdbEngine::handleSetupFailure(const QString &errorMessage)
 {
     showMessage(errorMessage, LogError);
-    Core::AsynchronousMessageBox::critical(tr("Failed to Start the Debugger"), errorMessage);
+    Core::AsynchronousMessageBox::critical(Tr::tr("Failed to Start the Debugger"), errorMessage);
     notifyEngineSetupFailed();
 }
 
@@ -350,7 +338,7 @@ void CdbEngine::setupEngine()
     // The extension is passed as relative name with the path variable set
     //(does not work with absolute path names)
     if (sp.debugger.command.isEmpty()) {
-        handleSetupFailure(tr("There is no CDB executable specified."));
+        handleSetupFailure(Tr::tr("There is no CDB executable specified."));
         return;
     }
 
@@ -366,7 +354,7 @@ void CdbEngine::setupEngine()
         m_wow64State = noWow64Stack;
     const QFileInfo extensionFi(CdbEngine::extensionLibraryName(cdbIs64Bit, cdbIsArm));
     if (!extensionFi.isFile()) {
-        handleSetupFailure(tr("Internal error: The extension %1 cannot be found.\n"
+        handleSetupFailure(Tr::tr("Internal error: The extension %1 cannot be found.\n"
                            "If you have updated %2 via Maintenance Tool, you may "
                            "need to rerun the Tool and select \"Add or remove components\" "
                            "and then select the "
@@ -444,7 +432,6 @@ void CdbEngine::setupEngine()
                                  QLocale::system().toString(extensionFi.lastModified(), QLocale::ShortFormat));
     showMessage(msg, LogMisc);
 
-    m_outputBuffer.clear();
     m_autoBreakPointCorrection = false;
 
     Environment inferiorEnvironment = sp.inferior.environment.isValid()
@@ -805,30 +792,7 @@ void CdbEngine::interruptInferior()
     if (debug)
         qDebug() << "CdbEngine::interruptInferior()" << stateName(state());
 
-    if (!canInterruptInferior()) {
-        // Restore running state if inferior can't be stoped.
-        showMessage(tr("Interrupting is not possible in remote sessions."), LogError);
-        STATE_DEBUG(state(), Q_FUNC_INFO, __LINE__, "notifyInferiorStopOk")
-        notifyInferiorStopOk();
-        STATE_DEBUG(state(), Q_FUNC_INFO, __LINE__, "notifyInferiorRunRequested")
-        notifyInferiorRunRequested();
-        STATE_DEBUG(state(), Q_FUNC_INFO, __LINE__, "notifyInferiorRunOk")
-        notifyInferiorRunOk();
-        return;
-    }
     doInterruptInferior();
-}
-
-void CdbEngine::handleDoInterruptInferior(const QString &errorMessage)
-{
-    if (errorMessage.isEmpty()) {
-        showMessage("Interrupted " + QString::number(inferiorPid()));
-    } else {
-        showMessage(errorMessage, LogError);
-        notifyInferiorStopFailed();
-    }
-    m_signalOperation->disconnect(this);
-    m_signalOperation.clear();
 }
 
 void CdbEngine::doInterruptInferior(const InterruptCallback &callback)
@@ -847,15 +811,7 @@ void CdbEngine::doInterruptInferior(const InterruptCallback &callback)
     if (!requestInterrupt)
         return; // we already requested a stop no need to interrupt twice
     showMessage(QString("Interrupting process %1...").arg(inferiorPid()), LogMisc);
-    QTC_ASSERT(!m_signalOperation, notifyInferiorStopFailed(); return);
-    QTC_ASSERT(device(), notifyInferiorRunFailed(); return);
-    m_signalOperation = device()->signalOperation();
-    QTC_ASSERT(m_signalOperation, notifyInferiorStopFailed(); return;);
-    connect(m_signalOperation.data(), &DeviceProcessSignalOperation::finished,
-            this, &CdbEngine::handleDoInterruptInferior);
-
-    m_signalOperation->setDebuggerCommand(runParameters().debugger.command.executable());
-    m_signalOperation->interruptProcess(inferiorPid());
+    m_process.interrupt();
 }
 
 void CdbEngine::executeRunToLine(const ContextData &data)
@@ -1683,14 +1639,14 @@ enum StopActionFlags
 static inline QString msgTracePointTriggered(const Breakpoint &, const QString &displayName,
                                              const QString &threadId)
 {
-    return CdbEngine::tr("Trace point %1 in thread %2 triggered.")
+    return Tr::tr("Trace point %1 in thread %2 triggered.")
             .arg(displayName).arg(threadId);
 }
 
 static inline QString msgCheckingConditionalBreakPoint(const Breakpoint &bp, const QString &displayName,
                                                        const QString &threadId)
 {
-    return CdbEngine::tr("Conditional breakpoint %1 in thread %2 triggered, examining expression \"%3\".")
+    return Tr::tr("Conditional breakpoint %1 in thread %2 triggered, examining expression \"%3\".")
             .arg(displayName).arg(threadId, bp->condition());
 }
 
@@ -1707,7 +1663,7 @@ unsigned CdbEngine::examineStopReason(const GdbMi &stopReason,
         qDebug("%s", qPrintable(stopReason.toString(true, 4)));
     const QString reason = stopReason["reason"].data();
     if (reason.isEmpty()) {
-        *message = tr("Malformed stop response received.");
+        *message = Tr::tr("Malformed stop response received.");
         rc |= StopReportParseError|StopNotifyStop;
         return rc;
     }
@@ -1851,7 +1807,7 @@ void CdbEngine::processStop(const GdbMi &stopReason, bool conditionalBreakPointT
         m_sourceStepInto = false;
         // Start sequence to get all relevant data.
         if (stopFlags & StopInArtificialThread) {
-            showMessage(tr("Switching to main thread..."), LogMisc);
+            showMessage(Tr::tr("Switching to main thread..."), LogMisc);
             runCommand({"~0 s", NoFlags});
             forcedThread = true;
             // Re-fetch stack again.
@@ -2214,7 +2170,7 @@ void CdbEngine::handleExtensionMessage(char t, int token, const QString &what, c
             const Task::TaskType type =
                     isFatalWinException(exception.exceptionCode) ? Task::Error : Task::Warning;
             const FilePath fileName = FilePath::fromUserInput(exception.file);
-            const QString taskEntry = tr("Debugger encountered an exception: %1").arg(
+            const QString taskEntry = Tr::tr("Debugger encountered an exception: %1").arg(
                         exception.toString(false).trimmed());
             TaskHub::addTask(Task(type, taskEntry,
                                   fileName, exception.lineNumber,
@@ -2296,7 +2252,7 @@ void CdbEngine::checkQtSdkPdbFiles(const QString &module)
             return;
 
         const QString message
-            = tr("The installed %1 is missing debug information files.\n"
+            = Tr::tr("The installed %1 is missing debug information files.\n"
                  "Locals and Expression might not be able to display all Qt Types in a "
                  "human readable format.\n\n"
                  "Please install the \"Qt Debug Information Files\" Package from the "
@@ -2306,7 +2262,7 @@ void CdbEngine::checkQtSdkPdbFiles(const QString &module)
 
         CheckableMessageBox::doNotShowAgainInformation(
             Core::ICore::dialogParent(),
-            tr("Missing Qt Debug Information"),
+            Tr::tr("Missing Qt Debug Information"),
             message,
             Core::ICore::settings(),
             "CdbQtSdkPdbHint");
@@ -2323,6 +2279,8 @@ void CdbEngine::parseOutputLine(QString line)
     // it should happen only in initial and exit stages. Note however that
     // if the output is not hooked, sequences of prompts are possible which
     // can mix things up.
+    if (line.endsWith('\n'))
+        line.chop(1);
     while (isCdbPrompt(line))
         line.remove(0, CdbPromptLength);
     // An extension notification (potentially consisting of several chunks)
@@ -2427,38 +2385,12 @@ void CdbEngine::parseOutputLine(QString line)
         const QRegularExpressionMatch match = moduleRegExp.match(line);
         if (match.hasMatch()) {
             const QString module = match.captured(3).trimmed();
-            showStatusMessage(tr("Module loaded: %1").arg(module), 3000);
+            showStatusMessage(Tr::tr("Module loaded: %1").arg(module), 3000);
             checkQtSdkPdbFiles(module);
         }
     } else {
         showMessage(line, LogMisc);
     }
-}
-
-void CdbEngine::readyReadStandardOut()
-{
-    if (m_ignoreCdbOutput)
-        return;
-    m_outputBuffer += m_process.readAllStandardOutput();
-    // Split into lines and parse line by line.
-    while (true) {
-        const int endOfLinePos = m_outputBuffer.indexOf('\n');
-        if (endOfLinePos == -1) {
-            break;
-        } else {
-            // Check for '\r\n'
-            QByteArray line = m_outputBuffer.left(endOfLinePos);
-            if (!line.isEmpty() && line.at(line.size() - 1) == '\r')
-                line.truncate(line.size() - 1);
-            parseOutputLine(QString::fromLocal8Bit(line));
-            m_outputBuffer.remove(0, endOfLinePos + 1);
-        }
-    }
-}
-
-void CdbEngine::readyReadStandardError()
-{
-    showMessage(QString::fromLocal8Bit(m_process.readAllStandardError()), LogError);
 }
 
 #if 0
@@ -2887,9 +2819,9 @@ void CdbEngine::handleExpression(const DebuggerResponse &response, const Breakpo
         showMessage(response.data["msg"].data(), LogError);
     // Is this a conditional breakpoint?
     const QString message = value ?
-        tr("Value %1 obtained from evaluating the condition of breakpoint %2, stopping.").
+        Tr::tr("Value %1 obtained from evaluating the condition of breakpoint %2, stopping.").
         arg(value).arg(bp->displayName()) :
-        tr("Value 0 obtained from evaluating the condition of breakpoint %1, continuing.").
+        Tr::tr("Value 0 obtained from evaluating the condition of breakpoint %1, continuing.").
         arg(bp->displayName());
     showMessage(message, LogMisc);
     // Stop if evaluation is true, else continue

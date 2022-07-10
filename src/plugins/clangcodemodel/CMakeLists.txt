@@ -17,9 +17,10 @@ add_qtc_plugin(ClangCodeModel
     clangconstants.h
     clangdast.cpp clangdast.h
     clangdclient.cpp clangdclient.h
+    clangdcompletion.cpp clangdcompletion.h
     clangdfollowsymbol.cpp clangdfollowsymbol.h
     clangdiagnostictooltipwidget.cpp clangdiagnostictooltipwidget.h
-    clangdquickfixfactory.cpp clangdquickfixfactory.h
+    clangdquickfixes.cpp clangdquickfixes.h
     clangdqpropertyhighlighter.cpp clangdqpropertyhighlighter.h
     clangdsemantichighlighting.cpp clangdsemantichighlighting.h
     clangdswitchdecldef.cpp clangdswitchdecldef.h
@@ -46,6 +47,7 @@ extend_qtc_plugin(ClangCodeModel
 extend_qtc_plugin(ClangCodeModel
   CONDITION WITH_TESTS
   SOURCES
+    test/activationsequenceprocessortest.cpp test/activationsequenceprocessortest.h
     test/clangbatchfileprocessor.cpp test/clangbatchfileprocessor.h
     test/clangdtests.cpp test/clangdtests.h
     test/clangfixittest.cpp test/clangfixittest.h

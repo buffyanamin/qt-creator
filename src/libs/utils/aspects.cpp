@@ -1091,6 +1091,9 @@ void StringAspect::addToLayout(LayoutBuilder &builder)
             d->m_pathChooserDisplay->setDefaultValue(defaultValue().toString());
         else
             d->m_pathChooserDisplay->setFilePath(FilePath::fromUserInput(displayedString));
+        // do not override default value with placeholder, but use placeholder if default is empty
+        if (d->m_pathChooserDisplay->lineEdit()->placeholderText().isEmpty())
+            d->m_pathChooserDisplay->lineEdit()->setPlaceholderText(d->m_placeHolderText);
         d->updateWidgetFromCheckStatus(this, d->m_pathChooserDisplay.data());
         addLabeledItem(builder, d->m_pathChooserDisplay);
         useMacroExpander(d->m_pathChooserDisplay->lineEdit());
@@ -1193,12 +1196,18 @@ QVariant StringAspect::volatileValue() const
     switch (d->m_displayStyle) {
     case PathChooserDisplay:
         QTC_ASSERT(d->m_pathChooserDisplay, return {});
+        if (d->m_pathChooserDisplay->filePath().isEmpty())
+            return defaultValue().toString();
         return d->m_pathChooserDisplay->filePath().toString();
     case LineEditDisplay:
         QTC_ASSERT(d->m_lineEditDisplay, return {});
+        if (d->m_lineEditDisplay->text().isEmpty())
+            return defaultValue().toString();
         return d->m_lineEditDisplay->text();
     case TextEditDisplay:
         QTC_ASSERT(d->m_textEditDisplay, return {});
+        if (d->m_textEditDisplay->document()->isEmpty())
+            return defaultValue().toString();
         return d->m_textEditDisplay->document()->toPlainText();
     case LabelDisplay:
         break;
@@ -1816,7 +1825,15 @@ qint64 IntegerAspect::value() const
 
 void IntegerAspect::setValue(qint64 value)
 {
-    BaseAspect::setValue(value);
+    if (BaseAspect::setValueQuietly(value)) {
+        if (d->m_spinBox)
+            d->m_spinBox->setValue(value);
+        //qDebug() << "SetValue: Changing" << labelText() << " to " << value;
+        emit changed();
+        //QTC_CHECK(!labelText().isEmpty());
+        emit valueChanged(value);
+        //qDebug() << "SetValue: Changed" << labelText() << " to " << value;
+    }
 }
 
 void IntegerAspect::setRange(qint64 min, qint64 max)

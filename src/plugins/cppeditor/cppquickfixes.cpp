@@ -159,7 +159,7 @@ Class *isMemberFunction(const LookupContext &context, Function *function)
     QTC_ASSERT(function, return nullptr);
 
     Scope *enclosingScope = function->enclosingScope();
-    while (!(enclosingScope->isNamespace() || enclosingScope->isClass()))
+    while (!(enclosingScope->asNamespace() || enclosingScope->asClass()))
         enclosingScope = enclosingScope->enclosingScope();
     QTC_ASSERT(enclosingScope != nullptr, return nullptr);
 
@@ -167,7 +167,7 @@ Class *isMemberFunction(const LookupContext &context, Function *function)
     if (!functionName)
         return nullptr;
 
-    if (!functionName->isQualifiedNameId())
+    if (!functionName->asQualifiedNameId())
         return nullptr; // trying to add a declaration for a global function
 
     const QualifiedNameId *q = functionName->asQualifiedNameId();
@@ -192,7 +192,7 @@ Namespace *isNamespaceFunction(const LookupContext &context, Function *function)
         return nullptr;
 
     Scope *enclosingScope = function->enclosingScope();
-    while (!(enclosingScope->isNamespace() || enclosingScope->isClass()))
+    while (!(enclosingScope->asNamespace() || enclosingScope->asClass()))
         enclosingScope = enclosingScope->enclosingScope();
     QTC_ASSERT(enclosingScope != nullptr, return nullptr);
 
@@ -201,7 +201,7 @@ Namespace *isNamespaceFunction(const LookupContext &context, Function *function)
         return nullptr;
 
     // global namespace
-    if (!functionName->isQualifiedNameId()) {
+    if (!functionName->asQualifiedNameId()) {
         const QList<Symbol *> symbols = context.globalNamespace()->symbols();
         for (Symbol *s : symbols) {
             if (Namespace *matchingNamespace = s->asNamespace())
@@ -259,8 +259,8 @@ void insertNewIncludeDirective(const QString &include, CppRefactoringFilePtr fil
 
 bool nameIncludesOperatorName(const Name *name)
 {
-    return name->isOperatorNameId()
-        || (name->isQualifiedNameId() && name->asQualifiedNameId()->name()->isOperatorNameId());
+    return name->asOperatorNameId()
+        || (name->asQualifiedNameId() && name->asQualifiedNameId()->name()->asOperatorNameId());
 }
 
 QString memberBaseName(const QString &name)
@@ -1343,7 +1343,7 @@ void TranslateStringLiteral::match(const CppQuickFixInterface &interface,
                 const QList<LookupItem> items = b->find(trName);
                 for (const LookupItem &r : items) {
                     Symbol *s = r.declaration();
-                    if (s->type()->isFunctionType()) {
+                    if (s->type()->asFunctionType()) {
                         // no context required for tr
                         result << new WrapStringLiteralOp(interface, path.size() - 1,
                                                           TranslateTrAction,
@@ -1692,7 +1692,7 @@ void AddLocalDeclaration::match(const CppQuickFixInterface &interface, QuickFixO
                         if (!r.declaration())
                             continue;
                         if (Declaration *d = r.declaration()->asDeclaration()) {
-                            if (!d->type()->isFunctionType()) {
+                            if (!d->type()->asFunctionType()) {
                                 decl = d;
                                 break;
                             }
@@ -1981,15 +1981,15 @@ LookupResult lookUpDefinition(const CppQuickFixInterface &interface, const NameA
     const QList<LookupItem> results = interface.context().lookup(name, scope);
     for (const LookupItem &item : results) {
         if (Symbol *declaration = item.declaration()) {
-            if (declaration->isClass())
+            if (declaration->asClass())
                 return LookupResult::Declared;
-            if (declaration->isForwardClassDeclaration())
+            if (declaration->asForwardClassDeclaration())
                 return LookupResult::ForwardDeclared;
             if (Template *templ = declaration->asTemplate()) {
                 if (Symbol *declaration = templ->declaration()) {
-                    if (declaration->isClass())
+                    if (declaration->asClass())
                         return LookupResult::Declared;
-                    if (declaration->isForwardClassDeclaration())
+                    if (declaration->asForwardClassDeclaration())
                         return LookupResult::ForwardDeclared;
                 }
             }
@@ -2648,17 +2648,17 @@ void InsertDeclFromDef::match(const CppQuickFixInterface &interface, QuickFixOpe
         for (Symbol *symbol = matchingClass->find(qName->identifier());
              symbol; symbol = symbol->next()) {
             Symbol *s = symbol;
-            if (fun->enclosingScope()->isTemplate()) {
+            if (fun->enclosingScope()->asTemplate()) {
                 if (const Template *templ = s->type()->asTemplateType()) {
                     if (Symbol *decl = templ->declaration()) {
-                        if (decl->type()->isFunctionType())
+                        if (decl->type()->asFunctionType())
                             s = decl;
                     }
                 }
             }
             if (!s->name()
                     || !qName->identifier()->match(s->identifier())
-                    || !s->type()->isFunctionType())
+                    || !s->type()->asFunctionType())
                 continue;
 
             if (s->type().match(fun->type())) {
@@ -3221,7 +3221,7 @@ public:
         // Collect all member functions.
         for (auto it = theClass->memberBegin(); it != theClass->memberEnd(); ++it) {
             Symbol * const s = *it;
-            if (!s->identifier() || !s->type() || !s->isDeclaration() || s->asFunction())
+            if (!s->identifier() || !s->type() || !s->asDeclaration() || s->asFunction())
                 continue;
             Function * const func = s->type()->asFunctionType();
             if (!func || func->isSignal() || func->isFriend())
@@ -3591,10 +3591,10 @@ protected:
             *customValueType = false;
         // a type is a value type if it is one of the following
         const auto isTypeValueType = [](const FullySpecifiedType &t) {
-            return t->isPointerType() || t->isEnumType() || t->isIntegerType() || t->isFloatType()
-                   || t->isReferenceType();
+            return t->asPointerType() || t->asEnumType() || t->asIntegerType() || t->asFloatType()
+                   || t->asReferenceType();
         };
-        if (type->isNamedType()) {
+        if (type->asNamedType()) {
             // we need a recursive search and a lookup context
             LookupContext context(m_headerFile->cppDocument(), m_changes.snapshot());
             auto isValueType = [settings = m_settings,
@@ -3616,7 +3616,7 @@ protected:
                 for (auto &&i : localLookup) {
                     if (isTypeValueType(i.type()))
                         return true;
-                    if (i.type()->isNamedType()) { // check if we have to search recursively
+                    if (i.type()->asNamedType()) { // check if we have to search recursively
                         const Name *newName = i.type()->asNamedType()->name();
                         Scope *newScope = i.declaration()->enclosingScope();
                         if (Matcher::match(newName, name)
@@ -3676,7 +3676,7 @@ protected:
         if (m_settings->addUsingNamespaceinCppFile()) {
             // check if we have to insert a using namespace ...
             auto requiredNamespaces = getNamespaceNames(
-                symbol->isClass() ? symbol : symbol->enclosingClass());
+                symbol->asClass() ? symbol : symbol->enclosingClass());
             NSCheckerVisitor visitor(m_sourceFile.get(),
                                      requiredNamespaces,
                                      m_sourceFile->position(m_sourceFileInsertionPoint.line(),
@@ -3933,7 +3933,7 @@ void GetterSetterRefactoringHelper::performGeneration(ExistingGetterSetterData d
 
         auto getterLocation = m_settings->determineGetterLocation(1);
         // if we have an anonymous class we must add code inside the class
-        if (data.clazz->name()->isAnonymousNameId())
+        if (data.clazz->name()->asAnonymousNameId())
             getterLocation = CppQuickFixSettings::FunctionLocation::InsideClass;
 
         if (getterLocation == CppQuickFixSettings::FunctionLocation::InsideClass) {
@@ -4055,7 +4055,7 @@ void GetterSetterRefactoringHelper::performGeneration(ExistingGetterSetterData d
 
         auto setterLocation = m_settings->determineSetterLocation(body.count('\n') - 2);
         // if we have an anonymous class we must add code inside the class
-        if (data.clazz->name()->isAnonymousNameId())
+        if (data.clazz->name()->asAnonymousNameId())
             setterLocation = CppQuickFixSettings::FunctionLocation::InsideClass;
 
         if (setterLocation == CppQuickFixSettings::FunctionLocation::CppFile && !hasSourceFile())
@@ -4133,7 +4133,7 @@ void GetterSetterRefactoringHelper::performGeneration(ExistingGetterSetterData d
         // body.count('\n') - 2 : do not count the 2 at start
         auto resetLocation = m_settings->determineSetterLocation(body.count('\n') - 2);
         // if we have an anonymous class we must add code inside the class
-        if (data.clazz->name()->isAnonymousNameId())
+        if (data.clazz->name()->asAnonymousNameId())
             resetLocation = CppQuickFixSettings::FunctionLocation::InsideClass;
 
         if (resetLocation == CppQuickFixSettings::FunctionLocation::CppFile && !hasSourceFile())
@@ -4189,9 +4189,12 @@ void GetterSetterRefactoringHelper::performGeneration(ExistingGetterSetterData d
 
     // member variable
     if (generateFlags & Flag::GenerateMemberVariable) {
-        const QString storageDeclaration = overview.prettyType(memberVariableType,
-                                                               data.memberVariableName)
-                                           + QLatin1String(";\n");
+        QString storageDeclaration = overview.prettyType(memberVariableType, data.memberVariableName);
+        if (memberVariableType->asPointerType()
+            && m_operation->semanticInfo().doc->translationUnit()->languageFeatures().cxx11Enabled) {
+            storageDeclaration.append(" = nullptr");
+        }
+        storageDeclaration.append(";\n");
         addHeaderCode(InsertionPointLocator::Private, storageDeclaration);
     }
 
@@ -4287,7 +4290,7 @@ QList<Symbol *> getMemberFunctions(const Class *clazz)
         Symbol *const s = *it;
         if (!s->identifier() || !s->type())
             continue;
-        if ((s->isDeclaration() && s->type()->asFunctionType()) || s->asFunction())
+        if ((s->asDeclaration() && s->type()->asFunctionType()) || s->asFunction())
             memberFunctions << s;
     }
     return memberFunctions;
@@ -4372,7 +4375,7 @@ void GenerateGetterSetter::match(const CppQuickFixInterface &interface, QuickFix
         // no type can be determined
         return;
     }
-    if (!symbol->isDeclaration()) {
+    if (!symbol->asDeclaration()) {
         return;
     }
     existing.declarationSymbol = symbol->asDeclaration();
@@ -4668,9 +4671,9 @@ public:
             Symbol *const s = *it;
             if (!s->identifier() || !s->type() || s->type().isTypedef())
                 continue;
-            if ((s->isDeclaration() && s->type()->asFunctionType()) || s->asFunction())
+            if ((s->asDeclaration() && s->type()->asFunctionType()) || s->asFunction())
                 memberFunctions << s;
-            else if (s->isDeclaration() && (s->isPrivate() || s->isProtected()))
+            else if (s->asDeclaration() && (s->isPrivate() || s->isProtected()))
                 dataMembers << s;
         }
 
@@ -5263,7 +5266,7 @@ void ExtractFunction::match(const CppQuickFixInterface &interface, QuickFixOpera
             || !refFuncDef->function_body->asCompoundStatement()->statement_list
             || !refFuncDef->symbol
             || !refFuncDef->symbol->name()
-            || refFuncDef->symbol->enclosingScope()->isTemplate() /* TODO: Templates... */) {
+            || refFuncDef->symbol->enclosingScope()->asTemplate() /* TODO: Templates... */) {
         return;
     }
 
@@ -5465,9 +5468,9 @@ public:
             for (Symbol *s = matchingClass->find(qName->identifier()); s; s = s->next()) {
                 if (!s->name()
                         || !qName->identifier()->match(s->identifier())
-                        || !s->type()->isFunctionType()
+                        || !s->type()->asFunctionType()
                         || !s->type().match(func->type())
-                        || s->isFunction()) {
+                        || s->asFunction()) {
                     continue;
                 }
 
@@ -6028,7 +6031,7 @@ void ConvertFromAndToPointer::match(const CppQuickFixInterface &interface,
         Scope *scope = file->scopeAt(declarator->firstToken());
         QList<LookupItem> result = typeOfExpression(file->textOf(declarator->initializer).toUtf8(),
                                                     scope, TypeOfExpression::Preprocess);
-        if (!result.isEmpty() && result.first().type()->isPointerType())
+        if (!result.isEmpty() && result.first().type()->asPointerType())
             mode = ConvertFromAndToPointerOp::FromPointer;
     } else if (declarator->ptr_operator_list) {
         for (PtrOperatorListAST *ops = declarator->ptr_operator_list; ops; ops = ops->next) {
@@ -6657,19 +6660,19 @@ void MoveFuncDefToDecl::match(const CppQuickFixInterface &interface, QuickFixOpe
         for (Symbol *symbol = matchingClass->find(qName->identifier());
              symbol; symbol = symbol->next()) {
             Symbol *s = symbol;
-            if (func->enclosingScope()->isTemplate()) {
+            if (func->enclosingScope()->asTemplate()) {
                 if (const Template *templ = s->type()->asTemplateType()) {
                     if (Symbol *decl = templ->declaration()) {
-                        if (decl->type()->isFunctionType())
+                        if (decl->type()->asFunctionType())
                                 s = decl;
                     }
                 }
             }
             if (!s->name()
                     || !qName->identifier()->match(s->identifier())
-                    || !s->type()->isFunctionType()
+                    || !s->type()->asFunctionType()
                     || !s->type().match(func->type())
-                    || s->isFunction()) {
+                    || s->asFunction()) {
                 continue;
             }
 
@@ -6937,11 +6940,11 @@ void AssignToLocalVariable::match(const CppQuickFixInterface &interface, QuickFi
                 continue;
 
             if (Function *func = item.declaration()->asFunction()) {
-                if (func->isSignal() || func->returnType()->isVoidType())
+                if (func->isSignal() || func->returnType()->asVoidType())
                     return;
             } else if (Declaration *dec = item.declaration()->asDeclaration()) {
                 if (Function *func = dec->type()->asFunctionType()) {
-                    if (func->isSignal() || func->returnType()->isVoidType())
+                    if (func->isSignal() || func->returnType()->asVoidType())
                       return;
                 }
             }
@@ -7349,7 +7352,7 @@ private:
 Symbol *skipForwardDeclarations(const QList<Symbol *> &symbols)
 {
     for (Symbol *symbol : symbols) {
-        if (!symbol->type()->isForwardClassDeclarationType())
+        if (!symbol->type()->asForwardClassDeclarationType())
             return symbol;
     }
 
@@ -7362,8 +7365,8 @@ bool findRawAccessFunction(Class *klass, PointerType *pointerType, QString *objA
     for (auto it = klass->memberBegin(), end = klass->memberEnd(); it != end; ++it) {
         if (Function *func = (*it)->asFunction()) {
             const Name *funcName = func->name();
-            if (!funcName->isOperatorNameId()
-                    && !funcName->isConversionNameId()
+            if (!funcName->asOperatorNameId()
+                    && !funcName->asConversionNameId()
                     && func->returnType().type() == pointerType
                     && func->isConst()
                     && func->argumentCount() == 0) {
@@ -8200,7 +8203,7 @@ void RemoveUsingNamespace::match(const CppQuickFixInterface &interface, QuickFix
     if (path.last()->asName())
         --n;
     UsingDirectiveAST *usingDirective = path.at(n)->asUsingDirective();
-    if (usingDirective && usingDirective->name->name->isNameId()) {
+    if (usingDirective && usingDirective->name->name->asNameId()) {
         result << new RemoveUsingNamespaceOperation(interface, usingDirective, false);
         const bool isHeader = ProjectFile::isHeader(ProjectFile::classify(interface.filePath().toString()));
         if (isHeader && path.at(n - 1)->asTranslationUnit()) // using namespace at global scope
@@ -8813,9 +8816,9 @@ public:
             Symbol *const s = *it;
             if (!s->identifier() || !s->type() || s->type().isTypedef())
                 continue;
-            if ((s->isDeclaration() && s->type()->asFunctionType()) || s->asFunction())
+            if ((s->asDeclaration() && s->type()->asFunctionType()) || s->asFunction())
                 continue;
-            if (s->isDeclaration() && (s->isPrivate() || s->isProtected()) && !s->isStatic()) {
+            if (s->asDeclaration() && (s->isPrivate() || s->isProtected()) && !s->isStatic()) {
                 const auto name = QString::fromUtf8(s->identifier()->chars(),
                                                     s->identifier()->size());
                 parameterModel.emplaceBackParameter(name, s, memberCounter++);

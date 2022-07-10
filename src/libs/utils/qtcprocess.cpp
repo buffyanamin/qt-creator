@@ -285,8 +285,10 @@ bool DefaultImpl::dissolveCommand(QString *program, QStringList *arguments)
         *arguments = QStringList();
     } else {
         if (!success) {
-            const ProcessResultData result = { 0, QProcess::NormalExit, QProcess::FailedToStart,
-                                               tr("Error in command line.") };
+            const ProcessResultData result = {0,
+                                              QProcess::NormalExit,
+                                              QProcess::FailedToStart,
+                                              QtcProcess::tr("Error in command line.")};
             emit done(result);
             return false;
         }
@@ -314,8 +316,8 @@ bool DefaultImpl::ensureProgramExists(const QString &program)
     if (programFilePath.exists() && programFilePath.isExecutableFile())
         return true;
 
-    const QString errorString = tr("The program \"%1\" does not exist or is not executable.")
-                                .arg(program);
+    const QString errorString
+        = QtcProcess::tr("The program \"%1\" does not exist or is not executable.").arg(program);
     const ProcessResultData result = { 0, QProcess::NormalExit, QProcess::FailedToStart,
                                        errorString };
     emit done(result);
@@ -724,13 +726,10 @@ public:
     void handleStarted(qint64 processId, qint64 applicationMainThreadId);
     void handleReadyRead(const QByteArray &outputData, const QByteArray &errorData);
     void handleDone(const ProcessResultData &data);
-    void handleError();
     void clearForRun();
 
     void emitStarted();
-    void emitFinished();
     void emitDone();
-    void emitErrorOccurred(QProcess::ProcessError error);
     void emitReadyReadStandardOutput();
     void emitReadyReadStandardError();
 
@@ -1028,6 +1027,7 @@ QtcProcess::QtcProcess(QObject *parent)
     : QObject(parent),
     d(new QtcProcessPrivate(this))
 {
+    qRegisterMetaType<ProcessResultData>("ProcessResultData");
     static int qProcessExitStatusMeta = qRegisterMetaType<QProcess::ExitStatus>();
     static int qProcessProcessErrorMeta = qRegisterMetaType<QProcess::ProcessError>();
     Q_UNUSED(qProcessExitStatusMeta)
@@ -1983,21 +1983,24 @@ void QtcProcessPrivate::handleReadyRead(const QByteArray &outputData, const QByt
     m_hangTimerCount = 0;
     // TODO: store a copy of m_processChannelMode on start()? Currently we assert that state
     // is NotRunning when setting the process channel mode.
-    if (m_process->m_setup.m_processChannelMode == QProcess::ForwardedOutputChannel
-            || m_process->m_setup.m_processChannelMode == QProcess::ForwardedChannels) {
-        std::cout << outputData.constData() << std::flush;
-    } else {
-        m_stdOut.append(outputData);
-        if (!outputData.isEmpty())
+
+    if (!outputData.isEmpty()) {
+        if (m_process->m_setup.m_processChannelMode == QProcess::ForwardedOutputChannel
+                || m_process->m_setup.m_processChannelMode == QProcess::ForwardedChannels) {
+            std::cout << outputData.constData() << std::flush;
+        } else {
+            m_stdOut.append(outputData);
             emitReadyReadStandardOutput();
+        }
     }
-    if (m_process->m_setup.m_processChannelMode == QProcess::ForwardedErrorChannel
-            || m_process->m_setup.m_processChannelMode == QProcess::ForwardedChannels) {
-        std::cerr << errorData.constData() << std::flush;
-    } else {
-        m_stdErr.append(errorData);
-        if (!errorData.isEmpty())
+    if (!errorData.isEmpty()) {
+        if (m_process->m_setup.m_processChannelMode == QProcess::ForwardedErrorChannel
+                || m_process->m_setup.m_processChannelMode == QProcess::ForwardedChannels) {
+            std::cerr << errorData.constData() << std::flush;
+        } else {
+            m_stdErr.append(errorData);
             emitReadyReadStandardError();
+        }
     }
 }
 
@@ -2026,9 +2029,8 @@ void QtcProcessPrivate::handleDone(const ProcessResultData &data)
     // HACK: See QIODevice::errorString() implementation.
     if (m_resultData.m_error == QProcess::UnknownError)
         m_resultData.m_errorString.clear();
-
-    if (m_resultData.m_error != QProcess::UnknownError)
-        handleError();
+    else if (m_result != ProcessResult::Hang)
+        m_result = ProcessResult::StartFailed;
 
     if (debug)
         qDebug() << Q_FUNC_INFO << m_resultData.m_exitCode << m_resultData.m_exitStatus;
@@ -2052,23 +2054,9 @@ void QtcProcessPrivate::handleDone(const ProcessResultData &data)
     m_stdOut.handleRest();
     m_stdErr.handleRest();
 
-    if (m_resultData.m_error != QProcess::FailedToStart)
-        emitFinished();
-
     emitDone();
     m_processId = 0;
     m_applicationMainThreadId = 0;
-}
-
-void QtcProcessPrivate::handleError()
-{
-    m_hangTimerCount = 0;
-    if (debug)
-        qDebug() << Q_FUNC_INFO << m_resultData.m_error;
-    // Was hang detected before and killed?
-    if (m_result != ProcessResult::Hang)
-        m_result = ProcessResult::StartFailed;
-    emitErrorOccurred(m_resultData.m_error);
 }
 
 void QtcProcessPrivate::emitStarted()
@@ -2077,22 +2065,10 @@ void QtcProcessPrivate::emitStarted()
     emit q->started();
 }
 
-void QtcProcessPrivate::emitFinished()
-{
-    GuardLocker locker(m_guard);
-    emit q->finished();
-}
-
 void QtcProcessPrivate::emitDone()
 {
     GuardLocker locker(m_guard);
     emit q->done();
-}
-
-void QtcProcessPrivate::emitErrorOccurred(QProcess::ProcessError error)
-{
-    GuardLocker locker(m_guard);
-    emit q->errorOccurred(error);
 }
 
 void QtcProcessPrivate::emitReadyReadStandardOutput()

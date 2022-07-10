@@ -61,7 +61,6 @@ add_qtc_test(unittest GTEST
     processevents-utilities.cpp processevents-utilities.h
     sizedarray-test.cpp
     smallstring-test.cpp
-    sourcerangecontainer-matcher.h
     spydummy.cpp spydummy.h
     sqlitealgorithms-test.cpp
     sqliteindex-test.cpp
@@ -82,6 +81,7 @@ add_qtc_test(unittest GTEST
     synchronousimagecache-test.cpp
     imagecachegenerator-test.cpp
     imagecachestorage-test.cpp
+    imagecachedispatchcollector-test.cpp
     sqlitedatabasemock.h
     sqlitereadstatementmock.cpp sqlitereadstatementmock.h
     sqlitereadwritestatementmock.cpp
@@ -130,19 +130,15 @@ add_custom_command(TARGET unittest POST_BUILD
 )
 
 extend_qtc_test(unittest
-  SOURCES
-    activationsequenceprocessor-test.cpp
-    readexporteddiagnostics-test.cpp
-)
-
-extend_qtc_test(unittest
   CONDITION TARGET GoogleBenchmark
   DEPENDS GoogleBenchmark
   SOURCES
     smallstring-benchmark.cpp
 )
 
-finalize_qtc_gtest(unittest ".c$")
+finalize_qtc_gtest(unittest
+  EXCLUDE_SOURCES_REGEX ".c$"
+  EXCLUDE_ALL_FROM_PRECHECK)
 
 # Path needs to be before CppEditor
 target_include_directories(unittest
@@ -196,6 +192,7 @@ extend_qtc_test(unittest
     imagecache/imagecachegenerator.h
     imagecache/imagecachegeneratorinterface.h
     imagecache/imagecachestorage.h
+    imagecache/imagecachedispatchcollector.h
     imagecache/imagecachestorageinterface.h
     imagecache/synchronousimagecache.cpp
     imagecache/timestampproviderinterface.h
@@ -315,46 +312,12 @@ endif()
 extend_qtc_test(unittest DEPENDS Utils CPlusPlus)
 
 extend_qtc_test(unittest
-  SOURCES_PREFIX ../../../src/plugins/clangcodemodel
-  SOURCES
-    clangactivationsequenceprocessor.cpp clangactivationsequenceprocessor.h
-)
-
-find_package(yaml-cpp QUIET MODULE)
-
-extend_qtc_test(unittest
-  DEPENDS yaml-cpp
-  DEFINES CLANGTOOLS_STATIC_LIBRARY
-  SOURCES_PREFIX ../../../src/plugins/clangtools
-  SOURCES
-    clangtoolsdiagnostic.cpp
-    clangtoolsdiagnostic.h
-    clangtoolslogfilereader.cpp
-    clangtoolslogfilereader.h
-)
-
-extend_qtc_test(unittest
-  DEFINES DEBUGGER_STATIC_LIBRARY
-  SOURCES_PREFIX ../../../src/plugins/debugger
-  SOURCES
-    analyzer/diagnosticlocation.cpp
-    analyzer/diagnosticlocation.h
-)
-
-extend_qtc_test(unittest
   SOURCES_PREFIX ../../../src/plugins/coreplugin
   DEFINES CORE_STATIC_LIBRARY
   SOURCES
     coreicons.cpp coreicons.h
     find/ifindfilter.cpp find/ifindfilter.h
     locator/ilocatorfilter.cpp locator/ilocatorfilter.h
-)
-
-extend_qtc_test(unittest
-  SOURCES_PREFIX ../../../src/plugins/cppeditor
-  DEFINES CPPEDITOR_STATIC_LIBRARY
-  SOURCES
-    cppprojectfile.cpp cppprojectfile.h
 )
 
 get_filename_component(

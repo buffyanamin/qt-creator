@@ -220,7 +220,10 @@ void PropertyEditorContextObject::changeTypeName(const QString &typeName)
         }
 
         // Create a list of properties available for the new type
-        QList<PropertyName> propertiesAndSignals(metaInfo.propertyNames());
+        auto propertiesAndSignals = Utils::transform<PropertyNameList>(metaInfo.properties(),
+                                                                       [](const auto &property) {
+                                                                           return property.name();
+                                                                       });
         // Add signals to the list
         for (const auto &signal : metaInfo.signalNames()) {
             if (signal.isEmpty())
@@ -320,6 +323,19 @@ void PropertyEditorContextObject::insertKeyframe(const QString &propertyName)
     rewriterView->executeInTransaction("PropertyEditorContextObject::insertKeyframe", [&]{
         timeline.insertKeyframe(selectedNode, propertyName.toUtf8());
     });
+}
+
+QString PropertyEditorContextObject::activeDragSuffix() const
+{
+    return m_activeDragSuffix;
+}
+
+void PropertyEditorContextObject::setActiveDragSuffix(const QString &suffix)
+{
+    if (m_activeDragSuffix != suffix) {
+        m_activeDragSuffix = suffix;
+        emit activeDragSuffixChanged();
+    }
 }
 
 int PropertyEditorContextObject::majorVersion() const

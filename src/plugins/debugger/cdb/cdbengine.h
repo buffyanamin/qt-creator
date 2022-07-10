@@ -36,17 +36,13 @@
 
 #include <QElapsedTimer>
 
-namespace Debugger {
-namespace Internal {
-
-class CdbCommand;
+namespace Debugger::Internal {
 
 class CdbEngine : public CppDebuggerEngine
 {
     Q_OBJECT
 
 public:
-    using CdbCommandPtr = QSharedPointer<CdbCommand>;
     using CommandHandler = std::function<void (const DebuggerResponse &)>;
 
     explicit CdbEngine();
@@ -104,16 +100,12 @@ public:
     static QString extensionLibraryName(bool is64Bit, bool isArm = false);
 
 private:
-    void readyReadStandardOut();
-    void readyReadStandardError();
     void processStarted();
     void processDone();
     void runCommand(const DebuggerCommand &cmd) override;
     void adjustOperateByInstruction(bool);
 
     void createFullBacktrace();
-
-    void handleDoInterruptInferior(const QString &errorMessage);
 
     typedef QPair<QString, QString> SourcePathMapping;
     struct NormalizedSourceFileName // Struct for caching mapped/normalized source files.
@@ -203,11 +195,9 @@ private:
 
     Utils::QtcProcess m_process;
     DebuggerStartMode m_effectiveStartMode = NoStartMode;
-    QByteArray m_outputBuffer;
     //! Debugger accessible (expecting commands)
     bool m_accessible = false;
     StopMode m_stopMode = NoStopRequested;
-    ProjectExplorer::DeviceProcessSignalOperation::Ptr m_signalOperation;
     int m_nextCommandToken = 0;
     QHash<int, DebuggerCommand> m_commandForToken;
     QString m_currentBuiltinResponse;
@@ -240,5 +230,4 @@ private:
     mutable CPlusPlus::Snapshot m_codeModelSnapshot;
 };
 
-} // namespace Internal
-} // namespace Debugger
+} // Debugger::Internal

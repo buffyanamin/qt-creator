@@ -27,8 +27,6 @@ function(extend_with_qmldesigner_core target_name)
       QmlProjectManager
       QtSupport
       TextEditor
-    DEFINES
-      TEST_EXPORTS
     INCLUDES
       ${CMAKE_CURRENT_FUNCTION_LIST_DIR}
       ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/components
@@ -127,6 +125,7 @@ function(extend_with_qmldesigner_core target_name)
       imagecache/asynchronousimagefactory.h
       imagecache/imagecachecollector.cpp
       imagecache/imagecachecollector.h
+      imagecache/imagecachedispatchcollector.h
       imagecache/imagecachecollectorinterface.h
       imagecache/imagecacheconnectionmanager.cpp
       imagecache/imagecacheconnectionmanager.h
@@ -137,6 +136,8 @@ function(extend_with_qmldesigner_core target_name)
       imagecache/imagecachegeneratorinterface.h
       imagecache/imagecachestorage.h
       imagecache/imagecachestorageinterface.h
+      imagecache/meshimagecachecollector.cpp
+      imagecache/meshimagecachecollector.h
       imagecache/synchronousimagecache.cpp
       imagecache/timestampprovider.cpp
       imagecache/timestampprovider.h
@@ -153,6 +154,7 @@ function(extend_with_qmldesigner_core target_name)
       include/componenttextmodifier.h
       include/customnotifications.h
       include/documentmessage.h
+      include/enumerationmetainfo.h
       include/exception.h
       include/forwardview.h
       include/imagecacheauxiliarydata.h
@@ -184,6 +186,7 @@ function(extend_with_qmldesigner_core target_name)
       include/notimplementedexception.h
       include/plaintexteditmodifier.h
       include/propertycontainer.h
+      include/propertymetainfo.h
       include/propertynode.h
       include/propertyparser.h
       include/qmlanchors.h

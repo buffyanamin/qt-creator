@@ -18,6 +18,9 @@ function(_extract_ts_data_from_targets outprefix)
 
       if (NOT _skip_translation)
         if(_include_dirs)
+          list(FILTER _include_dirs EXCLUDE REGEX "\\$<TARGET_PROPERTY")
+          list(FILTER _include_dirs EXCLUDE REGEX "\\$<INSTALL_INTERFACE")
+          list(TRANSFORM _include_dirs REPLACE "\\$<BUILD_INTERFACE:([^>]+)>" "\\1")
           list(APPEND _includes ${_include_dirs})
         endif()
 
@@ -27,6 +30,7 @@ function(_extract_ts_data_from_targets outprefix)
 
         set(_target_sources "")
         if(_source_files)
+          list(FILTER _source_files EXCLUDE REGEX ".*[.]json[.]in|.*[.]svg")
           list(APPEND _target_sources ${_source_files})
         endif()
         if(_extra_translations)

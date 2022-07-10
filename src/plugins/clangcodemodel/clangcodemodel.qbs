@@ -34,6 +34,8 @@ QtcPlugin {
         "clangdast.h",
         "clangdclient.cpp",
         "clangdclient.h",
+        "clangdcompletion.cpp",
+        "clangdcompletion.h",
         "clangdfollowsymbol.cpp",
         "clangdfollowsymbol.h",
         "clangdiagnostictooltipwidget.cpp",
@@ -42,8 +44,8 @@ QtcPlugin {
         "clangdlocatorfilters.h",
         "clangdqpropertyhighlighter.cpp",
         "clangdqpropertyhighlighter.h",
-        "clangdquickfixfactory.cpp",
-        "clangdquickfixfactory.h",
+        "clangdquickfixes.cpp",
+        "clangdquickfixes.h",
         "clangdsemantichighlighting.cpp",
         "clangdsemantichighlighting.h",
         "clangdswitchdecldef.cpp",
@@ -92,6 +94,8 @@ QtcPlugin {
         condition: qtc.testsEnabled
         prefix: "test/"
         files: [
+            "activationsequenceprocessortest.cpp",
+            "activationsequenceprocessortest.h",
             "clangbatchfileprocessor.cpp",
             "clangbatchfileprocessor.h",
             "clangdtests.cpp",

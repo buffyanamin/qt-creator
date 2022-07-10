@@ -82,7 +82,7 @@
     \section2 Specifying MCU Settings
 
     To configure a connection between \QC and your MCU board, select
-    \uicontrol Tools > \uicontrol Options > \uicontrol Devices >
+    \uicontrol Edit > \uicontrol Preferences > \uicontrol Devices >
     \uicontrol MCU:
 
     \image qtcreator-mcu-options.png "MCU options"
@@ -143,7 +143,7 @@
 
     \image qtcreator-mcu-device.png "MCU devices"
 
-    To add MCU devices, select \uicontrol Tools > \uicontrol Options >
+    To add MCU devices, select \uicontrol Edit > \uicontrol Preferences >
     \uicontrol Devices > \uicontrol Add > \uicontrol {MCU Device} >
     \uicontrol {Start Wizard}:
 
@@ -163,8 +163,8 @@
 
     \image qtcreator-mcu-kit.png "MCU kits"
 
-    You can edit and/or remove individual kits in \uicontrol Tools >
-    \uicontrol Options > \uicontrol Kits.
+    You can edit and/or remove individual kits in \uicontrol Edit >
+    \uicontrol Preferences > \uicontrol Kits.
 
     However, for adding new kits you should use the \uicontrol {Create Kit}
     button in the {Qt for MCUs} settings tab. This method adds the paths to
@@ -197,16 +197,18 @@
 
     \section1 Supported Qt for MCUs SDKs
 
-    Since version 4.12.4, \QC supports versions 1.3 through 1.9 of the Qt for MCUs SDK.
-    Since version 6.0.0, \QC adds support for versions 2.0 and later of the Qt for MCUs SDK.
-    For older versions refer to the following table.
+    Since version 7.0.0, \QC supports version 2.0 and later of the Qt for MCUs SDK.
+    For older versions, refer to the following table.
 
     \table
     \header
         \li \QC version
         \li Qt for MCUs SDK version
     \row
-        \li 6.0.0 or later
+        \li 7.0.0 or later
+        \li 2.0 or later
+    \row
+        \li 6.0.x
         \li 1.3 or later, including 2.0 or later
     \row
         \li 4.12.4 up to 5.0.3

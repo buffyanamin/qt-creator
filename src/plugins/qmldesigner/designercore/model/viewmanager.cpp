@@ -64,6 +64,7 @@ class ViewManagerData
 public:
     ViewManagerData(AsynchronousImageCache &imageCache)
         : itemLibraryView(imageCache)
+        , propertyEditorView(imageCache)
     {}
 
     InteractiveConnectionManager connectionManager;

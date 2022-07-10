@@ -32,14 +32,11 @@
 #include "androidsdkdownloader.h"
 #include "androidsdkmanager.h"
 #include "androidsdkmanagerwidget.h"
-#include "androidtoolchain.h"
 
 #include <projectexplorer/projectexplorerconstants.h>
 
-#include <utils/environment.h>
 #include <utils/hostosinfo.h>
 #include <utils/infolabel.h>
-#include <utils/listmodel.h>
 #include <utils/pathchooser.h>
 #include <utils/progressindicator.h>
 #include <utils/qtcassert.h>
@@ -49,16 +46,10 @@
 #include <QDesktopServices>
 #include <QDir>
 #include <QFileDialog>
-#include <QFutureWatcher>
-#include <QInputDialog>
 #include <QList>
 #include <QLoggingCategory>
 #include <QMessageBox>
-#include <QModelIndex>
-#include <QScrollArea>
-#include <QSettings>
 #include <QStandardPaths>
-#include <QString>
 #include <QTimer>
 #include <QUrl>
 #include <QWidget>
@@ -310,9 +301,8 @@ AndroidSettingsWidget::AndroidSettingsWidget()
             tr("Android SDK path exists and is writable.");
     androidValidationPoints[JavaPathExistsAndWritableRow] = tr("JDK path exists and is writable.");
     androidValidationPoints[SdkToolsInstalledRow] = tr("SDK tools installed.");
+    androidValidationPoints[SdkManagerSuccessfulRow] = tr("SDK manager runs.");
     androidValidationPoints[PlatformToolsInstalledRow] = tr("Platform tools installed.");
-    androidValidationPoints[SdkManagerSuccessfulRow] = tr(
-        "SDK manager runs (SDK Tools versions <= 26.x require exactly Java 1.8).");
     androidValidationPoints[AllEssentialsInstalledRow] = tr(
         "All essential packages installed for all installed Qt versions.");
     androidValidationPoints[BuildToolsInstalledRow] = tr("Build tools installed.");

@@ -42,6 +42,8 @@
 #include <qmljs/qmljsscopechain.h>
 #include <qmljs/qmljsvalueowner.h>
 
+#include <tuple>
+
 static Q_LOGGING_CATEGORY(ceLog, "qtc.qmldesigner.connectioneditor", QtWarningMsg)
 
 namespace QmlDesigner {
@@ -143,6 +145,8 @@ void ActionEditor::setModelNode(const ModelNode &modelNode)
         m_modelNode = modelNode;
 }
 
+namespace {
+
 bool isLiteral(QmlJS::AST::Node *ast)
 {
     if (QmlJS::AST::cast<QmlJS::AST::StringLiteral *>(ast)
@@ -154,6 +158,17 @@ bool isLiteral(QmlJS::AST::Node *ast)
         return false;
 }
 
+TypeName skipCpp(TypeName typeName)
+{
+    // TODO remove after project storage introduction
+
+    if (typeName.contains("<cpp>."))
+        typeName.remove(0, 6);
+
+    return typeName;
+}
+
+} // namespace
 void ActionEditor::prepareConnections()
 {
     if (!m_modelNode.isValid())
@@ -177,11 +192,8 @@ void ActionEditor::prepareConnections()
     const QmlJS::ContextPtr &context = semanticInfo.context;
     const QmlJS::ScopeChain &scopeChain = semanticInfo.scopeChain(path);
 
-    static QList<TypeName> typeWhiteList({"string",
-                                          "real", "int", "double",
-                                          "bool",
-                                          "QColor", "color",
-                                          "QtQuick.Item", "QQuickItem"});
+    constexpr auto typeWhiteList = std::make_tuple(
+        "string", "real", "int", "double", "bool", "QColor", "color", "QtQuick.Item", "QQuickItem");
 
     static QList<PropertyName> methodBlackList({"toString", "destroy"});
 
@@ -197,31 +209,28 @@ void ActionEditor::prepareConnections()
 
         ActionEditorDialog::ConnectionOption connection(modelNode.id());
 
-        for (const auto &propertyName : modelNode.metaInfo().propertyNames()) {
-            if (!typeWhiteList.contains(modelNode.metaInfo().propertyTypeName(propertyName)))
+        for (const auto &property : modelNode.metaInfo().properties()) {
+            if (!property.hasPropertyTypeName(typeWhiteList))
                 continue;
 
-            const QString name = QString::fromUtf8(propertyName);
-            const bool writeable = modelNode.metaInfo().propertyIsWritable(propertyName);
-            TypeName type = modelNode.metaInfo().propertyTypeName(propertyName);
-            if (type.contains("<cpp>."))
-                type.remove(0, 6);
-
-            connection.properties.append(ActionEditorDialog::PropertyOption(name, type, writeable));
+            connection.properties.append(
+                ActionEditorDialog::PropertyOption(QString::fromUtf8(property.name()),
+                                                   skipCpp(std::move(property.propertyTypeName())),
+                                                   property.isWritable()));
         }
 
         for (const VariantProperty &variantProperty : modelNode.variantProperties()) {
             if (variantProperty.isValid() && variantProperty.isDynamic()) {
-                if (!typeWhiteList.contains(variantProperty.dynamicTypeName()))
+                if (!variantProperty.hasDynamicTypeName(typeWhiteList))
                     continue;
 
                 const QString name = QString::fromUtf8(variantProperty.name());
-                const bool writeable = modelNode.metaInfo().propertyIsWritable(variantProperty.name());
-                TypeName type = variantProperty.dynamicTypeName();
-                if (type.contains("<cpp>."))
-                    type.remove(0, 6);
+                const bool writeable = modelNode.metaInfo().property(variantProperty.name()).isWritable();
 
-                connection.properties.append(ActionEditorDialog::PropertyOption(name, type, writeable));
+                connection.properties.append(
+                    ActionEditorDialog::PropertyOption(name,
+                                                       skipCpp(variantProperty.dynamicTypeName()),
+                                                       writeable));
             }
         }
 
@@ -259,18 +268,14 @@ void ActionEditor::prepareConnections()
                 NodeMetaInfo metaInfo = m_modelNode.view()->model()->metaInfo(data.typeName.toUtf8());
                 if (metaInfo.isValid()) {
                     ActionEditorDialog::SingletonOption singelton;
-                    for (const PropertyName &propertyName : metaInfo.propertyNames()) {
-                        TypeName type = metaInfo.propertyTypeName(propertyName);
-
-                        if (!typeWhiteList.contains(type))
+                    for (const auto &property : metaInfo.properties()) {
+                        if (!property.hasPropertyTypeName(typeWhiteList))
                             continue;
 
-                        const QString name = QString::fromUtf8(propertyName);
-                        const bool writeable = metaInfo.propertyIsWritable(propertyName);
-                        if (type.contains("<cpp>."))
-                            type.remove(0, 6);
-
-                        singelton.properties.append(ActionEditorDialog::PropertyOption(name, type, writeable));
+                        singelton.properties.append(
+                            ActionEditorDialog::PropertyOption(QString::fromUtf8(property.name()),
+                                                               skipCpp(property.propertyTypeName()),
+                                                               property.isWritable()));
                     }
 
                     if (!singelton.properties.isEmpty()) {

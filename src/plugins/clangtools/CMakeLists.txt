@@ -22,6 +22,7 @@ add_qtc_plugin(ClangTools
     clangtoolruncontrol.cpp clangtoolruncontrol.h
     clangtoolrunner.cpp clangtoolrunner.h
     clangtools_global.h
+    clangtoolstr.h
     clangtoolsconstants.h
     clangtoolsdiagnostic.cpp clangtoolsdiagnostic.h
     clangtoolsdiagnosticmodel.cpp clangtoolsdiagnosticmodel.h
@@ -51,4 +52,5 @@ extend_qtc_plugin(ClangTools
     clangtoolspreconfiguredsessiontests.cpp clangtoolspreconfiguredsessiontests.h
     clangtoolsunittests.cpp clangtoolsunittests.h
     clangtoolsunittests.qrc
+    readexporteddiagnosticstest.cpp readexporteddiagnosticstest.h
 )

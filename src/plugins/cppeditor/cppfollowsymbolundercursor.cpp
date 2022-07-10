@@ -117,13 +117,13 @@ bool VirtualFunctionHelper::canLookupVirtualFunctionOverrides(Function *function
     if (!m_document || m_snapshot.isEmpty() || !m_function || !m_scope)
         return false;
 
-    if (m_scope->isClass() && m_function->isPureVirtual()) {
+    if (m_scope->asClass() && m_function->isPureVirtual()) {
         m_staticClassOfFunctionCallExpression = m_scope->asClass();
         return true;
     }
 
     if (!m_baseExpressionAST || !m_expressionDocument
-            || m_scope->isClass() || m_scope->isFunction()) {
+            || m_scope->asClass() || m_scope->asFunction()) {
         return false;
     }
 
@@ -151,7 +151,7 @@ bool VirtualFunctionHelper::canLookupVirtualFunctionOverrides(Function *function
                 if (!items.isEmpty()) {
                     const LookupItem item = items.first();
                     if (Symbol *declaration = item.declaration())
-                        result = declaration->type()->isReferenceType();
+                        result = declaration->type()->asReferenceType();
                 }
             }
         }
@@ -191,7 +191,7 @@ Class *VirtualFunctionHelper::staticClassOfFunctionCallExpression_internal() con
                 const QList<Symbol *> symbols = binding->symbols();
                 if (!symbols.isEmpty()) {
                     Symbol * const first = symbols.first();
-                    if (first->isForwardClassDeclaration())
+                    if (first->asForwardClassDeclaration())
                         result = m_finder->findMatchingClassDeclaration(first, m_snapshot);
                 }
             }
@@ -249,11 +249,11 @@ static bool isForwardClassDeclaration(Type *type)
     if (!type)
         return false;
 
-    if (type->isForwardClassDeclarationType()) {
+    if (type->asForwardClassDeclarationType()) {
         return true;
     } else if (Template *templ = type->asTemplateType()) {
         if (Symbol *declaration = templ->declaration()) {
-            if (declaration->isForwardClassDeclaration())
+            if (declaration->asForwardClassDeclaration())
                 return true;
         }
     }
@@ -279,22 +279,22 @@ inline LookupItem skipForwardDeclarations(const QList<LookupItem> &resolvedSymbo
         }
     }
 
-    if (ty->isObjCForwardClassDeclarationType()) {
+    if (ty->asObjCForwardClassDeclarationType()) {
         while (!candidates.isEmpty()) {
             LookupItem r = candidates.takeFirst();
 
-            if (!r.type()->isObjCForwardClassDeclarationType()) {
+            if (!r.type()->asObjCForwardClassDeclarationType()) {
                 result = r;
                 break;
             }
         }
     }
 
-    if (ty->isObjCForwardProtocolDeclarationType()) {
+    if (ty->asObjCForwardProtocolDeclarationType()) {
         while (!candidates.isEmpty()) {
             LookupItem r = candidates.takeFirst();
 
-            if (!r.type()->isObjCForwardProtocolDeclarationType()) {
+            if (!r.type()->asObjCForwardProtocolDeclarationType()) {
                 result = r;
                 break;
             }
@@ -384,10 +384,10 @@ Link attemptDeclDef(const QTextCursor &cursor, Snapshot snapshot,
 
 Symbol *findDefinition(Symbol *symbol, const Snapshot &snapshot, SymbolFinder *symbolFinder)
 {
-    if (symbol->isFunction())
+    if (symbol->asFunction())
         return nullptr; // symbol is a function definition.
 
-    if (!symbol->type()->isFunctionType())
+    if (!symbol->type()->asFunctionType())
         return nullptr; // not a function declaration
 
     return symbolFinder->findMatchingDefinition(symbol, snapshot);
@@ -706,7 +706,7 @@ void FollowSymbolUnderCursor::findLink(
 
         for (const LookupItem &r : resolvedSymbols) {
             if (Symbol *d = r.declaration()) {
-                if (d->isDeclaration() || d->isFunction()) {
+                if (d->asDeclaration() || d->asFunction()) {
                     const QString fileName = QString::fromUtf8(d->fileName(), d->fileNameLength());
                     if (data.filePath().toString() == fileName) {
                         if (line == d->line() && positionInBlock >= d->column()) {
@@ -715,7 +715,7 @@ void FollowSymbolUnderCursor::findLink(
                             break;
                         }
                     }
-                } else if (d->isUsingDeclaration()) {
+                } else if (d->asUsingDeclaration()) {
                     int tokenBeginLineNumber = 0;
                     int tokenBeginColumnNumber = 0;
                     Utils::Text::convertPosition(document, beginOfToken, &tokenBeginLineNumber,
@@ -768,11 +768,11 @@ void FollowSymbolUnderCursor::findLink(
                 if (def == lastVisibleSymbol)
                     def = nullptr; // jump to declaration then.
 
-                if (symbol->isForwardClassDeclaration()) {
+                if (symbol->asForwardClassDeclaration()) {
                     def = symbolFinder->findMatchingClassDeclaration(symbol, snapshot);
                 } else if (Template *templ = symbol->asTemplate()) {
                     if (Symbol *declaration = templ->declaration()) {
-                        if (declaration->isForwardClassDeclaration())
+                        if (declaration->asForwardClassDeclaration())
                             def = symbolFinder->findMatchingClassDeclaration(declaration, snapshot);
                     }
                 }
@@ -828,9 +828,9 @@ void FollowSymbolUnderCursor::switchDeclDef(
         } else if (SimpleDeclarationAST *simpleDeclaration = ast->asSimpleDeclaration()) {
             if (List<Symbol *> *symbols = simpleDeclaration->symbols) {
                 if (Symbol *symbol = symbols->value) {
-                    if (symbol->isDeclaration()) {
+                    if (symbol->asDeclaration()) {
                         declarationSymbol = symbol;
-                        if (symbol->type()->isFunctionType()) {
+                        if (symbol->type()->asFunctionType()) {
                             functionDeclarationSymbol = symbol;
                             break; // Function declaration found!
                         }

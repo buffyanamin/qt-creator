@@ -106,19 +106,20 @@ static Q_LOGGING_CATEGORY(dockerDeviceLog, "qtc.docker.device", QtWarningMsg);
 class ContainerShell : public Utils::DeviceShell
 {
 public:
-    ContainerShell(const QString &containerId)
-        : m_containerId(containerId)
+    ContainerShell(DockerSettings *settings, const QString &containerId)
+        : m_settings(settings)
+        , m_containerId(containerId)
     {
-        start();
     }
 
 private:
     void setupShellProcess(QtcProcess *shellProcess) final
     {
-        shellProcess->setCommand({"docker", {"container", "start", "-i", "-a", m_containerId}});
+        shellProcess->setCommand({m_settings->dockerBinaryPath.filePath(), {"container", "start", "-i", "-a", m_containerId}});
     }
 
 private:
+    DockerSettings *m_settings;
     QString m_containerId;
 };
 
@@ -127,8 +128,9 @@ class DockerDevicePrivate : public QObject
     Q_DECLARE_TR_FUNCTIONS(Docker::Internal::DockerDevice)
 
 public:
-    DockerDevicePrivate(DockerDevice *parent)
+    DockerDevicePrivate(DockerDevice *parent, DockerSettings *settings)
         : q(parent)
+        , m_settings(settings)
     {}
 
     ~DockerDevicePrivate() { stopCurrentContainer(); }
@@ -145,6 +147,7 @@ public:
 
     DockerDevice *q;
     DockerDeviceData m_data;
+    DockerSettings *m_settings;
 
     // For local file access
 
@@ -317,8 +320,8 @@ QString DockerDeviceData::repoAndTag() const
 
 // DockerDevice
 
-DockerDevice::DockerDevice(const DockerDeviceData &data)
-    : d(new DockerDevicePrivate(this))
+DockerDevice::DockerDevice(DockerSettings *settings, const DockerDeviceData &data)
+    : d(new DockerDevicePrivate(this, settings))
 {
     d->m_data = data;
 
@@ -328,7 +331,7 @@ DockerDevice::DockerDevice(const DockerDeviceData &data)
     setDisplayName(tr("Docker Image \"%1\" (%2)").arg(data.repoAndTag()).arg(data.imageId));
     setAllowEmptyCommand(true);
 
-    setOpenTerminal([this](const Environment &env, const FilePath &workingDir) {
+    setOpenTerminal([this, settings](const Environment &env, const FilePath &workingDir) {
         Q_UNUSED(env); // TODO: That's the runnable's environment in general. Use it via -e below.
         updateContainerAccess();
         if (d->m_container.isEmpty()) {
@@ -346,7 +349,7 @@ DockerDevice::DockerDevice(const DockerDeviceData &data)
         });
 
         const QString wd = workingDir.isEmpty() ? "/" : workingDir.path();
-        proc->setCommand({"docker", {"exec", "-it", "-w", wd, d->m_container, "/bin/sh"}});
+        proc->setCommand({settings->dockerBinaryPath.filePath(), {"exec", "-it", "-w", wd, d->m_container, "/bin/sh"}});
         proc->setEnvironment(Environment::systemEnvironment()); // The host system env. Intentional.
         proc->start();
     });
@@ -361,6 +364,12 @@ DockerDevice::~DockerDevice()
     delete d;
 }
 
+void DockerDevice::shutdown()
+{
+    d->stopCurrentContainer();
+    d->m_settings = nullptr;
+}
+
 const DockerDeviceData &DockerDevice::data() const
 {
     return d->m_data;
@@ -371,8 +380,6 @@ DockerDeviceData &DockerDevice::data()
     return d->m_data;
 }
 
-
-
 void DockerDevice::updateContainerAccess() const
 {
     d->updateContainerAccess();
@@ -380,13 +387,13 @@ void DockerDevice::updateContainerAccess() const
 
 void DockerDevicePrivate::stopCurrentContainer()
 {
-    if (m_container.isEmpty() || !DockerApi::isDockerDaemonAvailable(false).value_or(false))
+    if (!m_settings || m_container.isEmpty() || !DockerApi::isDockerDaemonAvailable(false).value_or(false))
         return;
 
     m_shell.reset();
 
     QtcProcess proc;
-    proc.setCommand({"docker", {"container", "stop", m_container}});
+    proc.setCommand({m_settings->dockerBinaryPath.filePath(), {"container", "stop", m_container}});
 
     m_container.clear();
 
@@ -409,9 +416,12 @@ static QString getLocalIPv4Address()
 
 void DockerDevicePrivate::startContainer()
 {
+    if (!m_settings)
+        return;
+
     const QString display = HostOsInfo::isLinuxHost() ? QString(":0")
                                                       : QString(getLocalIPv4Address() + ":0.0");
-    CommandLine dockerCreate{"docker", {"create",
+    CommandLine dockerCreate{m_settings->dockerBinaryPath.filePath(), {"create",
                                         "-i",
                                         "--rm",
                                         "-e", QString("DISPLAY=%1").arg(display),
@@ -441,15 +451,19 @@ void DockerDevicePrivate::startContainer()
     createProcess.setCommand(dockerCreate);
     createProcess.runBlocking();
 
-    if (createProcess.result() != ProcessResult::FinishedWithSuccess)
+    if (createProcess.result() != ProcessResult::FinishedWithSuccess) {
+        qCWarning(dockerDeviceLog) << "Failed creating docker container:";
+        qCWarning(dockerDeviceLog) << "Exit Code:" << createProcess.exitCode();
+        qCWarning(dockerDeviceLog) << createProcess.allOutput();
         return;
+    }
 
     m_container = createProcess.cleanedStdOut().trimmed();
     if (m_container.isEmpty())
         return;
     LOG("Container via process: " << m_container);
 
-    m_shell = std::make_unique<ContainerShell>(m_container);
+    m_shell = std::make_unique<ContainerShell>(m_settings, m_container);
     connect(m_shell.get(), &DeviceShell::done, this, [this] (const ProcessResultData &resultData) {
         if (resultData.m_error != QProcess::UnknownError)
             return;
@@ -464,9 +478,7 @@ void DockerDevicePrivate::startContainer()
                                          "or restart Qt Creator."));
     });
 
-    if (m_shell->state() != DeviceShell::State::Succeeded) {
-        m_shell.reset();
-        DockerApi::recheckDockerDaemon();
+    if (!m_shell->start()) {
         qCWarning(dockerDeviceLog) << "Container shell failed to start";
     }
 }
@@ -493,6 +505,9 @@ void DockerDevice::setMounts(const QStringList &mounts) const
 
 CommandLine DockerDevice::withDockerExecCmd(const Utils::CommandLine &cmd, bool interactive) const
 {
+    if (!d->m_settings)
+        return {};
+
     QStringList args;
 
     args << "exec";
@@ -500,7 +515,7 @@ CommandLine DockerDevice::withDockerExecCmd(const Utils::CommandLine &cmd, bool 
         args << "-i";
     args << d->m_container;
 
-    CommandLine dcmd{"docker", args};
+    CommandLine dcmd{d->m_settings->dockerBinaryPath.filePath(), args};
     dcmd.addCommandLineAsArgs(cmd);
     return dcmd;
 }
@@ -1002,9 +1017,10 @@ void DockerDevicePrivate::fetchSystemEnviroment()
 
 bool DockerDevicePrivate::runInContainer(const CommandLine &cmd) const
 {
-    if (!DockerApi::isDockerDaemonAvailable(false).value_or(false))
+    if (!m_settings || !DockerApi::isDockerDaemonAvailable(false).value_or(false))
         return false;
-    CommandLine dcmd{"docker", {"exec", m_container}};
+
+    CommandLine dcmd{m_settings->dockerBinaryPath.filePath(), {"exec", m_container}};
     dcmd.addCommandLineAsArgs(cmd);
 
     QtcProcess proc;
@@ -1065,8 +1081,9 @@ public:
 class DockerDeviceSetupWizard final : public QDialog
 {
 public:
-    DockerDeviceSetupWizard()
+    DockerDeviceSetupWizard(DockerSettings *settings)
         : QDialog(ICore::dialogParent())
+        , m_settings(settings)
     {
         setWindowTitle(DockerDevice::tr("Docker Image Selection"));
         resize(800, 600);
@@ -1081,11 +1098,10 @@ public:
         m_view->setSelectionMode(QAbstractItemView::SingleSelection);
 
         m_log = new QTextBrowser;
-        m_log->setVisible(false);
+        m_log->setVisible(dockerDeviceLog().isDebugEnabled());
 
         const QString fail = QString{"Docker: "}
-                + QCoreApplication::translate("Debugger::Internal::GdbEngine",
-                                              "Process failed to start.");
+                             + QCoreApplication::translate("Debugger", "Process failed to start.");
         auto errorLabel = new Utils::InfoLabel(fail, Utils::InfoLabel::Error, this);
         errorLabel->setVisible(false);
 
@@ -1103,7 +1119,7 @@ public:
         connect(m_buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
         m_buttons->button(QDialogButtonBox::Ok)->setEnabled(false);
 
-        CommandLine cmd{"docker", {"images", "--format", "{{.ID}}\\t{{.Repository}}\\t{{.Tag}}\\t{{.Size}}"}};
+        CommandLine cmd{m_settings->dockerBinaryPath.filePath(), {"images", "--format", "{{.ID}}\\t{{.Repository}}\\t{{.Tag}}\\t{{.Size}}"}};
         m_log->append(DockerDevice::tr("Running \"%1\"\n").arg(cmd.toUserOutput()));
 
         m_process = new QtcProcess(this);
@@ -1153,7 +1169,7 @@ public:
         DockerImageItem *item = m_model.itemForIndex(selectedRows.front());
         QTC_ASSERT(item, return {});
 
-        auto device = DockerDevice::create(*item);
+        auto device = DockerDevice::create(m_settings, *item);
         device->setupId(IDevice::ManuallyAdded);
         device->setType(Constants::DOCKER_DEVICE_TYPE);
         device->setMachineType(IDevice::Hardware);
@@ -1166,6 +1182,7 @@ public:
     TreeView *m_view = nullptr;
     QTextBrowser *m_log = nullptr;
     QDialogButtonBox *m_buttons;
+    DockerSettings *m_settings;
 
     QtcProcess *m_process = nullptr;
     QString m_selectedId;
@@ -1173,18 +1190,32 @@ public:
 
 // Factory
 
-DockerDeviceFactory::DockerDeviceFactory()
+DockerDeviceFactory::DockerDeviceFactory(DockerSettings *settings)
     : IDeviceFactory(Constants::DOCKER_DEVICE_TYPE)
 {
     setDisplayName(DockerDevice::tr("Docker Device"));
     setIcon(QIcon());
-    setCreator([] {
-        DockerDeviceSetupWizard wizard;
+    setCreator([settings] {
+        DockerDeviceSetupWizard wizard(settings);
         if (wizard.exec() != QDialog::Accepted)
             return IDevice::Ptr();
         return wizard.device();
     });
-    setConstructionFunction([] { return DockerDevice::create({}); });
+    setConstructionFunction([settings, this] {
+        auto device = DockerDevice::create(settings, {});
+        QMutexLocker lk(&m_deviceListMutex);
+        m_existingDevices.push_back(device);
+        return device;
+    });
+}
+
+void DockerDeviceFactory::shutdownExistingDevices()
+{
+    QMutexLocker lk(&m_deviceListMutex);
+    for (const auto &weakDevice : m_existingDevices) {
+        if (QSharedPointer<DockerDevice> device = weakDevice.lock())
+            device->shutdown();
+    }
 }
 
 } // Internal

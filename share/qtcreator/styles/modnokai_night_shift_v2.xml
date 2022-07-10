@@ -33,6 +33,7 @@
   <style name="Static" foreground="#55ff55" italic="true"/>
   <style name="VirtualMethod" italic="true"/>
   <style name="Function"/>
+  <style name="Macro"/>
   <style name="Keyword" foreground="#78d7ec" italic="true"/>
   <style name="PrimitiveType" foreground="#ff8080"/>
   <style name="Punctuation"/>
@@ -43,7 +44,7 @@
   <style name="Comment" foreground="#75715e" italic="true"/>
   <style name="Doxygen.Comment" foreground="#75715e" bold="true" italic="true"/>
   <style name="Doxygen.Tag" foreground="#80ff80"/>
-  <style name="VisualWhitespace" foreground="#c0c0c0"/>
+  <style name="VisualWhitespace" foreground="#777777"/>
   <style name="QmlLocalId" italic="true"/>
   <style name="QmlExternalId" foreground="#aaaaff" italic="true"/>
   <style name="QmlTypeId" foreground="#55ff55"/>

@@ -35,6 +35,10 @@
 #include <nodeabstractproperty.h>
 #include <variantproperty.h>
 #include <signalhandlerproperty.h>
+#include <qmldesignerplugin.h>
+#include <viewmanager.h>
+
+#include <utils/qtcassert.h>
 
 #include <QTableView>
 
@@ -210,7 +214,7 @@ WidgetInfo ConnectionView::widgetInfo()
                             QLatin1String("ConnectionView"),
                             WidgetInfo::LeftPane,
                             0,
-                            tr("Connection View"));
+                            tr("Connections"));
 }
 
 bool ConnectionView::hasWidget() const
@@ -266,6 +270,25 @@ DynamicPropertiesModel *ConnectionView::dynamicPropertiesModel() const
 BackendModel *ConnectionView::backendModel() const
 {
     return m_backendModel;
+}
+
+ConnectionView *ConnectionView::instance()
+{
+
+    static ConnectionView *s_instance = nullptr;
+
+    if (s_instance)
+        return s_instance;
+
+    const auto views = QmlDesignerPlugin::instance()->viewManager().views();
+    for (auto *view : views) {
+        ConnectionView *myView = qobject_cast<ConnectionView*>(view);
+        if (myView)
+            s_instance =  myView;
+    }
+
+    QTC_ASSERT(s_instance, return nullptr);
+    return s_instance;
 }
 
 } // namesapce Internal

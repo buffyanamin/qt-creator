@@ -46,6 +46,7 @@ namespace QmlDesigner {
 class AbstractProperty;
 class RewriterView;
 class NodeInstanceView;
+class NodeMetaInfoPrivate;
 
 namespace Internal {
 
@@ -85,7 +86,7 @@ class ModelPrivate : public QObject {
 
     friend Model;
     friend Internal::WriteLocker;
-    friend Internal::NodeMetaInfoPrivate;
+    friend NodeMetaInfoPrivate;
 
 public:
      ModelPrivate(Model *model);
@@ -182,6 +183,7 @@ public:
     void notifyUpdateActiveScene3D(const QVariantMap &sceneState);
     void notifyModelNodePreviewPixmapChanged(const ModelNode &node, const QPixmap &pixmap);
     void notifyImport3DSupportChanged(const QVariantMap &supportMap);
+    void notifyModelAtPosResult(const ModelNode &modelNode);
 
     void notifyDragStarted(QMimeData *mimeData);
     void notifyDragEnded();

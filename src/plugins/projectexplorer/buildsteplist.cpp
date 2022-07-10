@@ -25,14 +25,15 @@
 
 #include "buildsteplist.h"
 
-#include "buildconfiguration.h"
 #include "buildmanager.h"
 #include "buildstep.h"
-#include "deployconfiguration.h"
-#include "projectexplorer.h"
+#include "projectexplorerconstants.h"
 #include "target.h"
 
 #include <utils/algorithm.h>
+#include <utils/qtcassert.h>
+
+#include <QDebug>
 
 namespace ProjectExplorer {
 

@@ -26,10 +26,14 @@
 #include "pythonsettings.h"
 
 #include "pythonconstants.h"
+#include "pythonplugin.h"
 
 #include <coreplugin/dialogs/ioptionspage.h>
 #include <coreplugin/icore.h>
+#include <extensionsystem/pluginmanager.h>
+#include <languageclient/languageclient_global.h>
 #include <languageclient/languageclientsettings.h>
+#include <languageclient/languageclientmanager.h>
 #include <texteditor/textdocument.h>
 #include <texteditor/texteditor.h>
 #include <utils/algorithm.h>
@@ -214,7 +218,7 @@ InterpreterOptionsWidget::InterpreterOptionsWidget(const QList<Interpreter> &int
     m_cleanButton = new QPushButton(PythonSettings::tr("&Clean Up"));
     connect(m_cleanButton, &QPushButton::pressed, this, &InterpreterOptionsWidget::cleanUp);
     m_cleanButton->setToolTip(
-        PythonSettings::tr("Remove all python interpreters without a valid executable."));
+        PythonSettings::tr("Remove all Python interpreters without a valid executable."));
 
     updateCleanButton();
 
@@ -396,8 +400,8 @@ public:
     PyLSConfigureWidget()
         : m_editor(LanguageClient::jsonEditor())
         , m_advancedLabel(new QLabel)
-        , m_pluginsGroup(new QGroupBox(tr("Plugins:")))
-        , m_mainGroup(new QGroupBox(tr("Use Python Language Server")))
+        , m_pluginsGroup(new QGroupBox(PythonSettings::tr("Plugins:")))
+        , m_mainGroup(new QGroupBox(PythonSettings::tr("Use Python Language Server")))
 
     {
         m_mainGroup->setCheckable(true);
@@ -418,8 +422,8 @@ public:
 
         mainGroupLayout->addWidget(m_pluginsGroup);
 
-        const QString labelText = tr(
-            "For a complete list of avilable options, consult the <a "
+        const QString labelText = PythonSettings::tr(
+            "For a complete list of available options, consult the <a "
             "href=\"https://github.com/python-lsp/python-lsp-server/blob/develop/"
             "CONFIGURATION.md\">Python LSP Server configuration documentation</a>.");
 
@@ -432,7 +436,7 @@ public:
 
         mainGroupLayout->addStretch();
 
-        auto advanced = new QCheckBox(tr("Advanced"));
+        auto advanced = new QCheckBox(PythonSettings::tr("Advanced"));
         advanced->setChecked(false);
 
         connect(advanced,
@@ -643,6 +647,33 @@ static QString defaultPylsConfiguration()
     return QString::fromUtf8(QJsonDocument(configuration).toJson());
 }
 
+static void disableOutdatedPylsNow()
+{
+    using namespace LanguageClient;
+    const QList<BaseSettings *>
+            settings = LanguageClientSettings::pageSettings();
+    for (const BaseSettings *setting : settings) {
+        if (setting->m_settingsTypeId != LanguageClient::Constants::LANGUAGECLIENT_STDIO_SETTINGS_ID)
+            continue;
+        auto stdioSetting = static_cast<const StdIOSettings *>(setting);
+        if (stdioSetting->arguments().startsWith("-m pyls")
+                && stdioSetting->m_languageFilter.isSupported("foo.py", Constants::C_PY_MIMETYPE)) {
+            LanguageClientManager::enableClientSettings(stdioSetting->m_id, false);
+        }
+    }
+}
+
+static void disableOutdatedPyls()
+{
+    using namespace ExtensionSystem;
+    if (PluginManager::isInitializationDone()) {
+        disableOutdatedPylsNow();
+    } else {
+        QObject::connect(PluginManager::instance(), &PluginManager::initializationDone,
+                         PythonPlugin::instance(), &disableOutdatedPylsNow);
+    }
+}
+
 static SavedSettings fromSettings(QSettings *settings)
 {
     SavedSettings result;
@@ -674,7 +705,9 @@ static SavedSettings fromSettings(QSettings *settings)
     result.defaultId = settings->value(defaultKey).toString();
 
     QVariant pylsEnabled = settings->value(pylsEnabledKey);
-    if (!pylsEnabled.isNull())
+    if (pylsEnabled.isNull())
+        disableOutdatedPyls();
+    else
         result.pylsEnabled = pylsEnabled.toBool();
     const QVariant pylsConfiguration = settings->value(pylsConfigurationKey);
     if (!pylsConfiguration.isNull())

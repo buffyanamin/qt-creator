@@ -32,15 +32,10 @@
 namespace ProjectExplorer { class Kit; }
 namespace Utils { class FilePath; }
 
-namespace Debugger {
-namespace Internal {
-
-class AttachCoreDialogPrivate;
+namespace Debugger::Internal {
 
 class AttachCoreDialog : public QDialog
 {
-    Q_OBJECT
-
 public:
     explicit AttachCoreDialog(QWidget *parent);
     ~AttachCoreDialog() override;
@@ -68,12 +63,10 @@ public:
 
 private:
     void changed();
-    void coreFileChanged(const QString &core);
+    void coreFileChanged(const Utils::FilePath &core);
     void selectRemoteCoreFile();
 
-    AttachCoreDialogPrivate *d;
+    class AttachCoreDialogPrivate *d;
 };
 
-
-} // namespace Debugger
-} // namespace Internal
+} // Debugger::Internal

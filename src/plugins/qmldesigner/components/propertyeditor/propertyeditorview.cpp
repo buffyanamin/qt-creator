@@ -26,8 +26,8 @@
 #include "propertyeditorview.h"
 
 #include "propertyeditorqmlbackend.h"
-#include "propertyeditorvalue.h"
 #include "propertyeditortransaction.h"
+#include "propertyeditorvalue.h"
 
 #include <qmldesignerconstants.h>
 #include <qmltimeline.h>
@@ -70,16 +70,16 @@ static bool propertyIsAttachedLayoutProperty(const PropertyName &propertyName)
     return propertyName.contains("Layout.");
 }
 
-PropertyEditorView::PropertyEditorView(QWidget *parent) :
-        AbstractView(parent),
-        m_parent(parent),
-        m_updateShortcut(nullptr),
-        m_timerId(0),
-        m_stackedWidget(new PropertyEditorWidget(parent)),
-        m_qmlBackEndForCurrentType(nullptr),
-        m_locked(false),
-        m_setupCompleted(false),
-        m_singleShotTimer(new QTimer(this))
+PropertyEditorView::PropertyEditorView(AsynchronousImageCache &imageCache)
+    : AbstractView()
+    , m_imageCache(imageCache)
+    , m_updateShortcut(nullptr)
+    , m_timerId(0)
+    , m_stackedWidget(new PropertyEditorWidget())
+    , m_qmlBackEndForCurrentType(nullptr)
+    , m_locked(false)
+    , m_setupCompleted(false)
+    , m_singleShotTimer(new QTimer(this))
 {
     m_qmlDir = PropertyEditorQmlBackend::propertyEditorResourcesPath();
 
@@ -118,7 +118,7 @@ void PropertyEditorView::setupPane(const TypeName &typeName)
     PropertyEditorQmlBackend *qmlBackend = m_qmlBackendHash.value(qmlFile.toString());
 
     if (!qmlBackend) {
-        qmlBackend = new PropertyEditorQmlBackend(this);
+        qmlBackend = new PropertyEditorQmlBackend(this, m_imageCache);
 
         qmlBackend->initialSetup(typeName, qmlSpecificsFile, this);
         qmlBackend->setSource(qmlFile);
@@ -185,7 +185,7 @@ void PropertyEditorView::changeValue(const QString &name)
     QVariant castedValue;
 
     if (metaInfo.isValid() && metaInfo.hasProperty(propertyName)) {
-        castedValue = metaInfo.propertyCastedValue(propertyName, value->value());
+        castedValue = metaInfo.property(propertyName).castedValue(value->value());
     } else if (propertyIsAttachedLayoutProperty(propertyName)) {
         castedValue = value->value();
     } else {
@@ -200,17 +200,15 @@ void PropertyEditorView::changeValue(const QString &name)
 
     bool propertyTypeUrl = false;
 
-    if (metaInfo.isValid() && metaInfo.hasProperty(propertyName)) {
-        if (metaInfo.propertyTypeName(propertyName) == "QUrl"
-                || metaInfo.propertyTypeName(propertyName) == "url") {
-            // turn absolute local file paths into relative paths
-            propertyTypeUrl = true;
-            QString filePath = castedValue.toUrl().toString();
-            QFileInfo fi(filePath);
-            if (fi.exists() && fi.isAbsolute()) {
-                QDir fileDir(QFileInfo(model()->fileUrl().toLocalFile()).absolutePath());
-                castedValue = QUrl(fileDir.relativeFilePath(filePath));
-            }
+    if (metaInfo.isValid() && metaInfo.hasProperty(propertyName)
+        && metaInfo.property(propertyName).propertyTypeNameIsUrl()) {
+        // turn absolute local file paths into relative paths
+        propertyTypeUrl = true;
+        QString filePath = castedValue.toUrl().toString();
+        QFileInfo fi(filePath);
+        if (fi.exists() && fi.isAbsolute()) {
+            QDir fileDir(QFileInfo(model()->fileUrl().toLocalFile()).absolutePath());
+            castedValue = QUrl(fileDir.relativeFilePath(filePath));
         }
     }
 
@@ -272,13 +270,15 @@ void PropertyEditorView::changeExpression(const QString &propertyName)
             return;
         }
 
-        if (qmlObjectNode->modelNode().metaInfo().isValid() && qmlObjectNode->modelNode().metaInfo().hasProperty(name)) {
-            if (qmlObjectNode->modelNode().metaInfo().propertyTypeName(name) == "QColor") {
+        if (auto metaInfo = qmlObjectNode->modelNode().metaInfo();
+            metaInfo.isValid() && metaInfo.hasProperty(name)) {
+            const auto &propertTypeName = metaInfo.property(name).propertyTypeName();
+            if (propertTypeName == "QColor") {
                 if (QColor(value->expression().remove('"')).isValid()) {
                     qmlObjectNode->setVariantProperty(name, QColor(value->expression().remove('"')));
                     return;
                 }
-            } else if (qmlObjectNode->modelNode().metaInfo().propertyTypeName(name) == "bool") {
+            } else if (propertTypeName == "bool") {
                 if (isTrueFalseLiteral(value->expression())) {
                     if (value->expression().compare("true", Qt::CaseInsensitive) == 0)
                         qmlObjectNode->setVariantProperty(name, true);
@@ -286,21 +286,21 @@ void PropertyEditorView::changeExpression(const QString &propertyName)
                         qmlObjectNode->setVariantProperty(name, false);
                     return;
                 }
-            } else if (qmlObjectNode->modelNode().metaInfo().propertyTypeName(name) == "int") {
+            } else if (propertTypeName == "int") {
                 bool ok;
                 int intValue = value->expression().toInt(&ok);
                 if (ok) {
                     qmlObjectNode->setVariantProperty(name, intValue);
                     return;
                 }
-            } else if (qmlObjectNode->modelNode().metaInfo().propertyTypeName(name) == "qreal") {
+            } else if (propertTypeName == "qreal") {
                 bool ok;
                 qreal realValue = value->expression().toDouble(&ok);
                 if (ok) {
                     qmlObjectNode->setVariantProperty(name, realValue);
                     return;
                 }
-            } else if (qmlObjectNode->modelNode().metaInfo().propertyTypeName(name) == "QVariant") {
+            } else if (propertTypeName == "QVariant") {
                 bool ok;
                 qreal realValue = value->expression().toDouble(&ok);
                 if (ok) {
@@ -486,7 +486,7 @@ void PropertyEditorView::setupQmlBackend()
     QString currentStateName = currentState().isBaseState() ? currentState().name() : QStringLiteral("invalid state");
 
     if (!currentQmlBackend) {
-        currentQmlBackend = new PropertyEditorQmlBackend(this);
+        currentQmlBackend = new PropertyEditorQmlBackend(this, m_imageCache);
 
         m_stackedWidget->addWidget(currentQmlBackend->widget());
         m_qmlBackendHash.insert(qmlFile.toString(), currentQmlBackend);
@@ -852,7 +852,26 @@ void PropertyEditorView::nodeReparented(const ModelNode &node,
         m_qmlBackEndForCurrentType->backendAnchorBinding().setup(QmlItemNode(m_selectedNode));
 }
 
-void PropertyEditorView::setValue(const QmlObjectNode &qmlObjectNode, const PropertyName &name, const QVariant &value)
+void PropertyEditorView::dragStarted(QMimeData *mimeData)
+{
+    if (!mimeData->hasFormat(Constants::MIME_TYPE_ASSETS))
+        return;
+
+    const QString assetPath = QString::fromUtf8(mimeData->data(Constants::MIME_TYPE_ASSETS))
+                                  .split(',')[0];
+    const QString suffix = "*." + assetPath.split('.').last().toLower();
+
+    m_qmlBackEndForCurrentType->contextObject()->setActiveDragSuffix(suffix);
+}
+
+void PropertyEditorView::dragEnded()
+{
+    m_qmlBackEndForCurrentType->contextObject()->setActiveDragSuffix("");
+}
+
+void PropertyEditorView::setValue(const QmlObjectNode &qmlObjectNode,
+                                  const PropertyName &name,
+                                  const QVariant &value)
 {
     m_locked = true;
     m_qmlBackEndForCurrentType->setValue(qmlObjectNode, name, value);
@@ -871,6 +890,4 @@ void PropertyEditorView::reloadQml()
     resetView();
 }
 
-
-} //QmlDesigner
-
+} // namespace QmlDesigner

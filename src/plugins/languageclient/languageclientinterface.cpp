@@ -93,15 +93,11 @@ void BaseClientInterface::parseCurrentMessage()
     if (m_currentMessage.mimeType == JsonRpcMessage::jsonRpcMimeType()) {
         emit messageReceived(JsonRpcMessage(m_currentMessage));
     } else {
-        emit error(tr("Cannot handle mimetype of message %1")
+        emit error(tr("Cannot handle MIME type of message %1")
                        .arg(QString::fromUtf8(m_currentMessage.mimeType)));
     }
     m_currentMessage = BaseMessage();
 }
-
-StdIOClientInterface::StdIOClientInterface()
-    : m_env(Utils::Environment::systemEnvironment())
-{}
 
 StdIOClientInterface::~StdIOClientInterface()
 {
@@ -128,7 +124,8 @@ void StdIOClientInterface::startImpl()
     });
     m_process->setCommand(m_cmd);
     m_process->setWorkingDirectory(m_workingDirectory);
-    m_process->setEnvironment(m_env);
+    if (m_env.isValid())
+        m_process->setEnvironment(m_env);
     m_process->start();
 }
 

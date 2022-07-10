@@ -38,7 +38,7 @@ Project {
                 "breakpoint.cpp", "breakpoint.h",
                 "commonoptionspage.cpp", "commonoptionspage.h",
                 "debugger.qrc",
-                "debugger_global.h",
+                "debugger_global.h", "debuggertr.h",
                 "debuggeractions.cpp", "debuggeractions.h",
                 "debuggerconstants.h",
                 "debuggericons.h", "debuggericons.cpp",
@@ -168,7 +168,7 @@ Project {
                 "cdbsymbolpathlisteditor.h",
                 "hostutils.cpp", "hostutils.h",
                 "peutils.cpp", "peutils.h",
-                "symbolpathsdialog.ui", "symbolpathsdialog.cpp", "symbolpathsdialog.h"
+                "symbolpathsdialog.cpp", "symbolpathsdialog.h"
             ]
         }
 

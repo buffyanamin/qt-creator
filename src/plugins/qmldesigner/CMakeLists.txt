@@ -3,28 +3,11 @@ if (APPLE)
   set(QmlDesignerPluginInstallPrefix "${IDE_PLUGIN_PATH}/QmlDesigner")
 endif()
 
-get_filename_component(
-    QMLDOM_STANDALONE_CMAKELISTS
-    "${CMAKE_CURRENT_SOURCE_DIR}/../../../../qmldom_standalone/src/qmldom/standalone/"
-    ABSOLUTE
-)
-
-if(EXISTS ${QMLDOM_STANDALONE_CMAKELISTS} AND Qt6_FOUND AND NOT TARGET qmldomlib)
-  add_subdirectory(
-    ../../../../qmldom_standalone/src/qmldom/standalone
-    ${CMAKE_BINARY_DIR}/qmldom_standalone)
-
-  set_target_properties(qmldomlib PROPERTIES
-    RUNTIME_OUTPUT_DIRECTORY "$<TARGET_PROPERTY:QmlJS,RUNTIME_OUTPUT_DIRECTORY>"
-    LIBRARY_OUTPUT_DIRECTORY "$<TARGET_PROPERTY:QmlJS,LIBRARY_OUTPUT_DIRECTORY>")
-endif()
-
 add_qtc_plugin(QmlDesigner
-  CONDITION Qt5_VERSION VERSION_GREATER_EQUAL 6.2.0 AND TARGET Qt5::QuickWidgets AND TARGET Qt5::Svg AND TARGET qmldomlib
+  CONDITION Qt5_VERSION VERSION_GREATER_EQUAL 6.2.0 AND TARGET Qt5::QuickWidgets AND TARGET Qt5::Svg
   DEPENDS
     QmlJS LanguageUtils QmlEditorWidgets AdvancedDockingSystem
     Qt5::QuickWidgets Qt5::CorePrivate Sqlite Qt5::Xml Qt5::Svg
-    qmldomlib
   DEFINES
     IDE_LIBRARY_BASENAME=\"${IDE_LIBRARY_BASE_PATH}\"
     SHARE_QML_PATH="${CMAKE_CURRENT_SOURCE_DIR}/../../../share/qtcreator/qmldesigner"
@@ -83,8 +66,14 @@ if(EXISTS ${QMLDOM_STANDALONE_CMAKELISTS} AND Qt6_FOUND AND NOT TARGET qmldomlib
     LIBRARY_OUTPUT_DIRECTORY "$<TARGET_PROPERTY:QmlJS,LIBRARY_OUTPUT_DIRECTORY>")
 endif()
 
+
+env_with_default("QDS_WITH_QMLDOM" ENV_QDS_WITH_QMLDOM OFF)
+option(WITH_QMLDOM "Build with QmlDom" ${ENV_QDS_WITH_QMLDOM})
+add_feature_info("Build with QmlDom" ${WITH_QMLDOM} "")
+
+
 extend_qtc_target(QmlDesigner
-    CONDITION TARGET qmldomlib
+    CONDITION TARGET qmldomlib AND WITH_QMLDOM
     DEFINES QDS_HAS_QMLDOM
     DEPENDS qmldomlib
 )
@@ -200,6 +189,7 @@ extend_qtc_plugin(QmlDesigner
   SOURCES_PREFIX components/edit3d
   SOURCES
   edit3dview.cpp edit3dview.h
+  edit3dviewconfig.h
   edit3dwidget.cpp edit3dwidget.h
   edit3dcanvas.cpp edit3dcanvas.h
   edit3dactions.cpp edit3dactions.h
@@ -344,6 +334,7 @@ extend_qtc_plugin(QmlDesigner
     gradientpresetitem.cpp gradientpresetitem.h
     gradientpresetlistmodel.cpp gradientpresetlistmodel.h
     propertyeditorcontextobject.cpp propertyeditorcontextobject.h
+    propertyeditorimageprovider.cpp propertyeditorimageprovider.h
     propertyeditorqmlbackend.cpp propertyeditorqmlbackend.h
     propertyeditortransaction.cpp propertyeditortransaction.h
     propertyeditorvalue.cpp propertyeditorvalue.h
@@ -464,7 +455,8 @@ extend_qtc_plugin(QmlDesigner
   SOURCES
     explicitimagecacheimageprovider.cpp
     explicitimagecacheimageprovider.h
-
+    smallimagecacheprovider.cpp
+    smallimagecacheprovider.h
 )
 
 extend_qtc_plugin(QmlDesigner

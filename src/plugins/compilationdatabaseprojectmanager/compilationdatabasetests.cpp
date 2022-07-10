@@ -30,11 +30,14 @@
 #include <coreplugin/icore.h>
 #include <cppeditor/cpptoolstestcase.h>
 #include <cppeditor/projectinfo.h>
+
 #include <projectexplorer/kitinformation.h>
 #include <projectexplorer/kitmanager.h>
 #include <projectexplorer/projectexplorer.h>
+#include <projectexplorer/projectexplorerconstants.h>
 #include <projectexplorer/toolchain.h>
 #include <projectexplorer/toolchainmanager.h>
+
 #include <utils/algorithm.h>
 #include <utils/hostosinfo.h>
 
@@ -42,6 +45,7 @@
 
 using namespace CppEditor;
 using namespace ProjectExplorer;
+using namespace Utils;
 
 namespace CompilationDatabaseProjectManager {
 namespace Internal {
@@ -121,7 +125,7 @@ public:
     QStringList flags;
     QString fileName;
     QString workingDir;
-    QString sysRoot;
+    FilePath sysRoot;
 };
 }
 
@@ -180,8 +184,8 @@ void CompilationDatabaseTests::testFilterArguments()
                                       {"RELATIVE_PLUGIN_PATH", "\"../lib/qtcreator/plugins\""},
                                       {"QT_CREATOR", "1"}}));
     QCOMPARE(testData.fileKind, CppEditor::ProjectFile::Kind::CXXSource);
-    QCOMPARE(testData.sysRoot, HostOsInfo::isWindowsHost() ? QString("C:\\sysroot\\embedded")
-                                                           : QString("/opt/sysroot/embedded"));
+    QCOMPARE(testData.sysRoot.toString(), HostOsInfo::isWindowsHost() ? QString("C:\\sysroot\\embedded")
+                                                                      : QString("/opt/sysroot/embedded"));
 }
 
 static QString kCmakeCommand

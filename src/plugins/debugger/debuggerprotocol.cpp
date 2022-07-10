@@ -24,6 +24,7 @@
 ****************************************************************************/
 
 #include "debuggerprotocol.h"
+#include "debuggertr.h"
 
 #include <QCoreApplication>
 #include <QDateTime>
@@ -43,8 +44,7 @@
 #define QTC_ASSERT(cond, action) if (cond) {} else { QTC_ASSERT_STRING(#cond); action; } do {} while (0)
 #define QTC_CHECK(cond) if (cond) {} else { QTC_ASSERT_STRING(#cond); } do {} while (0)
 
-namespace Debugger {
-namespace Internal {
+namespace Debugger::Internal {
 
 static uchar fromhex(uchar c)
 {
@@ -640,31 +640,31 @@ QString decodeData(const QString &ba, const QString &encoding)
         return quoteUnprintableLatin1(ba); // The common case.
 
     if (encoding == "empty")
-        return QCoreApplication::translate("Debugger::Internal::WatchHandler", "<empty>");
+        return Tr::tr("<empty>");
     if (encoding == "minimumitemcount")
-        return QCoreApplication::translate("Debugger::Internal::WatchHandler", "<at least %n items>", nullptr, ba.toInt());
+        return Tr::tr("<at least %n items>", nullptr, ba.toInt());
     if (encoding == "undefined")
         return QLatin1String("Undefined");
     if (encoding == "null")
         return QLatin1String("Null");
     if (encoding == "itemcount")
-        return QCoreApplication::translate("Debugger::Internal::WatchHandler", "<%n items>", nullptr, ba.toInt());
+        return Tr::tr("<%n items>", nullptr, ba.toInt());
     if (encoding == "notaccessible")
-        return QCoreApplication::translate("Debugger::Internal::WatchHandler", "<not accessible>");
+        return Tr::tr("<not accessible>");
     if (encoding == "optimizedout")
-        return QCoreApplication::translate("Debugger::Internal::WatchHandler", "<optimized out>");
+        return Tr::tr("<optimized out>");
     if (encoding == "nullreference")
-        return QCoreApplication::translate("Debugger::Internal::WatchHandler", "<null reference>");
+        return Tr::tr("<null reference>");
     if (encoding == "emptystructure")
         return QLatin1String("{...}");
     if (encoding == "uninitialized")
-        return QCoreApplication::translate("Debugger::Internal::WatchHandler", "<uninitialized>");
+        return Tr::tr("<uninitialized>");
     if (encoding == "invalid")
-        return QCoreApplication::translate("Debugger::Internal::WatchHandler", "<invalid>");
+        return Tr::tr("<invalid>");
     if (encoding == "notcallable")
-        return QCoreApplication::translate("Debugger::Internal::WatchHandler", "<not callable>");
+        return Tr::tr("<not callable>");
     if (encoding == "outofscope")
-        return QCoreApplication::translate("Debugger::Internal::WatchHandler", "<out of scope>");
+        return Tr::tr("<out of scope>");
 
     DebuggerEncoding enc(encoding);
     QString result;
@@ -781,7 +781,7 @@ QString decodeData(const QString &ba, const QString &encoding)
             return dateTime.toString();
         }
         qDebug() << "ENCODING ERROR: " << enc.type;
-        return QCoreApplication::translate("Debugger", "<Encoding error>");
+        return Tr::tr("<Encoding error>");
     }
 
     if (enc.quotes) {
@@ -982,5 +982,4 @@ QString toHex(const QString &str)
     return QString::fromUtf8(str.toUtf8().toHex());
 }
 
-} // namespace Internal
-} // namespace Debugger
+} // Debugger::Internal

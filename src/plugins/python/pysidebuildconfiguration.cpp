@@ -87,6 +87,9 @@ PySideBuildStep::PySideBuildStep(BuildStepList *bsl, Id id)
 
     setCommandLineProvider([this] { return CommandLine(m_pysideProject->filePath(), {"build"}); });
     setWorkingDirectoryProvider([this] { return target()->project()->projectDirectory(); });
+    setEnvironmentModifier([this](Environment &env) {
+        env.prependOrSetPath(m_pysideProject->filePath().parentDir());
+    });
 }
 
 void PySideBuildStep::updatePySideProjectPath(const Utils::FilePath &pySideProjectPath)
@@ -105,7 +108,7 @@ void PySideBuildStep::doRun()
 PySideBuildConfiguration::PySideBuildConfiguration(Target *target, Id id)
     : BuildConfiguration(target, id)
 {
-    setConfigWidgetDisplayName(tr("General"));
+    setConfigWidgetDisplayName(PySideBuildConfigurationFactory::tr("General"));
 
     setInitializer([this](const BuildInfo &) {
         buildSteps()->appendStep(pySideBuildStep);

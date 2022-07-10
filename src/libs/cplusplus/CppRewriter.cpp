@@ -285,7 +285,7 @@ public:
             }
 
             const FullySpecifiedType ty = rewrite->env->apply(name->identifier(), rewrite);
-            const Name * const minName = ty->isNamedType() ? ty->asNamedType()->name() : name;
+            const Name * const minName = ty->asNamedType() ? ty->asNamedType()->name() : name;
             const TemplateNameId * const newTemplateNameId = control()->templateNameId(
                         identifier(minName->identifier()), name->isSpecialization(), args.data(),
                         args.size());
@@ -458,8 +458,8 @@ FullySpecifiedType UseMinimalNames::apply(const Name *name, Rewrite *rewrite) co
     SubstitutionEnvironment *env = rewrite->env;
     Scope *scope = env->scope();
 
-    if (name->isTemplateNameId() ||
-            (name->isQualifiedNameId() && name->asQualifiedNameId()->name()->isTemplateNameId()))
+    if (name->asTemplateNameId() ||
+            (name->asQualifiedNameId() && name->asQualifiedNameId()->name()->asTemplateNameId()))
         return FullySpecifiedType();
 
     if (! scope)

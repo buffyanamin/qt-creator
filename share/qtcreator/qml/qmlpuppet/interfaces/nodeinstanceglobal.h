@@ -28,10 +28,13 @@
 #include <QByteArray>
 #include <QList>
 
+#include <vector>
+
 namespace QmlDesigner {
 
 using PropertyName = QByteArray;
 using PropertyNameList = QList<PropertyName>;
+using PropertyNames = std::vector<PropertyName>;
 using TypeName = QByteArray;
 
 }

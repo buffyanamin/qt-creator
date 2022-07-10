@@ -28,6 +28,7 @@
 #include "clangdiagnosticconfigsmodel.h"
 #include "cppautocompleter.h"
 #include "cppcodemodelsettings.h"
+#include "cppcompletionassist.h"
 #include "cppeditorconstants.h"
 #include "cppeditorplugin.h"
 #include "cpphighlighter.h"
@@ -178,7 +179,7 @@ bool isOwnershipRAIIType(Symbol *symbol, const LookupContext &context)
 
     // This is not a "real" comparison of types. What we do is to resolve the symbol
     // in question and then try to match its name with already known ones.
-    if (symbol->isDeclaration()) {
+    if (symbol->asDeclaration()) {
         Declaration *declaration = symbol->asDeclaration();
         const NamedType *namedType = declaration->type()->asNamedType();
         if (namedType) {
@@ -334,6 +335,11 @@ bool isInCommentOrString(const TextEditor::AssistInterface *interface,
 TextEditor::QuickFixOperations quickFixOperations(const TextEditor::AssistInterface *interface)
 {
     return Internal::quickFixOperations(interface);
+}
+
+CppCompletionAssistProcessor *getCppCompletionAssistProcessor()
+{
+    return new Internal::InternalCppCompletionAssistProcessor();
 }
 
 CppCodeModelSettings *codeModelSettings()

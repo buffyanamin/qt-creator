@@ -377,16 +377,17 @@ void CMakeBuildSystem::setParametersAndRequestParse(const BuildDirParameters &pa
         return; // ignore request, this build configuration is not active!
     }
 
-    if (!parameters.cmakeTool()) {
+    const CMakeTool *tool = parameters.cmakeTool();
+    if (!tool || !tool->isValid()) {
         TaskHub::addTask(
             BuildSystemTask(Task::Error,
                             tr("The kit needs to define a CMake tool to parse this project.")));
         return;
     }
-    if (!parameters.cmakeTool()->hasFileApi()) {
-        TaskHub::addTask(BuildSystemTask(Task::Error,
-                                         CMakeKitAspect::msgUnsupportedVersion(
-                                             parameters.cmakeTool()->version().fullVersion)));
+    if (!tool->hasFileApi()) {
+        TaskHub::addTask(
+            BuildSystemTask(Task::Error,
+                            CMakeKitAspect::msgUnsupportedVersion(tool->version().fullVersion)));
         return;
     }
     QTC_ASSERT(parameters.isValid(), return );
@@ -930,11 +931,8 @@ void CMakeBuildSystem::runCTest()
         process.setWorkingDirectory(workingDirectory);
         process.setCommand(cmd);
         process.start();
-
-        if (!process.waitForStarted(1000) || !process.waitForFinished()
-                || process.exitCode() || process.exitStatus() != QProcess::NormalExit) {
+        if (!process.waitForFinished() || process.result() != ProcessResult::FinishedWithSuccess)
             return;
-        }
         futureInterface.reportResult(process.readAllStandardOutput());
     });
 
